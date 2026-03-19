@@ -287,6 +287,27 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 
 ::-webkit-scrollbar{width:3px;height:3px}
 ::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:2px}
+
+/* ── AI 결과 감지 카드 ── */
+.detect-card{background:var(--bg3);border:1px solid var(--accent2);border-radius:var(--r2);padding:12px 14px;margin-top:8px;animation:fup .25s ease}
+.detect-card-title{font-size:10px;color:var(--accent);font-family:var(--fm);margin-bottom:8px;letter-spacing:.06em;display:flex;align-items:center;justify-content:space-between}
+.detect-items{display:flex;flex-direction:column;gap:5px;margin-bottom:10px}
+.detect-item{display:flex;align-items:flex-start;gap:8px;padding:7px 9px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);cursor:pointer;transition:all .15s}
+.detect-item:hover{border-color:var(--border2)}
+.detect-item.selected{border-color:var(--accent);background:rgba(200,169,110,.07)}
+.detect-item-check{width:16px;height:16px;border-radius:3px;border:1px solid var(--border2);background:transparent;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10px;margin-top:1px;transition:all .15s}
+.detect-item.selected .detect-item-check{background:var(--accent);border-color:var(--accent);color:#0e0e10}
+.detect-item-body{flex:1;min-width:0}
+.detect-item-type{font-size:9px;color:var(--accent);font-family:var(--fm);margin-bottom:2px}
+.detect-item-preview{font-size:11px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:360px}
+.detect-actions{display:flex;gap:6px;align-items:center}
+.detect-add-btn{background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);font-size:11px;font-weight:700;padding:6px 14px;cursor:pointer;transition:all .15s}
+.detect-add-btn:hover{background:#d4b97e}
+.detect-add-btn:disabled{background:var(--bg4);color:var(--text3);cursor:not-allowed}
+.detect-sel-all{background:transparent;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);font-size:10px;padding:5px 10px;cursor:pointer;transition:all .15s;font-family:var(--fm)}
+.detect-sel-all:hover{border-color:var(--accent2);color:var(--accent)}
+.detect-dismiss{background:transparent;border:none;color:var(--text3);font-size:10px;cursor:pointer;padding:5px;font-family:var(--fm)}
+.detect-dismiss:hover{color:var(--text2)}
 </style>
 </head>
 <body>
@@ -620,8 +641,26 @@ async function callClaude(messages, sys, onStream) {
 function getSys() {
   const p = S.cur, l = S.lang;
   return l === 'ko'
-    ? `당신은 전문 대본 작가이자 드라마터지입니다. 현재 프로젝트: "${p?.title || '미제목'}" (매체: ${p?.medium || ''}). 한국어로 응답하세요.`
-    : `You are a professional screenwriter. Project: "${p?.title || 'Untitled'}" (${p?.medium || ''}). Respond in English.`;
+    ? `당신은 전문 대본 작가이자 드라마터지입니다. 현재 프로젝트: "${p?.title || '미제목'}" (매체: ${p?.medium || ''}).
+씬을 작성할 때는 반드시 아래 JSON 형식으로 감싸주세요 (앱이 자동으로 인식합니다):
+\`\`\`json
+{"title":"씬 제목","slug":"INT. 장소 - 시간","lines":[{"type":"action","text":"..."},{"type":"character","text":"이름"},{"type":"dialogue","text":"대사"},{"type":"parenthetical","text":"지문"}]}
+\`\`\`
+기획서/시놉시스/인물을 작성할 때도 JSON으로:
+\`\`\`json
+{"intent":"...","theme":"...","impact":"...","synopsis":"...","genreTags":["..."],"characters":[{"name":"...","role":"...","description":"...","traits":["..."]}]}
+\`\`\`
+JSON 외에 설명이나 대화는 자유롭게 써도 됩니다. 한국어로 응답하세요.`
+    : `You are a professional screenwriter. Project: "${p?.title || 'Untitled'}" (${p?.medium || ''}).
+When writing scenes, always wrap in JSON format (the app will auto-detect):
+\`\`\`json
+{"title":"Scene Title","slug":"INT. LOCATION - DAY","lines":[{"type":"action","text":"..."},{"type":"character","text":"NAME"},{"type":"dialogue","text":"..."}]}
+\`\`\`
+For planning/synopsis/characters:
+\`\`\`json
+{"intent":"...","theme":"...","impact":"...","synopsis":"...","genreTags":["..."],"characters":[{"name":"...","role":"...","description":"...","traits":["..."]}]}
+\`\`\`
+Feel free to add explanations outside the JSON. Respond in English.`;
 }
 
 // ════════════════════════════════════════════
@@ -728,10 +767,202 @@ async function aiReply(msgs) {
     typing.remove();
     addMsg('assistant', reply);
     autoTagGenre(reply);
+    // 결과물 감지 및 카드 생성
+    const detected = detectScriptContent(reply);
+    if (detected.length > 0) {
+      appendDetectCard(detected);
+    }
   } catch(e) {
     typing.remove();
     if (e.message !== 'no key') addMsg('assistant', S.lang === 'ko' ? '오류가 발생했습니다. API 키를 확인해주세요.' : 'Error. Check your API key.');
   }
+}
+
+// ── 응답에서 대본 결과물 감지 ──
+function detectScriptContent(text) {
+  const items = [];
+
+  // 씬 감지 — JSON 블록
+  const jsonMatches = [...text.matchAll(/```json\s*([\s\S]+?)```/g)];
+  for (const m of jsonMatches) {
+    try {
+      const data = JSON.parse(m[1].trim());
+      if (data.lines && data.title) {
+        items.push({ type: 'scene', label: S.lang === 'ko' ? '씬' : 'Scene', data, preview: `"${data.title}" — ${data.slug || ''}` });
+      } else if (Array.isArray(data) && data[0]?.type && data[0]?.text) {
+        items.push({ type: 'scene', label: S.lang === 'ko' ? '씬' : 'Scene', data: { title: S.lang === 'ko' ? '새 씬' : 'New Scene', slug: '', lines: data }, preview: S.lang === 'ko' ? `${data.length}줄 대본` : `${data.length} lines` });
+      } else if (Array.isArray(data) && data[0]?.name && data[0]?.role) {
+        items.push({ type: 'chars', label: S.lang === 'ko' ? '등장인물' : 'Characters', data, preview: data.map(c => c.name).join(', ') });
+      } else if (data.intent || data.synopsis) {
+        items.push({ type: 'project', label: S.lang === 'ko' ? '프로젝트 정보' : 'Project Info', data, preview: S.lang === 'ko' ? '기획서 · 시놉시스 · 인물' : 'Planning · Synopsis · Characters' });
+      }
+    } catch(e) {}
+  }
+
+  // 씬 텍스트 패턴 감지 (JSON 없이 대본 형식으로 쓴 경우)
+  if (items.length === 0) {
+    // 슬러그라인 패턴 (INT./EXT. 포함)
+    const slugPattern = /(?:INT\.|EXT\.)[^
+]+/g;
+    const slugMatches = text.match(slugPattern);
+    if (slugMatches && slugMatches.length > 0) {
+      // 텍스트 대본을 파싱해서 lines로 변환
+      const parsedScenes = parseTextScript(text);
+      for (const sc of parsedScenes) {
+        items.push({ type: 'scene', label: S.lang === 'ko' ? '씬' : 'Scene', data: sc, preview: `"${sc.title}" — ${sc.slug}` });
+      }
+    }
+  }
+
+  // 기획서 패턴 감지 (JSON 없이 텍스트로 쓴 경우)
+  if (items.length === 0) {
+    const hasPlanKeywords = ['기획 의도', '기획의도', 'intent', '주제', 'theme', '기대 효과', 'synopsis', '시놉시스'].some(k => text.toLowerCase().includes(k.toLowerCase()));
+    if (hasPlanKeywords && text.length > 200) {
+      items.push({ type: 'text_project', label: S.lang === 'ko' ? '기획서/시놉시스' : 'Planning/Synopsis', data: text, preview: text.slice(0, 60) + '...' });
+    }
+  }
+
+  // 인물 패턴 감지
+  if (items.length === 0) {
+    const hasCharKeywords = ['등장인물', '캐릭터', 'character', '주인공', '역할'].some(k => text.toLowerCase().includes(k.toLowerCase()));
+    const hasBulletChars = /[-•]\s*\*?\*?[가-힣a-zA-Z]{2,}/g.test(text);
+    if (hasCharKeywords && hasBulletChars && text.length > 100) {
+      items.push({ type: 'text_chars', label: S.lang === 'ko' ? '등장인물' : 'Characters', data: text, preview: text.slice(0, 60) + '...' });
+    }
+  }
+
+  return items;
+}
+
+// 텍스트 대본 파싱
+function parseTextScript(text) {
+  const scenes = [];
+  const lines = text.split('\n');
+  let currentScene = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    const slugMatch = trimmed.match(/^(INT\.|EXT\.)[^\n]+/i);
+    if (slugMatch) {
+      if (currentScene) scenes.push(currentScene);
+      currentScene = { title: S.lang === 'ko' ? '새 씬' : 'New Scene', slug: trimmed, lines: [] };
+      continue;
+    }
+
+    if (!currentScene) currentScene = { title: S.lang === 'ko' ? '새 씬' : 'New Scene', slug: '', lines: [] };
+
+    // 타입 추정
+    if (trimmed === trimmed.toUpperCase() && trimmed.length < 30 && /[가-힣a-zA-Z]/.test(trimmed)) {
+      currentScene.lines.push({ type: 'character', text: trimmed, locked: false });
+    } else if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
+      currentScene.lines.push({ type: 'parenthetical', text: trimmed.slice(1, -1), locked: false });
+    } else if (currentScene.lines.length > 0 && currentScene.lines[currentScene.lines.length - 1]?.type === 'character') {
+      currentScene.lines.push({ type: 'dialogue', text: trimmed, locked: false });
+    } else {
+      currentScene.lines.push({ type: 'action', text: trimmed, locked: false });
+    }
+  }
+  if (currentScene && currentScene.lines.length > 0) scenes.push(currentScene);
+  return scenes;
+}
+
+// ── 감지 카드 렌더 ──
+function appendDetectCard(items) {
+  const el = document.getElementById('msgs');
+  const card = document.createElement('div');
+  card.className = 'detect-card';
+
+  const selState = items.map(() => true); // 기본 전체 선택
+
+  function render() {
+    const allSelected = selState.every(Boolean);
+    const anySelected = selState.some(Boolean);
+    card.innerHTML = `
+      <div class="detect-card-title">
+        <span>✦ ${S.lang === 'ko' ? '대본에 추가할 내용이 감지됐습니다' : 'Script content detected'}</span>
+        <button class="detect-dismiss" onclick="this.closest('.detect-card').remove()">✕</button>
+      </div>
+      <div class="detect-items">
+        ${items.map((item, i) => `
+          <div class="detect-item ${selState[i] ? 'selected' : ''}" onclick="toggleDetect(this, ${i})">
+            <div class="detect-item-check">${selState[i] ? '✓' : ''}</div>
+            <div class="detect-item-body">
+              <div class="detect-item-type">${item.label}</div>
+              <div class="detect-item-preview">${item.preview}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      <div class="detect-actions">
+        <button class="detect-sel-all" onclick="toggleSelectAll(this)">${allSelected ? (S.lang === 'ko' ? '전체 해제' : 'Deselect All') : (S.lang === 'ko' ? '전체 선택' : 'Select All')}</button>
+        <button class="detect-add-btn" ${!anySelected ? 'disabled' : ''} onclick="applyDetected(this)">
+          ${S.lang === 'ko' ? '대본에 추가' : 'Add to Script'}
+        </button>
+      </div>
+    `;
+
+    // 이벤트 바인딩
+    card.querySelectorAll('.detect-item').forEach((el, i) => {
+      el.onclick = () => {
+        selState[i] = !selState[i];
+        render();
+      };
+    });
+    card.querySelector('.detect-sel-all').onclick = () => {
+      const newVal = !allSelected;
+      selState.fill(newVal);
+      render();
+    };
+    card.querySelector('.detect-add-btn').onclick = () => {
+      if (!S.cur) { toast(S.lang === 'ko' ? '프로젝트를 먼저 선택하세요.' : 'Select a project first.'); return; }
+      let addedCount = 0;
+      items.forEach((item, i) => {
+        if (!selState[i]) return;
+        if (item.type === 'scene') {
+          const sc = makeScene(item.data.title || (S.lang === 'ko' ? '새 씬' : 'New Scene'), item.data.slug || '', item.data.lines || []);
+          S.cur.scenes.push(sc);
+          addedCount++;
+        } else if (item.type === 'project') {
+          if (item.data.intent) S.cur.planning.intent = item.data.intent;
+          if (item.data.theme) S.cur.planning.theme = item.data.theme;
+          if (item.data.impact) S.cur.planning.impact = item.data.impact;
+          if (item.data.synopsis) { S.cur.synopsis = item.data.synopsis; document.getElementById('syn-edit').value = item.data.synopsis; }
+          if (item.data.characters?.length) S.cur.characters = item.data.characters;
+          if (item.data.genreTags?.length) { S.cur.genreTags = item.data.genreTags; autoTagGenre(item.data.synopsis || ''); }
+          renderPlan(); renderSynopsis(); renderChars();
+          addedCount++;
+        } else if (item.type === 'chars') {
+          const arr = Array.isArray(item.data) ? item.data : [item.data];
+          S.cur.characters = [...(S.cur.characters || []), ...arr];
+          renderChars();
+          addedCount++;
+        } else if (item.type === 'text_project') {
+          // 텍스트 기반 — 시놉시스로 추가
+          S.cur.synopsis = item.data;
+          document.getElementById('syn-edit').value = item.data;
+          renderSynopsis();
+          addedCount++;
+        } else if (item.type === 'text_chars') {
+          toast(S.lang === 'ko' ? '인물을 직접 등장인물 탭에서 추가해주세요.' : 'Please add characters manually in the Characters tab.');
+          return;
+        }
+      });
+      save(); renderSceneList(); renderBoard();
+      card.remove();
+      if (addedCount > 0) {
+        toast(S.lang === 'ko' ? `✓ ${addedCount}개 항목이 추가됐습니다` : `✓ ${addedCount} item(s) added`);
+        // 씬이 추가됐으면 대본 탭으로 이동
+        const hasScene = items.some((item, i) => selState[i] && item.type === 'scene');
+        if (hasScene) switchTab('script');
+      }
+    };
+  }
+
+  render();
+  el.appendChild(card);
+  el.scrollTop = 9999;
 }
 
 function autoTagGenre(text) {
