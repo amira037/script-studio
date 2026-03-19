@@ -1704,7 +1704,12 @@ async function processUploadedFile(file) {
       // mammoth.js로 docx 텍스트 추출
       await loadMammoth();
       setUploadProgress(40, S.lang === 'ko' ? 'docx 변환 중...' : 'Converting docx...');
-      const arrayBuffer = await file.arrayBuffer();
+      const arrayBuffer = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result);
+        reader.onerror = () => reject(new Error('FileReader 오류'));
+        reader.readAsArrayBuffer(file);
+      });
       const result = await mammoth.extractRawText({ arrayBuffer });
       uploadedText = result.value;
     } else {
