@@ -331,6 +331,24 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 .uact-btn.pri{border-color:var(--accent);color:var(--accent);background:rgba(200,169,110,.07)}
 .uact-btn.pri:hover{background:rgba(200,169,110,.14)}
 .uact-btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* ── 전체 대본 보기 ── */
+.script-view-toggle{display:flex;gap:4px;background:var(--bg3);border-radius:var(--r);padding:3px;flex-shrink:0}
+.svt-btn{background:transparent;border:none;border-radius:5px;color:var(--text3);font-size:10px;padding:4px 10px;cursor:pointer;transition:all .15s;font-family:var(--fm)}
+.svt-btn.on{background:var(--bg);color:var(--accent);border:1px solid var(--border2)}
+.svt-btn:hover:not(.on){color:var(--text2)}
+.full-script-pane{flex:1;overflow-y:auto;padding:28px 32px;display:none}
+.full-script-pane.show{display:block}
+.full-script-divider{display:flex;align-items:center;gap:12px;margin:32px 0 16px}
+.full-script-divider-line{flex:1;height:1px;background:var(--border)}
+.full-script-divider-label{font-size:10px;color:var(--accent);font-family:var(--fm);letter-spacing:.08em;white-space:nowrap}
+.full-script-slug-line{font-size:11px;color:var(--accent);font-family:var(--fm);font-weight:500;margin-bottom:12px;letter-spacing:.04em}
+.full-script-block{font-family:var(--fm);font-size:13px;line-height:2.1;max-width:640px;margin:0 auto}
+.full-script-block .s-action{color:var(--text2);font-style:italic;display:block;margin:2px 0}
+.full-script-block .s-char{text-align:center;font-weight:500;display:block;margin:10px 0 0}
+.full-script-block .s-paren{text-align:center;color:var(--text3);font-style:italic;display:block}
+.full-script-block .s-dlg{max-width:320px;text-align:center;margin:0 auto;display:block}
+.full-script-block .ll-locked{opacity:.6;border-left:2px solid var(--text3);padding-left:6px}
 </style>
 </head>
 <body>
@@ -447,10 +465,16 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
                 <div class="sc-tbig" id="sc-tbig">씬을 선택하세요</div>
                 <input class="slug-inp" id="slug-inp" placeholder="슬러그라인: INT. 장소 - 시간" oninput="updateSlug()">
               </div>
-              <div class="sc-ctrls" id="sc-ctrls" style="display:none">
-                <button class="state-cycler" id="state-cycler" onclick="cycleState()"></button>
-                <button class="ctrl" id="ai-edit-btn" onclick="aiEditScene()" style="display:none">✦ AI 수정</button>
-                <button class="ctrl red" onclick="delScene()">✕</button>
+              <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+                <div class="script-view-toggle">
+                  <button class="svt-btn on" id="svt-single" onclick="setScriptView('single')">씬 보기</button>
+                  <button class="svt-btn" id="svt-full" onclick="setScriptView('full')">전체 보기</button>
+                </div>
+                <div class="sc-ctrls" id="sc-ctrls" style="display:none">
+                  <button class="state-cycler" id="state-cycler" onclick="cycleState()"></button>
+                  <button class="ctrl" id="ai-edit-btn" onclick="aiEditScene()" style="display:none">✦ AI 수정</button>
+                  <button class="ctrl red" onclick="delScene()">✕</button>
+                </div>
               </div>
             </div>
             <div class="req-bar" id="req-bar">
@@ -785,7 +809,15 @@ function appendMsgEl(m, i) {
 function toggleLike(i) { S.cur.messages[i].liked = !S.cur.messages[i].liked; save(); renderMsgs(); }
 function chatKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } }
 function autoH(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 110) + 'px'; }
-function clearChat() { if (S.cur) { S.cur.messages = []; save(); renderMsgs(); } }
+function clearChat() {
+  if (!S.cur) return;
+  if (!confirm(S.lang === 'ko'
+    ? 'AI와의 대화 기록을 모두 삭제할까요?\n(저장된 씬과 대본은 유지됩니다)'
+    : 'Clear all chat history?\n(Saved scenes and scripts are kept)')) return;
+  S.cur.messages = [];
+  save(); renderMsgs();
+  toast(S.lang === 'ko' ? '대화 기록이 초기화됐습니다' : 'Chat history cleared');
+}
 
 async function sendChat() {
   const inp = document.getElementById('cta'); const txt = inp.value.trim();
@@ -893,6 +925,7 @@ function handleSaveCommand(txt) {
       const sc = makeScene(item.data.title || (S.lang === 'ko' ? '새 씬' : 'New Scene'), item.data.slug || '', item.data.lines || []);
       S.cur.scenes.push(sc);
       save(); renderSceneList(); renderBoard();
+      if (scriptViewMode === 'full') renderFullScript();
       addMsg('assistant', S.lang === 'ko'
         ? `✓ "${sc.title}" 씬이 대본에 저장됐습니다! 대본 탭에서 확인하세요.`
         : `✓ Scene "${sc.title}" saved to script!`);
@@ -1701,21 +1734,17 @@ async function processUploadedFile(file) {
 
   try {
     if (ext === 'docx') {
-      // mammoth.js로 docx 텍스트 추출
+      setUploadProgress(30, S.lang === 'ko' ? 'mammoth.js 로드 중...' : 'Loading mammoth.js...');
       await loadMammoth();
-      setUploadProgress(40, S.lang === 'ko' ? 'docx 변환 중...' : 'Converting docx...');
-      const arrayBuffer = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = e => resolve(e.target.result);
-        reader.onerror = () => reject(new Error('FileReader 오류'));
-        reader.readAsArrayBuffer(file);
-      });
+      setUploadProgress(60, S.lang === 'ko' ? 'docx 변환 중...' : 'Converting docx...');
+      const arrayBuffer = await readFileAsArrayBuffer(file);
       const result = await mammoth.extractRawText({ arrayBuffer });
-      uploadedText = result.value;
+      uploadedText = result.value.trim();
+      if (!uploadedText) throw new Error(S.lang === 'ko' ? 'docx 내용을 읽을 수 없습니다.' : 'Could not read docx content.');
     } else {
-      // txt / md
+      // txt / md — UTF-8 명시
       setUploadProgress(40, S.lang === 'ko' ? '텍스트 읽는 중...' : 'Reading text...');
-      uploadedText = await file.text();
+      uploadedText = await readFileAsText(file);
     }
 
     setUploadProgress(100, S.lang === 'ko' ? '완료!' : 'Done!');
@@ -1725,8 +1754,29 @@ async function processUploadedFile(file) {
     }, 400);
   } catch(e) {
     setUploadProgress(0, '오류: ' + e.message);
-    toast('파일 읽기 실패: ' + e.message);
+    document.getElementById('upload-progress').classList.remove('show');
+    toast((S.lang === 'ko' ? '파일 읽기 실패: ' : 'File read failed: ') + e.message);
   }
+}
+
+// FileReader 헬퍼 — ArrayBuffer
+function readFileAsArrayBuffer(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = () => reject(new Error('FileReader ArrayBuffer 오류'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+// FileReader 헬퍼 — Text (UTF-8 명시)
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = () => reject(new Error('FileReader Text 오류'));
+    reader.readAsText(file, 'UTF-8');
+  });
 }
 
 function setUploadProgress(pct, txt) {
@@ -1874,6 +1924,76 @@ async function analyzeAs(type) {
 
   btn.disabled = false;
   btn.textContent = type === 'synopsis' ? '📖 시놉시스로' : '📋 기획서로';
+}
+
+
+// ── 대본 보기 모드 전환 ──
+let scriptViewMode = 'single'; // 'single' | 'full'
+
+function setScriptView(mode) {
+  scriptViewMode = mode;
+  document.getElementById('svt-single').classList.toggle('on', mode === 'single');
+  document.getElementById('svt-full').classList.toggle('on', mode === 'full');
+  document.getElementById('sc-sb').style.display = mode === 'single' ? '' : 'none';
+  document.getElementById('sc-body').style.display = mode === 'single' ? '' : 'none';
+  document.getElementById('sc-prompt').style.display = mode === 'single' ? '' : 'none';
+  const fullPane = document.getElementById('full-script-pane');
+  if (mode === 'full') {
+    fullPane.classList.add('show');
+    renderFullScript();
+    // 씬 컨트롤 숨김
+    document.getElementById('sc-ctrls').style.display = 'none';
+  } else {
+    fullPane.classList.remove('show');
+    if (S.curSc) document.getElementById('sc-ctrls').style.display = 'flex';
+  }
+}
+
+function renderFullScript() {
+  const pane = document.getElementById('full-script-pane');
+  if (!S.cur?.scenes?.length) {
+    pane.innerHTML = `<div style="color:var(--text3);font-family:var(--fm);font-size:12px;text-align:center;padding:40px">씬이 없습니다. 대화 탭에서 씬을 추가해보세요.</div>`;
+    return;
+  }
+
+  const typeClass = { action:'s-action', character:'s-char', dialogue:'s-dlg', parenthetical:'s-paren' };
+  let html = `<div style="max-width:640px;margin:0 auto">`;
+
+  // 상단 제목
+  html += `<div style="text-align:center;margin-bottom:40px">
+    <div style="font-family:var(--fd);font-size:28px;color:var(--accent);font-style:italic;margin-bottom:4px">${S.cur.title || ''}</div>
+    <div style="font-size:11px;color:var(--text3);font-family:var(--fm)">${S.cur.medium || ''}</div>
+  </div>`;
+
+  S.cur.scenes.forEach((sc, i) => {
+    // 씬 구분선
+    html += `<div class="full-script-divider">
+      <div class="full-script-divider-line"></div>
+      <div class="full-script-divider-label">SC ${i+1} — ${sc.title}</div>
+      <div class="full-script-divider-line"></div>
+    </div>`;
+
+    // 슬러그라인
+    if (sc.slug) {
+      html += `<div class="full-script-slug-line">${sc.slug}</div>`;
+    }
+
+    // 씬 상태 배지
+    const stateColors = { locked:'var(--text3)', editable:'var(--accent)', requested:'var(--amber)' };
+    const stateTxt = STATE_UI[S.lang][sc.state];
+    html += `<div style="font-size:9px;color:${stateColors[sc.state]};font-family:var(--fm);margin-bottom:10px">${stateTxt}${sc.lines.filter(l=>l.locked).length > 0 ? ` · 줄🔒${sc.lines.filter(l=>l.locked).length}` : ''}</div>`;
+
+    html += `<div class="full-script-block">`;
+    sc.lines.forEach(line => {
+      const cls = typeClass[line.type] || '';
+      const lockCls = line.locked ? ' ll-locked' : '';
+      html += `<span class="${cls}${lockCls}">${line.text}</span>`;
+    });
+    html += `</div>`;
+  });
+
+  html += `</div>`;
+  pane.innerHTML = html;
 }
 
 // ════════════════════════════════════════════
