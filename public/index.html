@@ -324,7 +324,7 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 .upload-result{margin-top:10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;display:none}
 .upload-result.show{display:block}
 .upload-result-title{font-size:11px;color:var(--accent);font-family:var(--fm);margin-bottom:6px}
-.upload-result-preview{font-size:11px;color:var(--text2);line-height:1.6;max-height:120px;overflow-y:auto;white-space:pre-wrap;font-family:var(--fm)}
+.upload-result-preview{font-size:11px;color:var(--text2);line-height:1.6;max-height:320px;overflow-y:auto;white-space:pre-wrap;font-family:var(--fm)}
 .upload-result-actions{display:flex;gap:6px;margin-top:8px}
 .uact-btn{background:transparent;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);font-size:11px;padding:5px 11px;cursor:pointer;transition:all .15s}
 .uact-btn:hover{border-color:var(--accent2);color:var(--accent)}
@@ -344,11 +344,12 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 .full-script-divider-label{font-size:10px;color:var(--accent);font-family:var(--fm);letter-spacing:.08em;white-space:nowrap}
 .full-script-slug-line{font-size:11px;color:var(--accent);font-family:var(--fm);font-weight:500;margin-bottom:12px;letter-spacing:.04em}
 .full-script-block{font-family:var(--fm);font-size:13px;line-height:2.1;max-width:640px;margin:0 auto}
-.full-script-block .s-action{color:var(--text2);font-style:italic;display:block;margin:2px 0}
-.full-script-block .s-char{text-align:center;font-weight:500;display:block;margin:10px 0 0}
-.full-script-block .s-paren{text-align:center;color:var(--text3);font-style:italic;display:block}
-.full-script-block .s-dlg{max-width:320px;text-align:center;margin:0 auto;display:block}
+.full-script-block .s-action{color:var(--text2);font-style:italic;display:block;margin:2px 0;text-align:left}
+.full-script-block .s-char{text-align:center;font-weight:500;display:block;margin:12px 0 0;width:100%}
+.full-script-block .s-paren{text-align:center;color:var(--text3);font-style:italic;display:block;width:100%}
+.full-script-block .s-dlg{max-width:320px;text-align:center;margin:0 auto;display:block;width:100%}
 .full-script-block .ll-locked{opacity:.6;border-left:2px solid var(--text3);padding-left:6px}
+.full-script-block div{min-height:1.2em}
 </style>
 </head>
 <body>
@@ -714,29 +715,20 @@ async function callClaude(messages, sys, onStream) {
 
 function getSys() {
   const p = S.cur, l = S.lang;
-  return l === 'ko'
-    ? `당신은 전문 대본 작가이자 드라마터지입니다. 현재 프로젝트: "${p?.title || '미제목'}" (매체: ${p?.medium || ''}).
-씬을 작성할 때는 반드시 아래 JSON 형식으로 감싸주세요 (앱이 자동으로 인식합니다):
-\`\`\`json
-{"title":"씬 제목","slug":"INT. 장소 - 시간","lines":[{"type":"action","text":"..."},{"type":"character","text":"이름"},{"type":"dialogue","text":"대사"},{"type":"parenthetical","text":"지문"}]}
-\`\`\`
-기획서/시놉시스/인물을 작성할 때도 JSON으로:
-\`\`\`json
-{"intent":"...","theme":"...","impact":"...","synopsis":"...","genreTags":["..."],"characters":[{"name":"...","role":"...","description":"...","traits":["..."]}]}
-\`\`\`
-JSON 외에 설명이나 대화는 자유롭게 써도 됩니다. 한국어로 응답하세요.`
-    : `You are a professional screenwriter. Project: "${p?.title || 'Untitled'}" (${p?.medium || ''}).
-When writing scenes, always wrap in JSON format (the app will auto-detect):
-\`\`\`json
-{"title":"Scene Title","slug":"INT. LOCATION - DAY","lines":[{"type":"action","text":"..."},{"type":"character","text":"NAME"},{"type":"dialogue","text":"..."}]}
-\`\`\`
-For planning/synopsis/characters:
-\`\`\`json
-{"intent":"...","theme":"...","impact":"...","synopsis":"...","genreTags":["..."],"characters":[{"name":"...","role":"...","description":"...","traits":["..."]}]}
-\`\`\`
-Feel free to add explanations outside the JSON. Respond in English.`;
+  const title = p ? p.title : (l === 'ko' ? '미제목' : 'Untitled');
+  const medium = p ? p.medium : '';
+  if (l === 'ko') {
+    return '당신은 전문 대본 작가이자 드라마터지입니다. 프로젝트: "' + title + '" (' + medium + ').' +
+      '\n씬을 작성할 때는 JSON 형식으로 출력하세요: {"title":"씬 제목","slug":"INT. 장소-시간","lines":[{"type":"action","text":"..."},{"type":"character","text":"이름"},{"type":"dialogue","text":"대사"}]}' +
+      '\n기획서는: {"intent":"...","theme":"...","impact":"...","synopsis":"...","genreTags":["..."],"characters":[{"name":"...","role":"...","description":"...","traits":["..."]}]}' +
+      '\n저장 요청 시 ##SAVE_SCENE## 태그로 씬을 감싸주세요. 한국어로 응답하세요.';
+  } else {
+    return 'You are a professional screenwriter. Project: "' + title + '" (' + medium + ').' +
+      '\nWrite scenes as JSON: {"title":"Title","slug":"INT. LOCATION - DAY","lines":[{"type":"action","text":"..."},{"type":"character","text":"NAME"},{"type":"dialogue","text":"..."}]}' +
+      '\nPlanning: {"intent":"...","theme":"...","impact":"...","synopsis":"...","genreTags":["..."],"characters":[{"name":"...","role":"...","description":"...","traits":["..."]}]}' +
+      '\nIf user asks to save, wrap scene in ##SAVE_SCENE## tag. Respond in English.';
+  }
 }
-
 // ════════════════════════════════════════════
 // PROJECTS
 // ════════════════════════════════════════════
@@ -1738,9 +1730,28 @@ async function processUploadedFile(file) {
       await loadMammoth();
       setUploadProgress(60, S.lang === 'ko' ? 'docx 변환 중...' : 'Converting docx...');
       const arrayBuffer = await readFileAsArrayBuffer(file);
-      const result = await mammoth.extractRawText({ arrayBuffer });
+      // 구글 독스 포함 범용 옵션
+      let result;
+      try {
+        result = await mammoth.extractRawText({
+          arrayBuffer,
+          options: {
+            styleMap: [
+              "p[style-name='Normal'] => p:fresh",
+              "p[style-name='Body Text'] => p:fresh",
+            ]
+          }
+        });
+      } catch(e1) {
+        // 옵션 없이 재시도
+        result = await mammoth.extractRawText({ arrayBuffer });
+      }
       uploadedText = result.value.trim();
-      if (!uploadedText) throw new Error(S.lang === 'ko' ? 'docx 내용을 읽을 수 없습니다.' : 'Could not read docx content.');
+      // 구글 독스는 메시지가 다를 수 있어서 warnings 도 체크
+      if (!uploadedText && result.messages && result.messages.length > 0) {
+        throw new Error(result.messages[0].message || (S.lang === 'ko' ? 'docx 내용을 읽을 수 없습니다.' : 'Could not read docx content.'));
+      }
+      if (!uploadedText) throw new Error(S.lang === 'ko' ? 'docx 내용을 읽을 수 없습니다. 파일이 비어있거나 보호되어 있습니다.' : 'Could not read docx content. File may be empty or protected.');
     } else {
       // txt / md — UTF-8 명시
       setUploadProgress(40, S.lang === 'ko' ? '텍스트 읽는 중...' : 'Reading text...');
@@ -1787,10 +1798,11 @@ function setUploadProgress(pct, txt) {
 }
 
 function showUploadResult(text, filename) {
-  const preview = text.slice(0, 600) + (text.length > 600 ? '\n...' : '');
+  const kb = Math.round(text.length / 1000 * 10) / 10;
+  const charCount = text.length.toLocaleString();
   document.getElementById('upload-result-title').textContent =
-    `✦ ${filename} (${Math.round(text.length / 1000 * 10) / 10}KB)`;
-  document.getElementById('upload-result-preview').textContent = preview;
+    `✦ ${filename} · ${kb}KB · ${charCount}자`;
+  document.getElementById('upload-result-preview').textContent = text; // 전체 표시
   document.getElementById('upload-result').classList.add('show');
 }
 
@@ -1818,61 +1830,218 @@ async function loadMammoth() {
   });
 }
 
-// AI로 씬 분석 · 변환
+// ════════════════════════════════════════════
+// 파일 분석 — 2단계 방식
+// 1단계: 씬 목록 추출 (전체 텍스트 스캔, 저렴)
+// 2단계: 선택한 씬만 변환 (12,000글자 단위)
+// ════════════════════════════════════════════
+const CHUNK_SIZE = 12000; // 글자 수 기준
+
 async function analyzeUploadedDoc() {
   if (!uploadedText) return;
   if (!S.cur) { toast(S.lang === 'ko' ? '프로젝트를 먼저 선택하세요.' : 'Select a project first.'); return; }
 
   const btn = document.getElementById('upload-analyze-btn');
   btn.disabled = true;
-  btn.textContent = '⏳ ' + (S.lang === 'ko' ? 'AI 분석 중...' : 'Analyzing...');
-
-  // 텍스트가 길면 앞 3000자만 사용
-  const excerpt = uploadedText.slice(0, 3000);
-  const hasMore = uploadedText.length > 3000;
-
-  const prompt = S.lang === 'ko'
-    ? `다음은 "${uploadedFileName}" 파일의 내용입니다${hasMore ? ' (앞부분)' : ''}. 이것을 대본 씬 형식으로 변환해주세요.
-
-각 씬을 JSON 형식으로 작성해주세요:
-\`\`\`json
-{"title":"씬 제목","slug":"INT. 장소 - 시간","lines":[{"type":"action","text":"..."},{"type":"character","text":"이름"},{"type":"dialogue","text":"대사"},{"type":"parenthetical","text":"지문"}]}
-\`\`\`
-
-씬이 여러 개라면 각각 별도의 JSON 블록으로 작성해주세요. 씬을 구분하기 어려우면 내용을 기준으로 자연스럽게 나눠주세요.
-
-파일 내용:
-${excerpt}`
-    : `Convert this "${uploadedFileName}" content into script scene format${hasMore ? ' (excerpt)' : ''}.
-
-Write each scene as JSON:
-\`\`\`json
-{"title":"Scene Title","slug":"INT. LOCATION - DAY","lines":[{"type":"action","text":"..."},{"type":"character","text":"NAME"},{"type":"dialogue","text":"..."}]}
-\`\`\`
-
-If multiple scenes, write separate JSON blocks. Split naturally if scene breaks aren't clear.
-
-Content:
-${excerpt}`;
+  btn.textContent = '⏳ ' + (S.lang === 'ko' ? '1단계: 씬 목록 파악 중...' : 'Step 1: Scanning scenes...');
 
   try {
-    const reply = await callClaude([{ role: 'user', content: prompt }]);
-    // 채팅에 메시지로 추가 (감지 카드 포함)
-    addMsg('user', S.lang === 'ko'
-      ? `📄 "${uploadedFileName}" 파일을 업로드했습니다. 씬으로 변환해주세요.`
-      : `📄 Uploaded "${uploadedFileName}". Please convert to scenes.`);
-    addMsg('assistant', reply);
-    autoTagGenre(reply);
-    const detected = detectScriptContent(reply);
-    if (detected.length > 0) appendDetectCard(detected);
-    clearUpload();
-    toast(S.lang === 'ko' ? `✓ AI 분석 완료 — 감지된 씬을 선택해서 추가하세요` : '✓ Analysis complete — select scenes to add');
+    // ── 1단계: 전체 텍스트에서 씬 목록만 추출 ──
+    const totalLen = uploadedText.length;
+    const sampleSize = 8000;
+    let structureSample;
+    if (totalLen <= sampleSize) {
+      structureSample = uploadedText;
+    } else {
+      const mid = Math.floor(totalLen / 2);
+      const ellipsis = '\n...(중략)...\n';
+      structureSample =
+        uploadedText.slice(0, 4000) + ellipsis +
+        uploadedText.slice(mid - 1000, mid + 1000) + ellipsis +
+        uploadedText.slice(-2000);
+    }
+
+    const scanPromptKo = '다음 대본/시나리오 파일의 구조를 파악해주세요. 씬(장면) 목록을 JSON으로만 출력해주세요.' +
+      '\n씬을 구분할 수 없으면 내용 기준으로 자연스럽게 나눠주세요 (최대 20개).' +
+      '\n각 씬의 대략적인 시작 위치(글자 인덱스)도 포함해주세요.' +
+      '\nJSON만 출력: [{"index":0,"title":"씬 제목","slug":"INT. 장소 - 시간","startChar":0,"preview":"첫 줄..."}]' +
+      '\n\n파일 내용 (샘플):\n' + structureSample;
+
+    const scanPromptEn = 'Analyze the structure of this script. Output ONLY a JSON list of scenes (max 20).' +
+      '\nInclude approximate character index of each scene start.' +
+      '\nJSON only: [{"index":0,"title":"Scene Title","slug":"INT. LOCATION - DAY","startChar":0,"preview":"First line..."}]' +
+      '\n\nContent (sample):\n' + structureSample;
+
+    const scanPrompt = S.lang === 'ko' ? scanPromptKo : scanPromptEn;
+
+    const scanReply = await callClaude(
+      [{ role: 'user', content: scanPrompt }],
+      S.lang === 'ko'
+        ? '당신은 대본 구조 분석 전문가입니다. JSON만 출력하세요.'
+        : 'You are a script structure analyst. Output ONLY JSON.',
+      1000
+    );
+
+    let sceneList;
+    try {
+      sceneList = JSON.parse(scanReply.replace(/```json?|```/g, '').trim());
+    } catch(e) {
+      throw new Error(S.lang === 'ko' ? '씬 목록 파싱 실패. 다시 시도해주세요.' : 'Failed to parse scene list.');
+    }
+
+    btn.textContent = '⏳ ' + (S.lang === 'ko' ? `${sceneList.length}개 씬 발견 — 선택 UI 준비 중...` : `Found ${sceneList.length} scenes...`);
+
+    // ── 씬 선택 UI 표시 ──
+    showSceneSelectUI(sceneList);
+
   } catch(e) {
     toast('Error: ' + e.message);
   }
 
   btn.disabled = false;
   btn.textContent = '✦ ' + (S.lang === 'ko' ? 'AI로 씬 분석 · 변환' : 'Analyze with AI');
+}
+
+// 씬 선택 UI
+function showSceneSelectUI(sceneList) {
+  const resultEl = document.getElementById('upload-result');
+  const previewEl = document.getElementById('upload-result-preview');
+  const titleEl = document.getElementById('upload-result-title');
+  const actionsEl = resultEl.querySelector('.upload-result-actions');
+
+  titleEl.textContent = S.lang === 'ko'
+    ? `✦ ${sceneList.length}개 씬 발견 — 변환할 씬을 선택하세요`
+    : `✦ Found ${sceneList.length} scenes — select to convert`;
+
+  // 씬 선택 체크리스트
+  const selState = sceneList.map(() => true);
+
+  function renderList() {
+    previewEl.innerHTML = '';
+    previewEl.style.maxHeight = '280px';
+
+    // 전체 선택 헤더
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)';
+    const allChecked = selState.every(Boolean);
+    header.innerHTML = `
+      <input type="checkbox" id="sel-all-check" ${allChecked ? 'checked' : ''} style="cursor:pointer;accent-color:var(--accent)">
+      <label for="sel-all-check" style="font-size:10px;color:var(--text2);cursor:pointer;font-family:var(--fm)">
+        ${S.lang === 'ko' ? '전체 선택' : 'Select All'} (${selState.filter(Boolean).length}/${sceneList.length})
+      </label>`;
+    header.querySelector('#sel-all-check').onchange = (e) => {
+      selState.fill(e.target.checked);
+      renderList();
+    };
+    previewEl.appendChild(header);
+
+    // 씬 목록
+    sceneList.forEach((sc, i) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer';
+      row.innerHTML = `
+        <input type="checkbox" ${selState[i] ? 'checked' : ''} style="margin-top:2px;cursor:pointer;flex-shrink:0;accent-color:var(--accent)">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;font-weight:500;color:var(--text)">${i+1}. ${sc.title}</div>
+          <div style="font-size:10px;color:var(--accent);font-family:var(--fm)">${sc.slug || ''}</div>
+          <div style="font-size:10px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sc.preview || ''}</div>
+        </div>`;
+      const cb = row.querySelector('input');
+      cb.onchange = (e) => { selState[i] = e.target.checked; renderList(); };
+      row.onclick = (e) => { if (e.target.tagName !== 'INPUT') { cb.checked = !cb.checked; selState[i] = cb.checked; renderList(); } };
+      previewEl.appendChild(row);
+    });
+  }
+
+  renderList();
+
+  // 버튼 교체
+  actionsEl.innerHTML = '';
+  const convertBtn = document.createElement('button');
+  convertBtn.className = 'uact-btn pri';
+  convertBtn.textContent = S.lang === 'ko' ? '✦ 선택한 씬 변환' : '✦ Convert Selected';
+  convertBtn.onclick = () => {
+    const selected = sceneList.filter((_, i) => selState[i]);
+    if (selected.length === 0) { toast(S.lang === 'ko' ? '씬을 선택해주세요.' : 'Select at least one scene.'); return; }
+    convertSelectedScenes(selected);
+  };
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'uact-btn';
+  cancelBtn.textContent = S.lang === 'ko' ? '✕ 닫기' : '✕ Cancel';
+  cancelBtn.onclick = clearUpload;
+
+  actionsEl.appendChild(convertBtn);
+  actionsEl.appendChild(cancelBtn);
+}
+
+// 선택한 씬 변환 — 12,000글자씩 청크
+async function convertSelectedScenes(sceneList) {
+  if (!S.cur) return;
+
+  const convertBtn = document.querySelector('.uact-btn.pri');
+  if (convertBtn) { convertBtn.disabled = true; convertBtn.textContent = '⏳...'; }
+
+  try {
+    // 선택한 씬들의 텍스트 추출
+    // startChar 기반으로 uploadedText에서 해당 구간 추출
+    const totalScenes = sceneList.length;
+    let allDetected = [];
+
+    for (let i = 0; i < totalScenes; i++) {
+      const sc = sceneList[i];
+      const next = sceneList[i + 1];
+
+      // 해당 씬 구간 텍스트
+      const start = sc.startChar || 0;
+      const end = next ? (next.startChar || uploadedText.length) : uploadedText.length;
+      let chunk = uploadedText.slice(start, end).trim();
+
+      // 12,000글자 초과 시 앞에서 자르기
+      if (chunk.length > CHUNK_SIZE) {
+        chunk = chunk.slice(0, CHUNK_SIZE);
+      }
+
+      if (convertBtn) convertBtn.textContent = `⏳ ${i+1}/${totalScenes} 변환 중...`;
+
+      const scTitle = sc.title || (S.lang === 'ko' ? '씬' : 'Scene');
+      const scSlug = sc.slug || (S.lang === 'ko' ? 'INT. 장소 - 시간' : 'INT. LOCATION - DAY');
+      const prompt = S.lang === 'ko'
+        ? '다음 대본 텍스트를 JSON 씬 형식으로 변환해주세요.\n씬 제목: "' + scTitle + '", 슬러그: "' + scSlug + '"\n\nJSON만 출력:\n```json\n{"title":"' + scTitle + '","slug":"' + scSlug + '","lines":[{"type":"action","text":"..."},{"type":"character","text":"이름"},{"type":"dialogue","text":"대사"}]}\n```\n\n텍스트:\n' + chunk
+        : 'Convert this script text to JSON scene format.\nTitle: "' + scTitle + '", Slug: "' + scSlug + '"\n\nJSON only:\n```json\n{"title":"' + scTitle + '","slug":"' + scSlug + '","lines":[{"type":"action","text":"..."},{"type":"character","text":"NAME"},{"type":"dialogue","text":"..."}]}\n```\n\nText:\n' + chunk;
+
+      const reply = await callClaude(
+        [{ role: 'user', content: prompt }],
+        S.lang === 'ko'
+          ? '당신은 전문 대본 작가입니다. JSON만 출력하세요.'
+          : 'You are a professional screenwriter. Output ONLY JSON.',
+        2000
+      );
+
+      const detected = detectScriptContent(reply);
+      allDetected = allDetected.concat(detected);
+    }
+
+    if (allDetected.length > 0) {
+      // 채팅에 결과 표시 + 감지 카드
+      addMsg('user', S.lang === 'ko'
+        ? `📄 "${uploadedFileName}"에서 ${totalScenes}개 씬 변환 요청`
+        : `📄 Converting ${totalScenes} scene(s) from "${uploadedFileName}"`);
+      addMsg('assistant', S.lang === 'ko'
+        ? `✓ ${allDetected.length}개 씬 변환 완료! 아래에서 선택해서 대본에 추가하세요.`
+        : `✓ ${allDetected.length} scene(s) converted! Select below to add to script.`);
+      appendDetectCard(allDetected);
+      clearUpload();
+      toast(S.lang === 'ko' ? `✓ ${allDetected.length}개 씬 변환 완료` : `✓ ${allDetected.length} scene(s) ready`);
+    } else {
+      toast(S.lang === 'ko' ? '변환된 씬이 없습니다. 다시 시도해주세요.' : 'No scenes converted. Try again.');
+    }
+
+  } catch(e) {
+    toast('Error: ' + e.message);
+  }
+
+  if (convertBtn) { convertBtn.disabled = false; convertBtn.textContent = S.lang === 'ko' ? '✦ 선택한 씬 변환' : '✦ Convert Selected'; }
 }
 
 // 시놉시스 / 기획서로 바로 변환
@@ -1884,7 +2053,7 @@ async function analyzeAs(type) {
   btn.disabled = true;
   btn.textContent = '⏳...';
 
-  const excerpt = uploadedText.slice(0, 3000);
+  const excerpt = uploadedText.slice(0, CHUNK_SIZE);
   const prompt = type === 'synopsis'
     ? (S.lang === 'ko'
         ? `다음 파일 내용을 바탕으로 이 작품의 시놉시스를 3막 구조로 작성해주세요.\n\n${excerpt}`
@@ -1985,9 +2154,10 @@ function renderFullScript() {
 
     html += `<div class="full-script-block">`;
     sc.lines.forEach(line => {
-      const cls = typeClass[line.type] || '';
+      const cls = typeClass[line.type] || 's-action';
       const lockCls = line.locked ? ' ll-locked' : '';
-      html += `<span class="${cls}${lockCls}">${line.text}</span>`;
+      const escaped = line.text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      html += `<div class="${cls}${lockCls}">${escaped}</div>`;
     });
     html += `</div>`;
   });
