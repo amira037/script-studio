@@ -380,6 +380,104 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 .io-btn:hover{border-color:var(--accent2);color:var(--accent);background:rgba(200,169,110,.07)}
 .io-btn.import{border-color:rgba(110,168,200,.4);color:var(--blue)}
 .io-btn.import:hover{background:rgba(110,168,200,.08)}
+
+/* ══ 대본 탭 — 새 구조 ══ */
+.script-pane-v2{flex:1;display:flex;overflow:hidden}
+
+/* 네비게이터 */
+.sc-nav{width:200px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.sc-nav-top{padding:8px 8px 5px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;flex-direction:column;gap:5px}
+.sc-nav-top-row{display:flex;align-items:center;gap:5px}
+.sc-nav-title{font-size:9px;color:var(--text3);letter-spacing:.1em;text-transform:uppercase;font-family:var(--fm);flex:1}
+.sc-sel-all{background:transparent;border:1px solid var(--border2);border-radius:4px;color:var(--text3);font-size:9px;padding:2px 7px;cursor:pointer;font-family:var(--fm);transition:all .15s}
+.sc-sel-all:hover{color:var(--accent);border-color:var(--accent2)}
+.sc-sel-all.active{color:var(--accent);border-color:var(--accent);background:rgba(200,169,110,.1)}
+.sc-nav-list{flex:1;overflow-y:auto;padding:5px 5px}
+.sc-nav-item{padding:7px 8px;border-radius:var(--r);cursor:pointer;margin-bottom:2px;border:1px solid transparent;transition:all .15s;position:relative;display:flex;align-items:flex-start;gap:6px}
+.sc-nav-item:hover{background:var(--bg3)}
+.sc-nav-item.active{background:var(--bg4);border-color:var(--border2)}
+.sc-nav-item.focused{border-color:var(--accent)!important;background:rgba(200,169,110,.06)}
+.sc-nav-check{width:14px;height:14px;border-radius:3px;border:1px solid var(--border2);background:transparent;cursor:pointer;flex-shrink:0;margin-top:2px;accent-color:var(--accent)}
+.sc-nav-info{flex:1;min-width:0}
+.sc-nav-num{font-size:9px;color:var(--text3);font-family:var(--fm);margin-bottom:1px}
+.sc-nav-sc-title{font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sc-nav-slug-txt{font-size:9px;color:var(--text3);font-family:var(--fm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.sc-nav-badges{display:flex;align-items:center;gap:3px;margin-top:3px;flex-wrap:wrap}
+.sc-nav-btm{padding:6px;border-top:1px solid var(--border);flex-shrink:0;display:flex;flex-direction:column;gap:4px}
+.sc-nav-add{width:100%;background:transparent;border:1px dashed var(--border2);border-radius:var(--r);color:var(--text3);font-size:10px;padding:5px;cursor:pointer;transition:all .15s}
+.sc-nav-add:hover{border-color:var(--accent2);color:var(--accent)}
+
+/* 다중 선택 AI 요청 바 */
+.multi-req-bar{background:rgba(232,168,74,.1);border:1px solid rgba(232,168,74,.3);border-radius:var(--r);padding:6px 8px;display:none;flex-direction:column;gap:5px}
+.multi-req-bar.show{display:flex}
+.multi-req-label{font-size:9px;color:var(--amber);font-family:var(--fm)}
+.multi-req-inp{background:var(--bg3);border:1px solid rgba(232,168,74,.3);border-radius:5px;color:var(--text);font-family:var(--fb);font-size:10px;padding:4px 7px;outline:none;width:100%}
+.multi-req-inp:focus{border-color:var(--amber)}
+.multi-req-btn{background:var(--amber);color:#0e0e10;border:none;border-radius:5px;font-size:10px;font-weight:700;padding:4px 8px;cursor:pointer;transition:all .15s;width:100%}
+.multi-req-btn:hover{background:#f0b85a}
+.multi-req-btn:disabled{background:var(--bg4);color:var(--text3)}
+
+/* 전체 대본 영역 */
+.sc-full-body{flex:1;overflow-y:auto;padding:20px 28px}
+
+/* 씬 블록 (전체 대본에서) */
+.scene-block{margin-bottom:40px;position:relative;scroll-margin-top:20px}
+.scene-block-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+.scene-block-header.highlighted{border-bottom-color:var(--accent)}
+.scene-block-divider{flex:1;height:1px;background:var(--border)}
+.scene-block-divider.highlighted{background:var(--accent)}
+.scene-block-num{font-size:9px;color:var(--text3);font-family:var(--fm);flex-shrink:0}
+.scene-block-title-wrap{flex:1}
+.scene-block-title-inp{font-family:var(--fd);font-size:15px;background:transparent;border:none;outline:none;color:var(--text);width:100%;border-bottom:1px dashed transparent;transition:border .15s}
+.scene-block-title-inp:hover{border-bottom-color:var(--border2)}
+.scene-block-title-inp:focus{border-bottom-color:var(--accent)}
+.scene-block-slug-inp{font-size:10px;color:var(--text3);font-family:var(--fm);background:transparent;border:none;outline:none;width:100%;margin-top:2px}
+.scene-block-slug-inp:focus{color:var(--text2);outline:1px solid rgba(200,169,110,.2);border-radius:2px}
+.scene-block-actions{display:flex;align-items:center;gap:5px;flex-shrink:0}
+
+/* 씬 상태 버튼 (분리) */
+.sb-lock-btn{background:transparent;border:1px solid var(--border2);border-radius:5px;color:var(--text3);font-size:10px;padding:3px 8px;cursor:pointer;transition:all .15s;font-family:var(--fm)}
+.sb-lock-btn:hover{border-color:var(--accent2);color:var(--accent)}
+.sb-lock-btn.locked{border-color:rgba(90,88,85,.5);color:var(--text3);background:rgba(90,88,85,.1)}
+.sb-req-btn{background:transparent;border:1px solid rgba(232,168,74,.4);border-radius:5px;color:var(--amber);font-size:10px;padding:3px 8px;cursor:pointer;transition:all .15s;font-family:var(--fm)}
+.sb-req-btn:hover{background:rgba(232,168,74,.1)}
+.sb-req-btn.active{background:rgba(232,168,74,.15)}
+.sb-focus-btn{background:transparent;border:1px solid var(--border2);border-radius:5px;color:var(--text2);font-size:10px;padding:3px 8px;cursor:pointer;transition:all .15s;font-family:var(--fm)}
+.sb-focus-btn:hover{border-color:var(--blue);color:var(--blue);background:rgba(110,168,200,.08)}
+.sb-del-btn{background:transparent;border:1px solid rgba(224,96,96,.3);border-radius:5px;color:var(--red);font-size:10px;padding:3px 7px;cursor:pointer;transition:all .15s}
+.sb-del-btn:hover{background:rgba(224,96,96,.08)}
+
+/* 씬 편집요청 인라인 바 */
+.scene-req-inline{padding:6px 0 4px;display:none;gap:6px;align-items:center}
+.scene-req-inline.show{display:flex}
+.scene-req-inline-inp{flex:1;background:var(--bg3);border:1px solid rgba(232,168,74,.3);border-radius:var(--r);color:var(--text);font-family:var(--fb);font-size:11px;padding:5px 9px;outline:none}
+.scene-req-inline-inp:focus{border-color:var(--amber)}
+.scene-req-inline-inp::placeholder{color:var(--text3)}
+.scene-req-ai-btn{background:var(--amber);color:#0e0e10;border:none;border-radius:var(--r);font-size:10px;font-weight:700;padding:5px 11px;cursor:pointer;white-space:nowrap;transition:all .15s;font-family:var(--fm)}
+.scene-req-ai-btn:hover{background:#f0b85a}
+.scene-req-ai-btn:disabled{background:var(--bg4);color:var(--text3);cursor:not-allowed}
+
+/* 씬 접힘 (집중편집 모드에서 나머지 씬) */
+.scene-block.collapsed .scene-lines-wrap{display:none}
+.scene-block.collapsed .scene-req-inline{display:none!important}
+.scene-block.collapsed .scene-block-header{opacity:.5}
+
+/* 집중편집 배너 */
+.focus-banner{background:rgba(110,168,200,.1);border:1px solid rgba(110,168,200,.3);border-radius:var(--r);padding:5px 12px;font-size:10px;color:var(--blue);font-family:var(--fm);display:none;align-items:center;justify-content:space-between;flex-shrink:0;margin:0 28px 0}
+.focus-banner.show{display:flex}
+.focus-exit-btn{background:transparent;border:1px solid rgba(110,168,200,.4);border-radius:4px;color:var(--blue);font-size:9px;padding:2px 8px;cursor:pointer;font-family:var(--fm)}
+.focus-exit-btn:hover{background:rgba(110,168,200,.1)}
+
+/* 잠금 — 흐림 없음, 색상만 */
+.lw.ll .le{color:var(--text2)!important}
+.lw.ll{border-left:2px solid rgba(90,88,85,.3);padding-left:4px}
+
+/* 스크롤 상단바 */
+.sc-top-bar{padding:7px 28px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-shrink:0}
+.sc-top-bar-left{display:flex;align-items:center;gap:6px;flex:1}
+.sc-board-sync-btn{background:transparent;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);font-size:10px;padding:4px 10px;cursor:pointer;transition:all .15s;font-family:var(--fm)}
+.sc-board-sync-btn:hover{border-color:var(--blue);color:var(--blue)}
+.sc-board-sync-btn.synced{border-color:var(--green);color:var(--green)}
 </style>
 </head>
 <body>
@@ -491,42 +589,52 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 
       <!-- 대본 탭 -->
       <div class="tc" id="tc-script">
-        <div class="script-pane">
-          <div class="sc-sb" id="sc-sb">
-            <div class="sc-sb-hd">SCENES</div>
-            <div id="scene-list" style="display:contents"></div>
-            <button class="sc-add-btn" onclick="addScene()">+ 씬 추가</button>
-          </div>
-          <div class="sc-ed">
-            <div class="sc-hdr">
-              <div class="sc-hdr-l">
-                <input class="sc-tbig-edit" id="sc-tbig" placeholder="씬 제목" oninput="updateScTitle()" value="씬을 선택하세요">
-                <input class="slug-inp" id="slug-inp" placeholder="슬러그라인: INT. 장소 - 시간" oninput="updateSlug()">
+        <div class="script-pane-v2">
+
+          <!-- 네비게이터 -->
+          <div class="sc-nav" id="sc-nav">
+            <div class="sc-nav-top">
+              <div class="sc-nav-top-row">
+                <span class="sc-nav-title">SCENES</span>
+                <button class="sc-sel-all" id="sc-sel-all" onclick="toggleSelectAll()">전체 선택</button>
               </div>
-              <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-                <div class="script-view-toggle">
-                  <button class="svt-btn on" id="svt-single" onclick="setScriptView('single')">씬 보기</button>
-                  <button class="svt-btn" id="svt-full" onclick="setScriptView('full')">전체 보기</button>
-                </div>
-                <div class="sc-ctrls" id="sc-ctrls" style="display:none">
-                  <button class="state-cycler" id="state-cycler" onclick="cycleState()"></button>
-                  <button class="ctrl" id="ai-edit-btn" onclick="aiEditScene()" style="display:none">✦ AI 수정</button>
-                  <button class="ctrl red" onclick="delScene()">✕</button>
-                </div>
+              <!-- 다중 선택 AI 요청 바 -->
+              <div class="multi-req-bar" id="multi-req-bar">
+                <div class="multi-req-label" id="multi-req-label">선택된 씬에 AI 편집 요청</div>
+                <input class="multi-req-inp" id="multi-req-inp" placeholder="수정 지시: '전부 더 긴박하게' / '대사 간결하게'">
+                <button class="multi-req-btn" id="multi-req-btn" onclick="aiEditMultiple()">✦ 선택 씬 AI 수정</button>
               </div>
             </div>
-            <div class="req-bar" id="req-bar">
-              <input class="req-inp" id="req-inp" placeholder="수정 지시: '더 긴박하게' / '대사 줄여줘' / '밤 장면으로'" oninput="saveReqInst()">
-              <button class="req-ai-btn" id="req-ai-btn" onclick="aiEditScene()">✦ AI 적용</button>
-            </div>
-            <div class="sc-body" id="sc-body">
-              <div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text3);font-family:var(--fm);font-size:11px">← 씬을 선택하거나 새로 추가하세요</div>
+            <div class="sc-nav-list" id="scene-list"></div>
+            <div class="sc-nav-btm">
+              <button class="sc-nav-add" onclick="addScene()">+ 씬 추가</button>
             </div>
           </div>
+
+          <!-- 전체 대본 영역 -->
+          <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+            <!-- 상단 툴바 -->
+            <div class="sc-top-bar">
+              <div class="sc-top-bar-left">
+                <span style="font-size:10px;color:var(--text3);font-family:var(--fm)" id="sc-top-info">전체 대본</span>
+              </div>
+              <button class="sc-board-sync-btn" id="sc-board-sync-btn" onclick="syncAllToBoard()">↗ 콘티 반영</button>
+            </div>
+            <!-- 집중편집 배너 -->
+            <div class="focus-banner" id="focus-banner">
+              <span id="focus-banner-txt">집중편집 모드</span>
+              <button class="focus-exit-btn" onclick="exitFocusMode()">✕ 집중편집 종료</button>
+            </div>
+            <!-- 전체 대본 스크롤 영역 -->
+            <div class="sc-full-body" id="sc-full-body">
+              <div style="color:var(--text3);font-family:var(--fm);font-size:12px;text-align:center;padding:40px">씬을 추가하거나 AI와 대화해서 대본을 만들어보세요.</div>
+            </div>
+          </div>
+
         </div>
       </div>
 
-      <!-- 씬 콘티 탭 -->
+<!-- 씬 콘티 탭 -->
       <div class="tc" id="tc-board">
         <div class="board-pane">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
@@ -807,7 +915,7 @@ function selectProject(id) {
   document.getElementById('empty').style.display = 'none';
   document.getElementById('ws').style.display = 'flex';
   switchTab('chat');
-  renderMsgs(); renderSceneList(); renderChars(); renderBoard(); renderSynopsis(); renderPlan();
+  renderMsgs(); renderSceneList(); renderChars(); renderBoard(); renderSynopsis(); renderPlan(); renderFullScript();
   document.getElementById('syn-title').textContent = S.cur.title || '—';
   document.getElementById('syn-edit').value = S.cur.synopsis || '';
   clearSceneEditor();
@@ -1185,7 +1293,7 @@ function appendDetectCard(items) {
           return;
         }
       });
-      save(); renderSceneList(); renderBoard();
+      save(); renderSceneList(); renderBoard(); renderFullScript();
       card.remove();
       if (addedCount > 0) {
         toast(S.lang === 'ko' ? `✓ ${addedCount}개 항목이 추가됐습니다` : `✓ ${addedCount} item(s) added`);
@@ -1262,7 +1370,7 @@ async function buildFromChat(type) {
       const raw = await callClaude([{ role: 'user', content: prompt + '\n대화:\n' + all }], 'Return ONLY valid JSON.');
       const data = JSON.parse(raw.replace(/```json?|```/g, '').trim());
       const sc = makeScene(data.title || 'Scene', data.slug || '', data.lines || []);
-      S.cur.scenes.push(sc); save(); renderSceneList(); selectScene(sc.id); renderBoard(); switchTab('script');
+      S.cur.scenes.push(sc); save(); renderSceneList(); renderFullScript(); selectScene(sc.id); renderBoard(); switchTab('script');
       toast(S.lang === 'ko' ? `✓ 씬 "${sc.title}" 추가됨` : `✓ Scene "${sc.title}" added`);
     } catch(e) { alert('Error: ' + e.message); }
     btn.innerHTML = orig;
@@ -1289,122 +1397,363 @@ function makeScene(title, slug, lines) {
 // ════════════════════════════════════════════
 let dragSrc = null;
 
-function renderSceneList() {
-  const el = document.getElementById('scene-list'); el.innerHTML = '';
-  (S.cur?.scenes || []).forEach((sc, i) => {
-    const d = document.createElement('div');
-    d.className = `sc-card s-${sc.state}` + (S.curSc?.id === sc.id ? ' on' : '');
-    d.draggable = true; d.dataset.id = sc.id;
-    d.onclick = () => selectScene(sc.id);
 
-    d.addEventListener('dragstart', e => { dragSrc = sc.id; d.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+// ════════════════════════════════════════════
+// 대본 탭 — 전체 재설계
+// 전체 대본 항상 표시 + 네비 스크롤 연동
+// ════════════════════════════════════════════
+
+let selectedSceneIds = new Set(); // 다중 선택
+let focusSceneId = null;           // 집중편집 모드
+let lastSelectedIdx = null;        // Shift 클릭용
+
+// ── 씬 목록 (네비게이터) ──
+function renderSceneList() {
+  const el = document.getElementById('scene-list');
+  if (!el) return;
+  el.innerHTML = '';
+  const scenes = S.cur?.scenes || [];
+
+  scenes.forEach((sc, i) => {
+    const d = document.createElement('div');
+    d.className = 'sc-nav-item' + (focusSceneId === sc.id ? ' focused' : '');
+    d.dataset.id = sc.id;
+    d.dataset.idx = i;
+
+    // 체크박스
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'sc-nav-check';
+    cb.checked = selectedSceneIds.has(sc.id);
+    cb.onclick = e => {
+      e.stopPropagation();
+      if (e.shiftKey && lastSelectedIdx !== null) {
+        // Shift 클릭 — 범위 선택
+        const lo = Math.min(lastSelectedIdx, i);
+        const hi = Math.max(lastSelectedIdx, i);
+        for (let k = lo; k <= hi; k++) {
+          selectedSceneIds.add(scenes[k].id);
+        }
+      } else {
+        if (cb.checked) selectedSceneIds.add(sc.id);
+        else selectedSceneIds.delete(sc.id);
+        lastSelectedIdx = i;
+      }
+      updateMultiReqBar();
+      renderSceneList();
+    };
+    d.appendChild(cb);
+
+    // 정보 영역
+    const info = document.createElement('div');
+    info.className = 'sc-nav-info';
+
+    const num = document.createElement('div');
+    num.className = 'sc-nav-num';
+    num.textContent = 'SC ' + (i + 1);
+    info.appendChild(num);
+
+    const title = document.createElement('div');
+    title.className = 'sc-nav-sc-title';
+    title.textContent = sc.title;
+    info.appendChild(title);
+
+    if (sc.slug) {
+      const slug = document.createElement('div');
+      slug.className = 'sc-nav-slug-txt';
+      slug.textContent = sc.slug;
+      info.appendChild(slug);
+    }
+
+    // 배지
+    const badges = document.createElement('div');
+    badges.className = 'sc-nav-badges';
+    const bdgClass = { locked: 'bdg-locked', editable: 'bdg-editable', requested: 'bdg-requested' }[sc.state] || 'bdg-editable';
+    const bdgTxt = STATE_UI[S.lang][sc.state];
+    const bdg = document.createElement('span');
+    bdg.className = 'sc-bdg ' + bdgClass;
+    bdg.textContent = bdgTxt;
+    badges.appendChild(bdg);
+    const lockedLines = (sc.lines || []).filter(l => l.locked).length;
+    if (lockedLines > 0) {
+      const lb = document.createElement('span');
+      lb.style.cssText = 'font-size:9px;color:var(--text3);font-family:var(--fm)';
+      lb.textContent = '줄🔒' + lockedLines;
+      badges.appendChild(lb);
+    }
+    info.appendChild(badges);
+    d.appendChild(info);
+
+    // 클릭 — 해당 씬으로 스크롤 + 하이라이트
+    d.onclick = e => {
+      if (e.target === cb) return;
+      scrollToScene(sc.id);
+    };
+
+    // 드래그
+    d.draggable = true;
+    d.addEventListener('dragstart', ev => { dragSrc = sc.id; d.classList.add('dragging'); ev.dataTransfer.effectAllowed = 'move'; });
     d.addEventListener('dragend', () => { d.classList.remove('dragging'); document.querySelectorAll('.drag-over').forEach(x => x.classList.remove('drag-over')); });
-    d.addEventListener('dragover', e => { e.preventDefault(); d.classList.add('drag-over'); });
+    d.addEventListener('dragover', ev => { ev.preventDefault(); d.classList.add('drag-over'); });
     d.addEventListener('dragleave', () => d.classList.remove('drag-over'));
-    d.addEventListener('drop', e => {
-      e.preventDefault(); d.classList.remove('drag-over');
+    d.addEventListener('drop', ev => {
+      ev.preventDefault(); d.classList.remove('drag-over');
       if (dragSrc === sc.id) return;
       const arr = S.cur.scenes;
       const fi = arr.findIndex(s => s.id === dragSrc), ti = arr.findIndex(s => s.id === sc.id);
       const [moved] = arr.splice(fi, 1); arr.splice(ti, 0, moved);
-      save(); renderSceneList(); renderBoard();
+      save(); renderSceneList(); renderFullScript();
     });
 
-    const bdgClass = { locked: 'bdg-locked', editable: 'bdg-editable', requested: 'bdg-requested' }[sc.state];
-    const bdgTxt = STATE_UI[S.lang][sc.state];
-    const reqHint = sc.state === 'requested' && sc.reqInst ? `<div class="sc-req-hint">"${sc.reqInst}"</div>` : '';
-    // 줄 잠금 개수 표시
-    const lockedLines = (sc.lines || []).filter(l => l.locked).length;
-    const lockInfo = lockedLines > 0 ? `<span style="font-size:9px;color:var(--text3);font-family:var(--fm);margin-left:4px">줄🔒${lockedLines}</span>` : '';
-    d.innerHTML = `<div class="sc-num">SC ${i + 1}</div><div class="sc-ttl">${sc.title}</div><div style="display:flex;align-items:center;flex-wrap:wrap;gap:3px"><span class="sc-bdg ${bdgClass}">${bdgTxt}</span>${lockInfo}</div>${reqHint}`;
     el.appendChild(d);
+  });
+
+  // 전체 선택 버튼 상태
+  const selAll = document.getElementById('sc-sel-all');
+  if (selAll) {
+    const allSelected = scenes.length > 0 && scenes.every(sc => selectedSceneIds.has(sc.id));
+    selAll.classList.toggle('active', allSelected);
+    selAll.textContent = allSelected ? '전체 해제' : '전체 선택';
+  }
+
+  // 상단 info
+  const info = document.getElementById('sc-top-info');
+  if (info) info.textContent = 'SC ' + scenes.length + '개';
+}
+
+// 전체 선택/해제
+function toggleSelectAll() {
+  const scenes = S.cur?.scenes || [];
+  const allSelected = scenes.every(sc => selectedSceneIds.has(sc.id));
+  if (allSelected) selectedSceneIds.clear();
+  else scenes.forEach(sc => selectedSceneIds.add(sc.id));
+  updateMultiReqBar();
+  renderSceneList();
+}
+
+// 다중 선택 AI 요청 바
+function updateMultiReqBar() {
+  const bar = document.getElementById('multi-req-bar');
+  const lbl = document.getElementById('multi-req-label');
+  if (!bar) return;
+  if (selectedSceneIds.size > 0) {
+    bar.classList.add('show');
+    if (lbl) lbl.textContent = selectedSceneIds.size + '개 씬 AI 편집 요청';
+  } else {
+    bar.classList.remove('show');
+  }
+}
+
+// ── 씬으로 스크롤 ──
+function scrollToScene(id) {
+  const block = document.getElementById('scene-block-' + id);
+  if (!block) return;
+  block.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // 하이라이트
+  block.querySelectorAll('.scene-block-header').forEach(h => h.classList.add('highlighted'));
+  block.querySelectorAll('.scene-block-divider').forEach(d => d.classList.add('highlighted'));
+  setTimeout(() => {
+    block.querySelectorAll('.scene-block-header').forEach(h => h.classList.remove('highlighted'));
+    block.querySelectorAll('.scene-block-divider').forEach(d => d.classList.remove('highlighted'));
+  }, 2000);
+  // 네비 active 표시
+  document.querySelectorAll('.sc-nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.id == id);
   });
 }
 
-// ════════════════════════════════════════════
-// SCENES — 씬 선택 / 에디터
-// ════════════════════════════════════════════
-function selectScene(id) {
-  S.curSc = S.cur.scenes.find(s => s.id === id);
-  renderSceneList(); renderSceneEditor();
-  document.getElementById('sc-ctrls').style.display = 'flex';
+// ── 집중편집 모드 ──
+function enterFocusMode(scId) {
+  focusSceneId = scId;
+  const sc = S.cur.scenes.find(s => s.id === scId);
+  const banner = document.getElementById('focus-banner');
+  const bannerTxt = document.getElementById('focus-banner-txt');
+  if (banner) banner.classList.add('show');
+  if (bannerTxt && sc) bannerTxt.textContent = '집중편집: ' + sc.title;
+  // 다른 씬 접기
+  document.querySelectorAll('.scene-block').forEach(bl => {
+    if (bl.id === 'scene-block-' + scId) {
+      bl.classList.remove('collapsed');
+    } else {
+      bl.classList.add('collapsed');
+    }
+  });
+  renderSceneList();
+  scrollToScene(scId);
 }
 
-function clearSceneEditor() {
-  S.curSc = null;
-  document.getElementById('sc-tbig').value = S.lang === 'ko' ? '씬을 선택하세요' : 'Select a scene';
-  document.getElementById('slug-inp').value = '';
-  document.getElementById('sc-body').innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text3);font-family:var(--fm);font-size:11px">' + (S.lang === 'ko' ? '← 씬을 선택하거나 새로 추가하세요' : '← Select or add a scene') + '</div>';
-  document.getElementById('sc-ctrls').style.display = 'none';
-  document.getElementById('req-bar').classList.remove('show');
-  // 전체 보기 패널 초기 숨김
-  const fp = document.getElementById('full-script-pane');
-  if (fp) fp.classList.remove('fs-show');
-  scriptViewMode = 'single';
-  document.getElementById('svt-single').classList.add('on');
-  document.getElementById('svt-full').classList.remove('on');
-  // 콘티 반영 버튼 숨김
-  const sbb = document.getElementById('sync-board-btn');
-  if (sbb) sbb.classList.remove('show');
+function exitFocusMode() {
+  focusSceneId = null;
+  const banner = document.getElementById('focus-banner');
+  if (banner) banner.classList.remove('show');
+  document.querySelectorAll('.scene-block').forEach(bl => bl.classList.remove('collapsed'));
+  renderSceneList();
 }
 
-function renderSceneEditor() {
-  const sc = S.curSc; if (!sc) return;
-  document.getElementById('sc-tbig').value = sc.title;
-  document.getElementById('slug-inp').value = sc.slug || '';
-  updateStateCycler();
-  // 콘티 반영 버튼
-  const sbb = document.getElementById('sync-board-btn');
-  if (sbb) { sbb.classList.add('show'); sbb.classList.remove('synced'); sbb.textContent = '↗ 콘티 반영'; }
+// ── 전체 대본 렌더 ──
+function renderFullScript() {
+  const body = document.getElementById('sc-full-body');
+  if (!body) return;
+  body.innerHTML = '';
 
-  // 편집 요청 바
-  const rb = document.getElementById('req-bar');
-  const aib = document.getElementById('ai-edit-btn');
-  if (sc.state === 'requested') {
-    rb.classList.add('show');
-    aib.style.display = 'block';
-    document.getElementById('req-inp').value = sc.reqInst || '';
-  } else {
-    rb.classList.remove('show');
-    aib.style.display = 'none';
+  if (!S.cur?.scenes?.length) {
+    body.innerHTML = '<div style="color:var(--text3);font-family:var(--fm);font-size:12px;text-align:center;padding:40px">씬을 추가하거나 AI와 대화해서 대본을 만들어보세요.</div>';
+    return;
   }
 
-  // 씬 바디
-  const body = document.getElementById('sc-body'); body.innerHTML = '';
+  S.cur.scenes.forEach((sc, i) => {
+    const block = document.createElement('div');
+    block.className = 'scene-block' + (focusSceneId && focusSceneId !== sc.id ? ' collapsed' : '');
+    block.id = 'scene-block-' + sc.id;
 
-  if (sc.state === 'locked') {
-    // 잠금: 오버레이
-    renderLines(body, sc, true);
-    const ov = document.createElement('div'); ov.className = 'locked-overlay';
-    ov.innerHTML = `🔒 ${S.lang === 'ko' ? '씬 잠금됨 — 클릭하여 해제' : 'Scene locked — click to unlock'}`;
-    ov.onclick = () => { sc.state = 'editable'; save(); renderSceneEditor(); renderSceneList(); toast(S.lang === 'ko' ? '🔓 씬 잠금 해제됨' : '🔓 Scene unlocked'); };
-    body.appendChild(ov);
-  } else {
-    renderLines(body, sc, false);
-  }
+    // ── 씬 헤더 ──
+    const hdr = document.createElement('div');
+    hdr.className = 'scene-block-header';
+
+    const divL = document.createElement('div'); divL.className = 'scene-block-divider';
+    const numEl = document.createElement('div'); numEl.className = 'scene-block-num';
+    numEl.textContent = 'SC ' + (i + 1);
+    const divR = document.createElement('div'); divR.className = 'scene-block-divider';
+
+    // 제목 + 슬러그 wrap
+    const titleWrap = document.createElement('div');
+    titleWrap.className = 'scene-block-title-wrap';
+    const titleInp = document.createElement('input');
+    titleInp.className = 'scene-block-title-inp';
+    titleInp.value = sc.title;
+    titleInp.placeholder = '씬 제목';
+    titleInp.oninput = () => { sc.title = titleInp.value; save(); renderSceneList(); };
+    titleWrap.appendChild(titleInp);
+    const slugInp = document.createElement('input');
+    slugInp.className = 'scene-block-slug-inp';
+    slugInp.value = sc.slug || '';
+    slugInp.placeholder = 'INT. 장소 - 시간';
+    slugInp.oninput = () => { sc.slug = slugInp.value; save(); renderSceneList(); };
+    titleWrap.appendChild(slugInp);
+
+    // 씬 액션 버튼들
+    const acts = document.createElement('div');
+    acts.className = 'scene-block-actions';
+
+    // 잠금 버튼
+    const lockBtn = document.createElement('button');
+    lockBtn.className = 'sb-lock-btn' + (sc.state === 'locked' ? ' locked' : '');
+    lockBtn.textContent = sc.state === 'locked' ? '🔒 잠김' : '🔓 잠금';
+    lockBtn.onclick = () => {
+      sc.state = sc.state === 'locked' ? 'editable' : 'locked';
+      save(); renderFullScript(); renderSceneList();
+      toast(sc.state === 'locked' ? '🔒 씬 잠금됨' : '🔓 씬 잠금 해제');
+    };
+    acts.appendChild(lockBtn);
+
+    // AI 편집요청 버튼
+    const reqBtn = document.createElement('button');
+    reqBtn.className = 'sb-req-btn' + (sc.state === 'requested' ? ' active' : '');
+    reqBtn.textContent = sc.state === 'requested' ? '✎ 요청 중' : '✎ AI 편집';
+    reqBtn.onclick = () => {
+      if (sc.state === 'locked') { toast('잠금 해제 후 편집 요청하세요.'); return; }
+      sc.state = sc.state === 'requested' ? 'editable' : 'requested';
+      save(); renderFullScript(); renderSceneList();
+    };
+    acts.appendChild(reqBtn);
+
+    // 집중편집 버튼
+    const focusBtn = document.createElement('button');
+    focusBtn.className = 'sb-focus-btn';
+    focusBtn.textContent = focusSceneId === sc.id ? '◎ 집중중' : '◎ 집중편집';
+    focusBtn.onclick = () => {
+      if (focusSceneId === sc.id) exitFocusMode();
+      else enterFocusMode(sc.id);
+    };
+    acts.appendChild(focusBtn);
+
+    // 삭제 버튼
+    const delBtn = document.createElement('button');
+    delBtn.className = 'sb-del-btn';
+    delBtn.textContent = '✕';
+    delBtn.onclick = () => {
+      if (!confirm(S.lang === 'ko' ? '이 씬을 삭제할까요?' : 'Delete this scene?')) return;
+      S.cur.scenes = S.cur.scenes.filter(s => s.id !== sc.id);
+      selectedSceneIds.delete(sc.id);
+      if (focusSceneId === sc.id) exitFocusMode();
+      save(); renderSceneList(); renderFullScript(); renderBoard();
+    };
+    acts.appendChild(delBtn);
+
+    hdr.appendChild(divL);
+    hdr.appendChild(numEl);
+    hdr.appendChild(titleWrap);
+    hdr.appendChild(acts);
+    hdr.appendChild(divR);
+    block.appendChild(hdr);
+
+    // ── AI 편집요청 인라인 바 ──
+    const reqBar = document.createElement('div');
+    reqBar.className = 'scene-req-inline' + (sc.state === 'requested' ? ' show' : '');
+    const reqInp = document.createElement('input');
+    reqInp.className = 'scene-req-inline-inp';
+    reqInp.placeholder = '수정 지시: 더 긴박하게 / 대사 줄여줘 / 밤 장면으로';
+    reqInp.value = sc.reqInst || '';
+    reqInp.oninput = () => { sc.reqInst = reqInp.value; save(); };
+    const aiBtn = document.createElement('button');
+    aiBtn.className = 'scene-req-ai-btn';
+    aiBtn.textContent = '✦ AI 적용';
+    aiBtn.onclick = () => aiEditSingleScene(sc, aiBtn);
+    reqBar.appendChild(reqInp);
+    reqBar.appendChild(aiBtn);
+    block.appendChild(reqBar);
+
+    // ── 씬 대본 줄들 ──
+    const linesWrap = document.createElement('div');
+    linesWrap.className = 'scene-lines-wrap';
+    renderLinesInto(linesWrap, sc, sc.state === 'locked');
+    block.appendChild(linesWrap);
+
+    body.appendChild(block);
+  });
+
+  // 스크롤 감지 — 네비 토글
+  setupScrollSpy();
 }
 
-function updateStateCycler() {
-  const sc = S.curSc; if (!sc) return;
-  const btn = document.getElementById('state-cycler');
-  btn.className = 'state-cycler s-' + sc.state;
-  btn.textContent = STATE_UI[S.lang][sc.state];
+// 스크롤 감지 — 현재 보이는 씬 네비에서 active 처리
+function setupScrollSpy() {
+  const body = document.getElementById('sc-full-body');
+  if (!body) return;
+  body._scrollHandler && body.removeEventListener('scroll', body._scrollHandler);
+  body._scrollHandler = () => {
+    const blocks = body.querySelectorAll('.scene-block');
+    let activeId = null;
+    blocks.forEach(bl => {
+      const rect = bl.getBoundingClientRect();
+      const bodyRect = body.getBoundingClientRect();
+      if (rect.top - bodyRect.top < bodyRect.height * 0.4 && rect.bottom - bodyRect.top > 60) {
+        activeId = bl.id.replace('scene-block-', '');
+      }
+    });
+    if (activeId) {
+      document.querySelectorAll('.sc-nav-item').forEach(el => {
+        el.classList.toggle('active', el.dataset.id == activeId);
+      });
+    }
+  };
+  body.addEventListener('scroll', body._scrollHandler);
 }
 
-// ════════════════════════════════════════════
-// LINES — 줄 렌더 (핵심: 씬 잠금 + 줄 단위 잠금)
-// ════════════════════════════════════════════
-function renderLines(body, sc, sceneLocked) {
-  const block = document.createElement('div'); block.className = 'script-block';
+// ── 줄 렌더 (씬 블록 안에) ──
+function renderLinesInto(container, sc, sceneLocked) {
+  container.innerHTML = '';
+  const block = document.createElement('div');
+  block.className = 'script-block';
 
-  function createLineEl(line, i) {
+  sc.lines.forEach((line, i) => {
     const wrap = document.createElement('div');
     wrap.className = 'lw' + (line.locked ? ' ll' : '');
 
     // 줄 잠금 버튼
     if (!sceneLocked) {
       const lb = document.createElement('button'); lb.className = 'llbtn';
-      lb.title = line.locked ? (S.lang === 'ko' ? '줄 잠금 해제' : 'Unlock line') : (S.lang === 'ko' ? '이 줄 잠금' : 'Lock this line');
+      lb.title = line.locked ? '줄 잠금 해제' : '이 줄 잠금';
       lb.textContent = line.locked ? '🔒' : '○';
       lb.onclick = e => {
         e.stopPropagation();
@@ -1414,27 +1763,19 @@ function renderLines(body, sc, sceneLocked) {
         le.contentEditable = line.locked ? 'false' : 'true';
         ind.style.display = line.locked ? 'block' : 'none';
         save(); renderSceneList();
-        toast(line.locked ? (S.lang === 'ko' ? '🔒 줄 잠금됨' : '🔒 Line locked') : (S.lang === 'ko' ? '🔓 줄 잠금 해제' : '🔓 Line unlocked'));
+        toast(line.locked ? '🔒 줄 잠금됨' : '🔓 줄 잠금 해제');
       };
       wrap.appendChild(lb);
     }
 
-    // 줄 편집 요소
+    const TYPE_CLASS = { action:'s-action', character:'s-char', dialogue:'s-dlg', parenthetical:'s-paren', slug:'s-slug' };
     const le = document.createElement('div');
-    const TYPE_CLASS = { action: 's-action', character: 's-char', dialogue: 's-dlg', parenthetical: 's-paren', slug: 's-slug' };
     le.className = 'le ' + (TYPE_CLASS[line.type] || 's-action');
     le.contentEditable = (sceneLocked || line.locked) ? 'false' : 'true';
     le.textContent = line.text;
+    le.oninput = () => { line.text = le.textContent; save(); };
 
-    le.oninput = () => {
-      line.text = le.textContent;
-      save();
-      // 콘티 반영 버튼 활성화
-      const sbb = document.getElementById('sync-board-btn');
-      if (sbb) { sbb.classList.remove('synced'); sbb.textContent = '↗ 콘티 반영'; }
-    };
-
-    // 엔터키 처리 — 줄 추가
+    // 엔터키 — 배역명 아래 → 대사, 나머지 → 지문
     if (!sceneLocked && !line.locked) {
       le.onkeydown = e => {
         if (e.key === 'Enter') {
@@ -1443,50 +1784,45 @@ function renderLines(body, sc, sceneLocked) {
           const newLine = { type: nextType, text: '', locked: false };
           sc.lines.splice(i + 1, 0, newLine);
           save();
-          renderLines(body, sc, false); // 재렌더
-          // 새 줄로 포커스
+          renderLinesInto(container, sc, false);
           setTimeout(() => {
-            const allLe = body.querySelectorAll('.le');
+            const allLe = container.querySelectorAll('.le');
             if (allLe[i + 1]) allLe[i + 1].focus();
           }, 30);
         }
       };
     }
-
     wrap.appendChild(le);
 
-    // 잠금 인디케이터
     const ind = document.createElement('div'); ind.className = 'll-ind';
-    ind.textContent = S.lang === 'ko' ? '잠금' : 'locked';
+    ind.textContent = '잠금';
     ind.style.display = line.locked ? 'block' : 'none';
     wrap.appendChild(ind);
 
-    // 줄 추가 툴바 (잠금 아닐 때)
+    // 줄 추가/삭제 툴바
     if (!sceneLocked && !line.locked) {
       const addBar = document.createElement('div'); addBar.className = 'line-add-bar';
       const types = [
-        { type: 'action',        label: S.lang === 'ko' ? '+ 지문' : '+ Action' },
-        { type: 'character',     label: S.lang === 'ko' ? '+ 배역명' : '+ Character' },
-        { type: 'dialogue',      label: S.lang === 'ko' ? '+ 대사' : '+ Dialogue' },
-        { type: 'parenthetical', label: S.lang === 'ko' ? '+ 지시' : '+ Direction' },
+        { type: 'action', label: '+ 지문' },
+        { type: 'character', label: '+ 배역명' },
+        { type: 'dialogue', label: '+ 대사' },
+        { type: 'parenthetical', label: '+ 지시' },
       ];
       types.forEach(t => {
         const btn = document.createElement('button'); btn.className = 'add-line-btn';
         btn.textContent = t.label;
         btn.onclick = e => {
           e.stopPropagation();
-          const newLine = { type: t.type, text: '', locked: false };
-          sc.lines.splice(i + 1, 0, newLine);
+          sc.lines.splice(i + 1, 0, { type: t.type, text: '', locked: false });
           save();
-          renderLines(body, sc, false);
+          renderLinesInto(container, sc, false);
           setTimeout(() => {
-            const allLe = body.querySelectorAll('.le');
+            const allLe = container.querySelectorAll('.le');
             if (allLe[i + 1]) allLe[i + 1].focus();
           }, 30);
         };
         addBar.appendChild(btn);
       });
-      // 줄 삭제 버튼
       const delBtn = document.createElement('button'); delBtn.className = 'add-line-btn';
       delBtn.style.color = 'var(--red)'; delBtn.style.borderColor = 'rgba(224,96,96,.3)';
       delBtn.textContent = '✕';
@@ -1494,59 +1830,87 @@ function renderLines(body, sc, sceneLocked) {
         e.stopPropagation();
         if (sc.lines.length <= 1) return;
         sc.lines.splice(i, 1);
-        save(); renderLines(body, sc, false);
+        save(); renderLinesInto(container, sc, false);
       };
       addBar.appendChild(delBtn);
       wrap.appendChild(addBar);
     }
 
-    return wrap;
-  }
-
-  // 기존 내용 지우고 재렌더
-  block.innerHTML = '';
-  sc.lines.forEach((line, i) => {
-    block.appendChild(createLineEl(line, i));
+    block.appendChild(wrap);
   });
 
-  body.innerHTML = '';
-  body.appendChild(block);
+  container.appendChild(block);
 }
 
-// ════════════════════════════════════════════
-// SCENE ACTIONS
-// ════════════════════════════════════════════
-function cycleState() {
-  if (!S.curSc) return;
-  const idx = STATES.indexOf(S.curSc.state);
-  S.curSc.state = STATES[(idx + 1) % STATES.length];
-  save(); renderSceneEditor(); renderSceneList();
-  toast(STATE_UI[S.lang][S.curSc.state]);
+// ── AI 단일 씬 편집 ──
+async function aiEditSingleScene(sc, btn) {
+  if (!sc || sc.state === 'locked') return;
+  const inst = sc.reqInst || '이 씬을 더 극적으로 개선해주세요';
+  const origTxt = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳...'; }
+  try {
+    const linesWithLock = sc.lines.map((l, i) => ({ index: i, type: l.type, text: l.text, locked: l.locked || false }));
+    const sys = '당신은 전문 대본 작가입니다. locked:true 줄은 절대 수정하지 마세요. JSON 배열만 출력하세요.';
+    const prompt = '수정 요청: "' + inst + '"\n\n현재 씬 (locked:true 줄 수정 금지):\n' + JSON.stringify(linesWithLock, null, 2) + '\n\nJSON 배열만 출력: [{"type":"...","text":"...","locked":false},...]';
+    const raw = await callClaude([{ role: 'user', content: prompt }], sys, 3000);
+    const newLines = JSON.parse(raw.replace(/```json?|```/g, '').trim());
+    sc.lines = newLines.map((nl, i) => {
+      const old = sc.lines[i];
+      if (old && old.locked) return { ...old };
+      return { type: nl.type, text: nl.text, locked: nl.locked || false };
+    });
+    sc.state = 'editable';
+    save(); renderFullScript(); renderSceneList(); renderBoard();
+    toast('✓ 씬 수정 완료 (잠긴 줄 보존됨)');
+  } catch(e) { toast('Error: ' + e.message); }
+  if (btn) { btn.disabled = false; btn.textContent = origTxt || '✦ AI 적용'; }
 }
 
+// ── AI 다중 씬 편집 ──
+async function aiEditMultiple() {
+  if (selectedSceneIds.size === 0) { toast('씬을 선택해주세요.'); return; }
+  const inst = document.getElementById('multi-req-inp')?.value.trim() || '선택한 씬들을 개선해주세요';
+  const btn = document.getElementById('multi-req-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 처리 중...'; }
 
-function updateScTitle() {
-  if (S.curSc) {
-    S.curSc.title = document.getElementById('sc-tbig').value;
-    save(); renderSceneList();
-    // 콘티 반영 버튼 활성화
-    const sbb = document.getElementById('sync-board-btn');
-    if (sbb) { sbb.classList.remove('synced'); sbb.textContent = '↗ 콘티 반영'; }
+  const scenes = S.cur.scenes.filter(sc => selectedSceneIds.has(sc.id) && sc.state !== 'locked');
+  if (scenes.length === 0) { toast('선택한 씬이 모두 잠겨있습니다.'); if (btn) { btn.disabled = false; btn.textContent = '✦ 선택 씬 AI 수정'; } return; }
+
+  let doneCount = 0;
+  for (const sc of scenes) {
+    if (btn) btn.textContent = '⏳ ' + (doneCount + 1) + '/' + scenes.length + ' 처리 중...';
+    sc.reqInst = inst;
+    try {
+      const linesWithLock = sc.lines.map((l, i) => ({ index: i, type: l.type, text: l.text, locked: l.locked || false }));
+      const sys = '당신은 전문 대본 작가입니다. locked:true 줄은 절대 수정하지 마세요. JSON 배열만 출력하세요.';
+      const prompt = '수정 요청: "' + inst + '"\n\n씬 "' + sc.title + '" (locked:true 줄 수정 금지):\n' + JSON.stringify(linesWithLock, null, 2) + '\n\nJSON 배열만 출력: [{"type":"...","text":"...","locked":false},...]';
+      const raw = await callClaude([{ role: 'user', content: prompt }], sys, 3000);
+      const newLines = JSON.parse(raw.replace(/```json?|```/g, '').trim());
+      sc.lines = newLines.map((nl, i) => {
+        const old = sc.lines[i];
+        if (old && old.locked) return { ...old };
+        return { type: nl.type, text: nl.text, locked: nl.locked || false };
+      });
+      sc.state = 'editable';
+      doneCount++;
+    } catch(e) { toast('오류 (' + sc.title + '): ' + e.message); }
   }
+
+  selectedSceneIds.clear();
+  save(); renderSceneList(); renderFullScript(); renderBoard(); updateMultiReqBar();
+  toast('✓ ' + doneCount + '개 씬 수정 완료');
+  if (btn) { btn.disabled = false; btn.textContent = '✦ 선택 씬 AI 수정'; }
 }
 
-// 콘티 반영 버튼
-function syncSceneToBoard() {
+// ── 콘티 전체 반영 ──
+function syncAllToBoard() {
   renderBoard();
-  const sbb = document.getElementById('sync-board-btn');
-  if (sbb) { sbb.classList.add('synced'); sbb.textContent = '✓ 반영됨'; }
-  toast(S.lang === 'ko' ? '✓ 씬 콘티에 반영됐습니다' : '✓ Synced to storyboard');
-  setTimeout(() => { if (sbb) { sbb.classList.remove('synced'); sbb.textContent = '↗ 콘티 반영'; } }, 2000);
+  const btn = document.getElementById('sc-board-sync-btn');
+  if (btn) { btn.classList.add('synced'); btn.textContent = '✓ 반영됨'; setTimeout(() => { btn.classList.remove('synced'); btn.textContent = '↗ 콘티 반영'; }, 2000); }
+  toast('✓ 콘티에 반영됐습니다');
 }
 
-function updateSlug() { if (S.curSc) { S.curSc.slug = document.getElementById('slug-inp').value; save(); renderBoard(); } }
-function saveReqInst() { if (S.curSc) { S.curSc.reqInst = document.getElementById('req-inp').value; save(); renderSceneList(); } }
-
+// ── 씬 추가 ──
 function addScene() {
   if (!S.cur) return;
   const title = prompt(S.lang === 'ko' ? '씬 제목:' : 'Scene title:', S.lang === 'ko' ? '새 씬' : 'New Scene');
@@ -1556,853 +1920,28 @@ function addScene() {
     { type: 'character', text: S.lang === 'ko' ? '캐릭터' : 'CHARACTER' },
     { type: 'dialogue', text: S.lang === 'ko' ? '대사를 입력하세요.' : 'Enter dialogue.' },
   ]);
-  S.cur.scenes.push(sc); save(); renderSceneList(); selectScene(sc.id); renderBoard();
+  S.cur.scenes.push(sc);
+  save(); renderSceneList(); renderFullScript(); renderBoard();
+  setTimeout(() => scrollToScene(sc.id), 100);
 }
 
-function delScene() {
-  if (!S.curSc || !confirm(S.lang === 'ko' ? '이 씬을 삭제하시겠습니까?' : 'Delete this scene?')) return;
-  S.cur.scenes = S.cur.scenes.filter(s => s.id !== S.curSc.id);
-  save(); renderSceneList(); clearSceneEditor(); renderBoard();
+// ── 이제 사용 안 하지만 다른 코드에서 참조하는 stub ──
+function selectScene(id) { scrollToScene(id); }
+function clearSceneEditor() { selectedSceneIds.clear(); focusSceneId = null; updateMultiReqBar(); }
+function renderSceneEditor() {}
+function updateStateCycler() {}
+function cycleState() {
+  if (!S.curSc) return;
+  const idx = STATES.indexOf(S.curSc.state);
+  S.curSc.state = STATES[(idx + 1) % STATES.length];
+  save(); renderSceneList(); renderFullScript();
 }
-
-// ════════════════════════════════════════════
-// AI 씬 수정 — 잠긴 줄 보존
-// ════════════════════════════════════════════
-async function aiEditScene() {
-  if (!S.curSc || S.curSc.state === 'locked') return;
-  const sc = S.curSc;
-  const inst = sc.reqInst || (S.lang === 'ko' ? '이 씬을 더 극적으로 개선해주세요' : 'Improve this scene dramatically');
-
-  const btn = document.getElementById('req-ai-btn');
-  const btn2 = document.getElementById('ai-edit-btn');
-  const loading = S.lang === 'ko' ? '⏳ 생성 중...' : '⏳ Generating...';
-  if (btn) { btn.disabled = true; btn.textContent = loading; }
-  if (btn2) { btn2.disabled = true; btn2.textContent = loading; }
-
-  try {
-    // 잠긴 줄 정보 포함해서 프롬프트 작성
-    const linesWithLockInfo = sc.lines.map((l, i) => ({
-      index: i, type: l.type, text: l.text, locked: l.locked || false,
-    }));
-
-    const sys = S.lang === 'ko'
-      ? '당신은 전문 대본 작가입니다. 씬을 수정할 때 locked:true인 줄은 절대 수정하지 말고 원문 그대로 유지하세요. JSON 배열만 출력하세요.'
-      : 'You are a professional screenwriter. Never modify lines where locked:true. Output ONLY JSON array.';
-
-    const prompt = S.lang === 'ko'
-      ? `수정 요청: "${inst}"\n\n현재 씬 (locked:true 줄은 수정 금지):\n${JSON.stringify(linesWithLockInfo, null, 2)}\n\nJSON 배열만 출력: [{"type":"...","text":"...","locked":false},...]`
-      : `Revision: "${inst}"\n\nCurrent scene (do NOT modify locked:true lines):\n${JSON.stringify(linesWithLockInfo, null, 2)}\n\nOutput ONLY JSON array: [{"type":"...","text":"...","locked":false},...]`;
-
-    const raw = await callClaude([{ role: 'user', content: prompt }], sys);
-    const newLines = JSON.parse(raw.replace(/```json?|```/g, '').trim());
-
-    // 잠긴 줄 보존 — 같은 인덱스의 잠긴 줄은 원본으로 복구
-    sc.lines = newLines.map((nl, i) => {
-      const old = sc.lines[i];
-      if (old && old.locked) return { ...old }; // 잠긴 줄은 원본 유지
-      return { type: nl.type, text: nl.text, locked: nl.locked || false };
-    });
-
-    sc.state = 'editable';
-    save(); renderSceneEditor(); renderSceneList(); renderBoard();
-    // 제목 input 업데이트
-    const titleEl = document.getElementById('sc-tbig');
-    if (titleEl && sc.title) titleEl.value = sc.title;
-    toast(S.lang === 'ko' ? '✓ 씬 수정 완료 (잠긴 줄 보존됨)' : '✓ Scene updated (locked lines preserved)');
-  } catch(e) {
-    alert('Error: ' + e.message);
-  }
-
-  if (btn) { btn.disabled = false; btn.textContent = '✦ AI 적용'; }
-  if (btn2) { btn2.disabled = false; btn2.textContent = '✦ AI 수정'; }
-}
-
-// ════════════════════════════════════════════
-// PLANNING
-// ════════════════════════════════════════════
-function renderPlan() {
-  if (!S.cur) return;
-  ['intent', 'theme', 'impact'].forEach(k => {
-    const el = document.getElementById('pi-' + k);
-    el.textContent = S.cur.planning[k] || (S.lang === 'ko' ? 'AI 대화 탭에서 생성하거나 직접 입력하세요.' : 'Generate from AI Chat or type directly.');
-    el.oninput = function() { S.cur.planning[k] = this.textContent; save(); };
-  });
-}
-
-async function regenField(field) {
-  if (!S.cur) return;
-  const labels = {
-    intent: S.lang === 'ko' ? '기획 의도' : 'project intent',
-    theme: S.lang === 'ko' ? '주제' : 'theme',
-    impact: S.lang === 'ko' ? '기대 효과' : 'expected impact',
-  };
-  const el = document.getElementById('pi-' + field); el.textContent = '⏳...';
-  try {
-    const txt = await callClaude([{ role: 'user', content: S.lang === 'ko' ? `"${S.cur.title}" (${S.cur.medium})의 ${labels[field]}를 2-3문단으로 작성하세요.` : `Write the ${labels[field]} for "${S.cur.title}" (${S.cur.medium}) in 2-3 paragraphs.` }]);
-    el.textContent = txt; S.cur.planning[field] = txt; save();
-  } catch(e) { el.textContent = ''; }
-}
-
-// ════════════════════════════════════════════
-// SYNOPSIS
-// ════════════════════════════════════════════
-function renderSynopsis() {
-  const el = document.getElementById('syn-body');
-  const syn = S.cur?.synopsis;
-  if (!syn) { el.innerHTML = `<div style="color:var(--text3);font-family:var(--fm);font-size:11px">${S.lang === 'ko' ? 'AI 재생성 버튼을 누르거나 아래에 직접 입력하세요.' : 'Click Regenerate or type below.'}</div>`; return; }
-  const parts = syn.split(/(?=\n?(?:1막|2막|3막|Act [123]|1부|2부))/i);
-  el.innerHTML = parts.map(p => {
-    const t = p.trim(); const m = t.match(/^(1막|2막|3막|Act [123]|1부|2부)/i);
-    if (m) return `<div class="syn-act"><div class="syn-act-lbl">${m[0]}</div><div class="syn-act-txt">${t.replace(m[0], '').trim()}</div></div>`;
-    return t ? `<div class="syn-act-txt" style="margin-bottom:10px">${t}</div>` : '';
-  }).join('');
-}
-
-function saveSynEdit() { if (S.cur) { S.cur.synopsis = document.getElementById('syn-edit').value; save(); renderSynopsis(); } }
-
-async function regenSynopsis() {
-  if (!S.cur) return;
-  const chars = (S.cur.characters || []).map(c => c.name).join(', ');
-  document.getElementById('syn-body').innerHTML = '<div style="color:var(--text3);font-family:var(--fm);font-size:11px">⏳...</div>';
-  try {
-    const txt = await callClaude([{ role: 'user', content: S.lang === 'ko' ? `"${S.cur.title}" (${S.cur.medium})의 3막 구조 시놉시스를 작성하세요. 인물: ${chars || '미정'}.` : `Write a 3-act synopsis for "${S.cur.title}" (${S.cur.medium}). Characters: ${chars || 'TBD'}.` }]);
-    S.cur.synopsis = txt;
-    document.getElementById('syn-edit').value = txt;
-    save(); renderSynopsis();
-  } catch(e) {}
-}
-
-// ════════════════════════════════════════════
-// CHARACTERS
-// ════════════════════════════════════════════
-function renderChars() {
-  const grid = document.getElementById('chars-grid'); grid.innerHTML = '';
-  (S.cur?.characters || []).forEach(c => {
-    const card = document.createElement('div'); card.className = 'char-card';
-    card.innerHTML = `<div class="char-av">${(c.name || '?').charAt(0)}</div><div class="char-name">${c.name}</div><div class="char-role">${c.role || ''}</div><div class="char-desc">${c.description || ''}</div><div class="char-traits">${(c.traits || []).map(t => `<span class="trait">${t}</span>`).join('')}</div>`;
-    grid.appendChild(card);
-  });
-  const add = document.createElement('div'); add.className = 'add-char'; add.onclick = addChar;
-  add.innerHTML = `<div style="font-size:18px;color:var(--text3)">+</div><div style="font-size:10px;color:var(--text3)">${S.lang === 'ko' ? '인물 추가' : 'Add Character'}</div>`;
-  grid.appendChild(add);
-  renderRelGraph(); renderImageBible();
-}
-
-function addChar() {
-  const name = prompt(S.lang === 'ko' ? '인물 이름:' : 'Name:'); if (!name) return;
-  const role = prompt(S.lang === 'ko' ? '역할:' : 'Role:', '');
-  const desc = prompt(S.lang === 'ko' ? '성격/설명:' : 'Description:', '');
-  S.cur.characters.push({ name, role, description: desc, traits: [] }); save(); renderChars();
-}
-
-function renderRelGraph() {
-  const chars = S.cur?.characters || [];
-  const container = document.getElementById('rel-g');
-  container.querySelectorAll('.rel-node,.rel-lbl').forEach(e => e.remove());
-  const svg = document.getElementById('rsvg'); svg.innerHTML = '';
-  if (!chars.length) return;
-  const W = container.offsetWidth || 440, H = 220;
-  const colors = [
-    { bg: 'rgba(200,169,110,.15)', bc: '#c8a96e', tc: '#c8a96e' },
-    { bg: 'rgba(110,168,200,.15)', bc: '#6ea8c8', tc: '#6ea8c8' },
-    { bg: 'rgba(160,136,200,.15)', bc: '#a088c8', tc: '#a088c8' },
-    { bg: 'rgba(200,136,168,.15)', bc: '#c888a8', tc: '#c888a8' },
-    { bg: 'rgba(110,200,154,.15)', bc: '#6ec89a', tc: '#6ec89a' },
-  ];
-  const pos = [];
-  chars.slice(0, 6).forEach((c, i) => {
-    const angle = (i / Math.min(chars.length, 6)) * Math.PI * 2 - Math.PI / 2;
-    const r = Math.min(W, H) / 2.9;
-    const cx = W / 2 + r * Math.cos(angle), cy = H / 2 + r * Math.sin(angle);
-    pos.push({ cx, cy });
-    const cl = colors[i % colors.length];
-    const node = document.createElement('div'); node.className = 'rel-node';
-    node.style.cssText = `left:${cx - 26}px;top:${cy - 26}px;background:${cl.bg};border-color:${cl.bc};color:${cl.tc}`;
-    node.textContent = c.name.slice(0, 4); container.appendChild(node);
-    const lbl = document.createElement('div'); lbl.className = 'rel-lbl';
-    lbl.style.cssText = `left:${cx - 6}px;top:${cy + 30}px;position:absolute;color:var(--text3)`;
-    lbl.textContent = c.role || ''; container.appendChild(lbl);
-  });
-  pos.forEach((a, i) => pos.forEach((b, j) => {
-    if (j <= i) return;
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', a.cx); line.setAttribute('y1', a.cy);
-    line.setAttribute('x2', b.cx); line.setAttribute('y2', b.cy);
-    line.setAttribute('stroke', 'rgba(255,255,255,.05)'); line.setAttribute('stroke-width', '1');
-    svg.appendChild(line);
-  }));
-}
-
-async function genImageBible() {
-  if (!S.cur?.characters?.length) { alert(S.lang === 'ko' ? '먼저 등장인물을 추가하세요.' : 'Add characters first.'); return; }
-  const charList = S.cur.characters.map(c => `이름: ${c.name}\n역할: ${c.role}\n성격: ${c.description}\n특성: ${(c.traits || []).join(', ')}`).join('\n\n');
-  const sec = document.getElementById('img-bible-sec');
-  const cards = document.getElementById('img-cards');
-  sec.style.display = 'block'; cards.innerHTML = `<div style="color:var(--text3);font-family:var(--fm);font-size:11px;padding:8px">⏳ ${S.lang === 'ko' ? '생성 중...' : 'Generating...'}</div>`;
-  try {
-    const raw = await callClaude([{ role: 'user', content: S.lang === 'ko' ? `다음 인물들의 AI 이미지 생성 프롬프트를 영어로 작성하세요. JSON만 출력: [{"name":"...","prompt":"detailed English image prompt...","style":"..."}]\n\n${charList}` : `Write AI image prompts for these characters. JSON only: [{"name":"...","prompt":"...","style":"..."}]\n\n${charList}` }], 'Return ONLY valid JSON array.');
-    const data = JSON.parse(raw.replace(/```json?|```/g, '').trim());
-    S.cur.imageBible = data; save(); renderImageBible();
-  } catch(e) { cards.innerHTML = `<div style="color:var(--red);font-size:11px">Error: ${e.message}</div>`; }
-}
-
-function renderImageBible() {
-  const sec = document.getElementById('img-bible-sec');
-  const ib = S.cur?.imageBible || [];
-  if (!ib.length) { sec.style.display = 'none'; return; }
-  sec.style.display = 'block';
-  const cards = document.getElementById('img-cards'); cards.innerHTML = '';
-  ib.forEach(item => {
-    const card = document.createElement('div'); card.className = 'img-card';
-    const sid = 'ip_' + item.name.replace(/[^a-zA-Z0-9]/g, '_');
-    card.innerHTML = `<div class="img-card-hdr"><div class="img-card-av">${(item.name || '?').charAt(0)}</div><div class="img-card-name">${item.name}</div></div><div class="img-prompt-box"><div class="img-prompt-txt" id="${sid}">${item.prompt}</div><button class="img-copy" onclick="copyImgP('${sid}')">📋 복사</button></div>`;
-    cards.appendChild(card);
-  });
-}
-
-function copyImgP(id) {
-  const el = document.getElementById(id); if (!el) return;
-  navigator.clipboard.writeText(el.textContent).then(() => {
-    const btn = el.nextElementSibling;
-    btn.textContent = '✓ 복사됨!'; btn.classList.add('ok');
-    setTimeout(() => { btn.textContent = '📋 복사'; btn.classList.remove('ok'); }, 2000);
-  });
-}
-
-async function checkConsistency() {
-  if (!S.cur?.characters?.length) { alert(S.lang === 'ko' ? '등장인물이 없습니다.' : 'No characters.'); return; }
-  const allDlg = (S.cur.scenes || []).flatMap(sc => sc.lines.filter(l => l.type === 'dialogue' || l.type === 'character').map(l => l.text)).join('\n');
-  if (!allDlg.trim()) { alert(S.lang === 'ko' ? '대본에 대사가 없습니다.' : 'No dialogue in script.'); return; }
-  switchTab('chars');
-  const grid = document.getElementById('chars-grid');
-  const res = document.createElement('div');
-  res.style.cssText = 'grid-column:1/-1;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:16px';
-  res.innerHTML = `<div style="font-family:var(--fm);font-size:11px;color:var(--accent);margin-bottom:10px">🔍 ${S.lang === 'ko' ? '분석 중...' : 'Analyzing...'}</div>`;
-  grid.insertBefore(res, grid.lastChild);
-  try {
-    const raw = await callClaude([{ role: 'user', content: S.lang === 'ko' ? `등장인물 성격과 대사를 분석해 일관성 문제를 찾아주세요.\n인물: ${JSON.stringify(S.cur.characters)}\n대사:\n${allDlg}\nJSON만: [{"name":"...","issues":["..."],"score":0-100}]` : `Analyze character consistency.\nCharacters: ${JSON.stringify(S.cur.characters)}\nDialogue:\n${allDlg}\nJSON only: [{"name":"...","issues":["..."],"score":0-100}]` }], 'Return ONLY valid JSON array.');
-    const results = JSON.parse(raw.replace(/```json?|```/g, '').trim());
-    res.innerHTML = `<div style="font-family:var(--fm);font-size:11px;color:var(--accent);margin-bottom:12px">🔍 ${S.lang === 'ko' ? '성격 일관성 검사 결과' : 'Consistency Check'}</div>` +
-      results.map(r => {
-        const color = r.score >= 80 ? 'var(--green)' : r.score >= 50 ? 'var(--accent)' : 'var(--red)';
-        const issues = (r.issues || []).map(i => `<div style="font-size:11px;color:var(--text2);padding:3px 0;border-bottom:1px solid var(--border)">• ${i}</div>`).join('');
-        return `<div style="margin-bottom:10px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:5px"><span style="font-size:12px">${r.name}</span><span style="font-size:11px;color:${color};font-family:var(--fm)">${r.score}/100</span></div>${issues || `<div style="font-size:11px;color:var(--green)">✓ ${S.lang === 'ko' ? '일관성 이상 없음' : 'No issues'}</div>`}</div>`;
-      }).join('');
-  } catch(e) { res.innerHTML = `<div style="color:var(--red);font-size:11px">Error: ${e.message}</div>`; }
-}
-
-// ════════════════════════════════════════════
-// BOARD
-// ════════════════════════════════════════════
-function renderBoard() {
-  const el = document.getElementById('board-content'); el.innerHTML = '';
-  if (!S.cur?.scenes?.length) {
-    el.innerHTML = `<div style="color:var(--text3);font-family:var(--fm);font-size:11px">${S.lang === 'ko' ? '대본 탭에서 씬을 추가하면 여기에 표시됩니다.' : 'Add scenes in the Script tab.'}</div>`;
-    return;
-  }
-  const icons = { action: '🎬', character: '👤', dialogue: '💬', parenthetical: '📝' };
-  const stateColors = { locked: 'rgba(90,88,85,.3)', editable: 'rgba(200,169,110,.2)', requested: 'rgba(232,168,74,.2)' };
-  S.cur.scenes.forEach((sc, i) => {
-    const d = document.createElement('div'); d.className = 'board-sc';
-    const frames = sc.lines.slice(0, 4).map(l =>
-      `<div class="board-frame"><div class="board-frame-icon">${icons[l.type] || '📝'}</div>${l.locked ? '<div class="lock-badge">🔒</div>' : ''}<div class="board-frame-desc">${l.text.slice(0, 58)}${l.text.length > 58 ? '...' : ''}</div></div>`
-    ).join('');
-    const lockedCount = sc.lines.filter(l => l.locked).length;
-    const lockInfo = lockedCount > 0 ? `<span style="font-size:9px;color:var(--text3);font-family:var(--fm)">줄🔒${lockedCount}</span>` : '';
-    d.innerHTML = `<div class="board-sc-hdr"><span class="board-sc-lbl">SC ${i + 1} — ${sc.title}</span><div style="display:flex;align-items:center;gap:6px"><span style="font-size:9px;padding:2px 7px;border-radius:3px;background:${stateColors[sc.state]};color:${sc.state === 'requested' ? 'var(--amber)' : sc.state === 'locked' ? 'var(--text3)' : 'var(--accent)'};font-family:var(--fm)">${STATE_UI[S.lang][sc.state]}</span>${lockInfo}</div></div><div class="board-frames">${frames}</div>`;
-    el.appendChild(d);
-  });
-}
-
-// ════════════════════════════════════════════
-// EXPORT
-// ════════════════════════════════════════════
-function exportDoc(type) {
-  if (!S.cur) { toast(S.lang === 'ko' ? '프로젝트를 선택해주세요.' : 'Select a project first.'); return; }
-  const p = S.cur, ko = S.lang === 'ko';
-  let body = `<h1 style="font-family:Georgia,serif;color:#b8924a;text-align:center;font-size:24pt">${p.title}</h1><p style="text-align:center;color:#888;margin-bottom:36px">${p.medium}</p>`;
-  if (type === 'script' || type === 'all') {
-    body += `<h2 style="font-family:Georgia,serif;border-bottom:1px solid #c8a96e;padding-bottom:5px">${ko ? '대본' : 'Script'}</h2>`;
-    (p.scenes || []).forEach((sc, i) => {
-      body += `<div style="margin:28px 0"><p style="color:#b8924a;font-weight:bold">SC ${i + 1} — ${sc.title}${sc.state === 'locked' ? ' 🔒' : ''}</p><p style="color:#888;font-style:italic;font-size:10pt">${sc.slug || ''}</p>`;
-      (sc.lines || []).forEach(l => {
-        const lk = l.locked ? '<span style="font-size:7pt;color:#aaa"> [🔒]</span>' : '';
-        if (l.type === 'action') body += `<p style="color:#444;margin:3px 0">${l.text}${lk}</p>`;
-        else if (l.type === 'character') body += `<p style="text-align:center;font-weight:bold;margin:10px 0 0">${l.text}</p>`;
-        else if (l.type === 'dialogue') body += `<p style="text-align:center;margin:0 70px;line-height:1.8">${l.text}${lk}</p>`;
-        else if (l.type === 'parenthetical') body += `<p style="text-align:center;color:#888;font-style:italic">(${l.text})</p>`;
-      });
-      body += `</div>`;
-    });
-  }
-  if (type === 'planning') {
-    [['기획 의도', p.planning.intent], ['주제', p.planning.theme], ['기대 효과', p.planning.impact]]
-      .forEach(([k, v]) => { if (v) body += `<h3>${k}</h3><p style="line-height:1.8">${v.replace(/\n/g, '<br>')}</p>`; });
-  }
-  if (type === 'synopsis') body += `<p style="line-height:1.9;border-left:3px solid #c8a96e;padding-left:12px">${(p.synopsis || '').replace(/\n/g, '<br>')}</p>`;
-  if (type === 'chars') {
-    (p.characters || []).forEach(c => { body += `<div style="margin:14px 0;padding:10px;border:1px solid #ddd;border-radius:4px"><p style="font-weight:bold">${c.name}</p><p style="color:#b8924a;font-size:10pt">${c.role || ''}</p><p>${c.description || ''}</p></div>`; });
-    (p.imageBible || []).forEach(ib => { body += `<div style="margin:8px 0;padding:8px;background:#f8f5ef;border-radius:4px"><p style="font-weight:bold">${ib.name}</p><p style="font-family:monospace;font-size:10pt;color:#555">${ib.prompt}</p></div>`; });
-  }
-  if (type === 'board') (p.scenes || []).forEach((sc, i) => {
-    body += `<p style="color:#b8924a;font-weight:bold;margin-top:16px">SC ${i + 1} — ${sc.title}</p>`;
-    (sc.lines || []).slice(0, 6).forEach(l => { body += `<p style="font-size:10pt;color:#666;margin:1px 0">[${l.type}${l.locked ? '🔒' : ''}] ${l.text.slice(0, 100)}</p>`; });
-  });
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:'Apple SD Gothic Neo',Malgun Gothic,sans-serif;max-width:750px;margin:36px auto;padding:28px;line-height:1.65;color:#333}</style></head><body>${body}</body></html>`;
-  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' })), download: `${p.title}_${type}.html` });
-  a.click(); URL.revokeObjectURL(a.href);
-  toast('✓ 파일 다운로드됨');
-}
-
-
-// ════════════════════════════════════════════
-// DOCX / TXT / MD 업로드
-// ════════════════════════════════════════════
-let uploadedText = '';
-let uploadedFileName = '';
-
-function handleFileDrop(e) {
-  e.preventDefault();
-  document.getElementById('upload-zone').classList.remove('drag');
-  const file = e.dataTransfer.files[0];
-  if (file) processUploadedFile(file);
-}
-function handleFileInput(e) {
-  const file = e.target.files[0];
-  if (file) processUploadedFile(file);
-}
-
-async function processUploadedFile(file) {
-  uploadedFileName = file.name;
-  const ext = file.name.split('.').pop().toLowerCase();
-  setUploadProgress(10, S.lang === 'ko' ? '파일 읽는 중...' : 'Reading file...');
-
-  try {
-    if (ext === 'docx') {
-      setUploadProgress(30, S.lang === 'ko' ? 'mammoth.js 로드 중...' : 'Loading mammoth.js...');
-      await loadMammoth();
-      setUploadProgress(60, S.lang === 'ko' ? 'docx 변환 중...' : 'Converting docx...');
-      const arrayBuffer = await readFileAsArrayBuffer(file);
-      // 구글 독스 포함 범용 옵션
-      let result;
-      try {
-        result = await mammoth.extractRawText({
-          arrayBuffer,
-          options: {
-            styleMap: [
-              "p[style-name='Normal'] => p:fresh",
-              "p[style-name='Body Text'] => p:fresh",
-            ]
-          }
-        });
-      } catch(e1) {
-        // 옵션 없이 재시도
-        result = await mammoth.extractRawText({ arrayBuffer });
-      }
-      uploadedText = result.value.trim();
-      // 구글 독스는 메시지가 다를 수 있어서 warnings 도 체크
-      if (!uploadedText && result.messages && result.messages.length > 0) {
-        throw new Error(result.messages[0].message || (S.lang === 'ko' ? 'docx 내용을 읽을 수 없습니다.' : 'Could not read docx content.'));
-      }
-      if (!uploadedText) throw new Error(S.lang === 'ko' ? 'docx 내용을 읽을 수 없습니다. 파일이 비어있거나 보호되어 있습니다.' : 'Could not read docx content. File may be empty or protected.');
-    } else {
-      // txt / md — UTF-8 명시
-      setUploadProgress(40, S.lang === 'ko' ? '텍스트 읽는 중...' : 'Reading text...');
-      uploadedText = await readFileAsText(file);
-    }
-
-    setUploadProgress(100, S.lang === 'ko' ? '완료!' : 'Done!');
-    setTimeout(() => {
-      document.getElementById('upload-progress').classList.remove('show');
-      showUploadResult(uploadedText, file.name);
-    }, 400);
-  } catch(e) {
-    setUploadProgress(0, '오류: ' + e.message);
-    document.getElementById('upload-progress').classList.remove('show');
-    toast((S.lang === 'ko' ? '파일 읽기 실패: ' : 'File read failed: ') + e.message);
-  }
-}
-
-// FileReader 헬퍼 — ArrayBuffer
-function readFileAsArrayBuffer(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = e => resolve(e.target.result);
-    reader.onerror = () => reject(new Error('FileReader ArrayBuffer 오류'));
-    reader.readAsArrayBuffer(file);
-  });
-}
-
-// FileReader 헬퍼 — Text (UTF-8 명시)
-function readFileAsText(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = e => resolve(e.target.result);
-    reader.onerror = () => reject(new Error('FileReader Text 오류'));
-    reader.readAsText(file, 'UTF-8');
-  });
-}
-
-function setUploadProgress(pct, txt) {
-  const prog = document.getElementById('upload-progress');
-  prog.classList.add('show');
-  document.getElementById('upload-prog-fill').style.width = pct + '%';
-  document.getElementById('upload-prog-txt').textContent = txt;
-}
-
-function showUploadResult(text, filename) {
-  const kb = Math.round(text.length / 1000 * 10) / 10;
-  const charCount = text.length.toLocaleString();
-  document.getElementById('upload-result-title').textContent =
-    `✦ ${filename} · ${kb}KB · ${charCount}자`;
-  document.getElementById('upload-result-preview').textContent = text; // 전체 표시
-  document.getElementById('upload-result').classList.add('show');
-}
-
-function clearUpload() {
-  uploadedText = '';
-  uploadedFileName = '';
-  document.getElementById('upload-result').classList.remove('show');
-  document.getElementById('upload-progress').classList.remove('show');
-  document.getElementById('upload-prog-fill').style.width = '0%';
-  // 파일 인풋 초기화
-  const inp = document.querySelector('#upload-zone input');
-  if (inp) inp.value = '';
-}
-
-// mammoth.js 동적 로드
-let mammothLoaded = false;
-async function loadMammoth() {
-  if (mammothLoaded) return;
-  return new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js';
-    s.onload = () => { mammothLoaded = true; resolve(); };
-    s.onerror = () => reject(new Error('mammoth.js 로드 실패'));
-    document.head.appendChild(s);
-  });
-}
-
-// ════════════════════════════════════════════
-// 파일 분석 — 2단계 방식
-// 1단계: 씬 목록 추출 (전체 텍스트 스캔, 저렴)
-// 2단계: 선택한 씬만 변환 (12,000글자 단위)
-// ════════════════════════════════════════════
-const CHUNK_SIZE = 20000; // 글자 수 기준
-
-async function analyzeUploadedDoc() {
-  if (!uploadedText) return;
-  if (!S.cur) { toast(S.lang === 'ko' ? '프로젝트를 먼저 선택하세요.' : 'Select a project first.'); return; }
-
-  const btn = document.getElementById('upload-analyze-btn');
-  btn.disabled = true;
-  btn.textContent = '⏳ ' + (S.lang === 'ko' ? '1단계: 씬 목록 파악 중...' : 'Step 1: Scanning scenes...');
-
-  try {
-    // ── 1단계: 전체 텍스트에서 씬 목록만 추출 ──
-    const totalLen = uploadedText.length;
-    const sampleSize = 8000;
-    let structureSample;
-    if (totalLen <= sampleSize) {
-      structureSample = uploadedText;
-    } else {
-      const mid = Math.floor(totalLen / 2);
-      const ellipsis = '\n...(중략)...\n';
-      structureSample =
-        uploadedText.slice(0, 4000) + ellipsis +
-        uploadedText.slice(mid - 1000, mid + 1000) + ellipsis +
-        uploadedText.slice(-2000);
-    }
-
-    const scanPromptKo = '다음 대본/시나리오 파일의 구조를 파악해주세요. 씬(장면) 목록을 JSON으로만 출력해주세요.' +
-      '\n씬을 구분할 수 없으면 내용 기준으로 자연스럽게 나눠주세요 (최대 20개).' +
-      '\n각 씬의 대략적인 시작 위치(글자 인덱스)도 포함해주세요.' +
-      '\nJSON만 출력: [{"index":0,"title":"씬 제목","slug":"INT. 장소 - 시간","startChar":0,"preview":"첫 줄..."}]' +
-      '\n\n파일 내용 (샘플):\n' + structureSample;
-
-    const scanPromptEn = 'Analyze the structure of this script. Output ONLY a JSON list of scenes (max 20).' +
-      '\nInclude approximate character index of each scene start.' +
-      '\nJSON only: [{"index":0,"title":"Scene Title","slug":"INT. LOCATION - DAY","startChar":0,"preview":"First line..."}]' +
-      '\n\nContent (sample):\n' + structureSample;
-
-    const scanPrompt = S.lang === 'ko' ? scanPromptKo : scanPromptEn;
-
-    const scanReply = await callClaude(
-      [{ role: 'user', content: scanPrompt }],
-      S.lang === 'ko'
-        ? '당신은 대본 구조 분석 전문가입니다. 반드시 JSON 배열만 출력하세요. 설명이나 마크다운 없이 순수 JSON만.'
-        : 'You are a script structure analyst. Output ONLY a raw JSON array. No explanation, no markdown, pure JSON only.',
-      2000
-    );
-
-    let sceneList;
-    try {
-      // JSON 배열 추출 시도 — 여러 패턴 대응
-      let raw = scanReply;
-      // 마크다운 코드블록 제거
-      raw = raw.replace(/```json?[\s\S]*?```/g, m => m.replace(/```json?|```/g, ''));
-      // JSON 배열 부분만 추출
-      const arrMatch = raw.match(/\[[\s\S]*\]/);
-      if (arrMatch) {
-        sceneList = JSON.parse(arrMatch[0]);
-      } else {
-        sceneList = JSON.parse(raw.trim());
-      }
-      // 배열이 아니면 배열로 감싸기
-      if (!Array.isArray(sceneList)) {
-        sceneList = sceneList.scenes || sceneList.list || [sceneList];
-      }
-      // 유효한 항목만 필터
-      sceneList = sceneList.filter(s => s && (s.title || s.index !== undefined));
-      if (sceneList.length === 0) throw new Error('empty');
-    } catch(e) {
-      // 파싱 실패 시 — 텍스트 기반으로 씬 나누기 (폴백)
-      console.warn('Scene list parse failed, using text fallback:', e.message);
-      sceneList = buildSceneListFromText(uploadedText);
-      if (sceneList.length === 0) {
-        throw new Error(S.lang === 'ko' ? '씬 목록 파싱 실패. 다시 시도해주세요.' : 'Failed to parse scene list. Please try again.');
-      }
-    }
-
-    btn.textContent = '⏳ ' + (S.lang === 'ko' ? `${sceneList.length}개 씬 발견 — 선택 UI 준비 중...` : `Found ${sceneList.length} scenes...`);
-
-    // ── 씬 선택 UI 표시 ──
-    showSceneSelectUI(sceneList);
-
-  } catch(e) {
-    toast('Error: ' + e.message);
-  }
-
-  btn.disabled = false;
-  btn.textContent = '✦ ' + (S.lang === 'ko' ? 'AI로 씬 분석 · 변환' : 'Analyze with AI');
-}
-
-// 씬 선택 UI
-function showSceneSelectUI(sceneList) {
-  const resultEl = document.getElementById('upload-result');
-  const previewEl = document.getElementById('upload-result-preview');
-  const titleEl = document.getElementById('upload-result-title');
-  const actionsEl = resultEl.querySelector('.upload-result-actions');
-
-  titleEl.textContent = S.lang === 'ko'
-    ? `✦ ${sceneList.length}개 씬 발견 — 변환할 씬을 선택하세요`
-    : `✦ Found ${sceneList.length} scenes — select to convert`;
-
-  // 씬 선택 체크리스트
-  const selState = sceneList.map(() => true);
-
-  function renderList() {
-    previewEl.innerHTML = '';
-    previewEl.style.maxHeight = '280px';
-
-    // 전체 선택 헤더
-    const header = document.createElement('div');
-    header.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)';
-    const allChecked = selState.every(Boolean);
-    header.innerHTML = `
-      <input type="checkbox" id="sel-all-check" ${allChecked ? 'checked' : ''} style="cursor:pointer;accent-color:var(--accent)">
-      <label for="sel-all-check" style="font-size:10px;color:var(--text2);cursor:pointer;font-family:var(--fm)">
-        ${S.lang === 'ko' ? '전체 선택' : 'Select All'} (${selState.filter(Boolean).length}/${sceneList.length})
-      </label>`;
-    header.querySelector('#sel-all-check').onchange = (e) => {
-      selState.fill(e.target.checked);
-      renderList();
-    };
-    previewEl.appendChild(header);
-
-    // 씬 목록
-    sceneList.forEach((sc, i) => {
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer';
-      row.innerHTML = `
-        <input type="checkbox" ${selState[i] ? 'checked' : ''} style="margin-top:2px;cursor:pointer;flex-shrink:0;accent-color:var(--accent)">
-        <div style="flex:1;min-width:0">
-          <div style="font-size:11px;font-weight:500;color:var(--text)">${i+1}. ${sc.title}</div>
-          <div style="font-size:10px;color:var(--accent);font-family:var(--fm)">${sc.slug || ''}</div>
-          <div style="font-size:10px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sc.preview || ''}</div>
-        </div>`;
-      const cb = row.querySelector('input');
-      cb.onchange = (e) => { selState[i] = e.target.checked; renderList(); };
-      row.onclick = (e) => { if (e.target.tagName !== 'INPUT') { cb.checked = !cb.checked; selState[i] = cb.checked; renderList(); } };
-      previewEl.appendChild(row);
-    });
-  }
-
-  renderList();
-
-  // 버튼 교체
-  actionsEl.innerHTML = '';
-  const convertBtn = document.createElement('button');
-  convertBtn.className = 'uact-btn pri';
-  convertBtn.textContent = S.lang === 'ko' ? '✦ 선택한 씬 변환' : '✦ Convert Selected';
-  convertBtn.onclick = () => {
-    const selected = sceneList.filter((_, i) => selState[i]);
-    if (selected.length === 0) { toast(S.lang === 'ko' ? '씬을 선택해주세요.' : 'Select at least one scene.'); return; }
-    convertSelectedScenes(selected);
-  };
-
-  const cancelBtn = document.createElement('button');
-  cancelBtn.className = 'uact-btn';
-  cancelBtn.textContent = S.lang === 'ko' ? '✕ 닫기' : '✕ Cancel';
-  cancelBtn.onclick = clearUpload;
-
-  actionsEl.appendChild(convertBtn);
-  actionsEl.appendChild(cancelBtn);
-}
-
-// 텍스트 기반 씬 목록 생성 (폴백)
-function buildSceneListFromText(text) {
-  const lines = text.split('\n');
-  const scenes = [];
-  let charPos = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    // 슬러그라인 감지 (INT./EXT./S#/씬 번호 등)
-    const isSlug = /^(INT\.|EXT\.|S#|\d+[\.화장]|제\s*\d+|씬\s*\d+|SCENE\s*\d+)/i.test(line);
-    // 한국어 장 구분 감지
-    const isChapter = /^(제\s*\d+\s*(막|장|부|씬)|[1-9]막|[1-9]장|[1-9]부)/.test(line);
-
-    if ((isSlug || isChapter) && line.length < 80) {
-      // 다음 몇 줄을 미리보기로
-      const preview = lines.slice(i+1, i+3).map(l => l.trim()).filter(Boolean).join(' ');
-      scenes.push({
-        index: scenes.length,
-        title: line.replace(/^(INT\.|EXT\.)\s*/i, '').slice(0, 40) || ('씬 ' + (scenes.length + 1)),
-        slug: isSlug ? line : ('씬 ' + (scenes.length + 1)),
-        startChar: charPos,
-        preview: preview.slice(0, 60),
-      });
-    }
-    charPos += lines[i].length + 1;
-  }
-
-  // 씬을 못 찾았으면 일정 글자수로 나누기
-  if (scenes.length === 0) {
-    const chunkSize = Math.min(CHUNK_SIZE, Math.ceil(text.length / 5));
-    let pos = 0, idx = 0;
-    while (pos < text.length) {
-      const preview = text.slice(pos, pos + 60).replace(/\n/g, ' ');
-      scenes.push({
-        index: idx++,
-        title: (S.lang === 'ko' ? '씬 ' : 'Scene ') + (idx),
-        slug: '',
-        startChar: pos,
-        preview: preview,
-      });
-      pos += chunkSize;
-    }
-  }
-
-  return scenes;
-}
-
-// 선택한 씬 변환 — 12,000글자씩 청크
-async function convertSelectedScenes(sceneList) {
-  if (!S.cur) return;
-
-  const convertBtn = document.querySelector('.uact-btn.pri');
-  if (convertBtn) { convertBtn.disabled = true; convertBtn.textContent = '⏳...'; }
-
-  try {
-    // 선택한 씬들의 텍스트 추출
-    // startChar 기반으로 uploadedText에서 해당 구간 추출
-    const totalScenes = sceneList.length;
-    let allDetected = [];
-
-    for (let i = 0; i < totalScenes; i++) {
-      const sc = sceneList[i];
-      const next = sceneList[i + 1];
-
-      // 해당 씬 구간 텍스트
-      const start = sc.startChar || 0;
-      const end = next ? (next.startChar || uploadedText.length) : uploadedText.length;
-      let chunk = uploadedText.slice(start, end).trim();
-
-      // 12,000글자 초과 시 앞에서 자르기
-      if (chunk.length > CHUNK_SIZE) {
-        chunk = chunk.slice(0, CHUNK_SIZE);
-      }
-
-      if (convertBtn) convertBtn.textContent = `⏳ ${i+1}/${totalScenes} 변환 중...`;
-
-      const scTitle = sc.title || (S.lang === 'ko' ? '씬' : 'Scene');
-      const scSlug = sc.slug || (S.lang === 'ko' ? 'INT. 장소 - 시간' : 'INT. LOCATION - DAY');
-      const prompt = S.lang === 'ko'
-        ? '다음 대본 텍스트를 JSON 씬 형식으로 변환해주세요.\n씬 제목: "' + scTitle + '", 슬러그: "' + scSlug + '"\n\nJSON만 출력:\n```json\n{"title":"' + scTitle + '","slug":"' + scSlug + '","lines":[{"type":"action","text":"..."},{"type":"character","text":"이름"},{"type":"dialogue","text":"대사"}]}\n```\n\n텍스트:\n' + chunk
-        : 'Convert this script text to JSON scene format.\nTitle: "' + scTitle + '", Slug: "' + scSlug + '"\n\nJSON only:\n```json\n{"title":"' + scTitle + '","slug":"' + scSlug + '","lines":[{"type":"action","text":"..."},{"type":"character","text":"NAME"},{"type":"dialogue","text":"..."}]}\n```\n\nText:\n' + chunk;
-
-      const reply = await callClaude(
-        [{ role: 'user', content: prompt }],
-        S.lang === 'ko'
-          ? '당신은 전문 대본 작가입니다. JSON만 출력하세요.'
-          : 'You are a professional screenwriter. Output ONLY JSON.',
-        3000,
-        MODEL_HAIKU
-      );
-
-      const detected = detectScriptContent(reply);
-      allDetected = allDetected.concat(detected);
-    }
-
-    if (allDetected.length > 0) {
-      // 채팅에 결과 표시 + 감지 카드
-      addMsg('user', S.lang === 'ko'
-        ? `📄 "${uploadedFileName}"에서 ${totalScenes}개 씬 변환 요청`
-        : `📄 Converting ${totalScenes} scene(s) from "${uploadedFileName}"`);
-      addMsg('assistant', S.lang === 'ko'
-        ? `✓ ${allDetected.length}개 씬 변환 완료! 아래에서 선택해서 대본에 추가하세요.`
-        : `✓ ${allDetected.length} scene(s) converted! Select below to add to script.`);
-      appendDetectCard(allDetected);
-      clearUpload();
-      toast(S.lang === 'ko' ? `✓ ${allDetected.length}개 씬 변환 완료` : `✓ ${allDetected.length} scene(s) ready`);
-    } else {
-      toast(S.lang === 'ko' ? '변환된 씬이 없습니다. 다시 시도해주세요.' : 'No scenes converted. Try again.');
-    }
-
-  } catch(e) {
-    toast('Error: ' + e.message);
-  }
-
-  if (convertBtn) { convertBtn.disabled = false; convertBtn.textContent = S.lang === 'ko' ? '✦ 선택한 씬 변환' : '✦ Convert Selected'; }
-}
-
-// 시놉시스 / 기획서로 바로 변환
-async function analyzeAs(type) {
-  if (!uploadedText || !S.cur) return;
-
-  const btns = { synopsis: 'upload-synopsis-btn', planning: 'upload-planning-btn' };
-  const btn = document.getElementById(btns[type]);
-  btn.disabled = true;
-  btn.textContent = '⏳...';
-
-  const excerpt = uploadedText.slice(0, CHUNK_SIZE);
-  const prompt = type === 'synopsis'
-    ? (S.lang === 'ko'
-        ? `다음 파일 내용을 바탕으로 이 작품의 시놉시스를 3막 구조로 작성해주세요.\n\n${excerpt}`
-        : `Based on this content, write a 3-act synopsis.\n\n${excerpt}`)
-    : (S.lang === 'ko'
-        ? `다음 파일 내용을 바탕으로 기획서(기획의도, 주제, 기대효과)를 JSON으로 작성해주세요.\nJSON만 출력: {"intent":"...","theme":"...","impact":"..."}\n\n${excerpt}`
-        : `Based on this content, write a planning document as JSON.\nJSON only: {"intent":"...","theme":"...","impact":"..."}\n\n${excerpt}`);
-
-  try {
-    const reply = await callClaude([{ role: 'user', content: prompt }], null, 2000, MODEL_HAIKU);
-    if (type === 'synopsis') {
-      S.cur.synopsis = reply;
-      document.getElementById('syn-edit').value = reply;
-      save(); renderSynopsis();
-      toast(S.lang === 'ko' ? '✓ 시놉시스 반영됨' : '✓ Synopsis updated');
-      switchTab('synopsis');
-    } else {
-      try {
-        const data = JSON.parse(reply.replace(/```json?|```/g, '').trim());
-        if (data.intent) S.cur.planning.intent = data.intent;
-        if (data.theme) S.cur.planning.theme = data.theme;
-        if (data.impact) S.cur.planning.impact = data.impact;
-        save(); renderPlan();
-        toast(S.lang === 'ko' ? '✓ 기획서 반영됨' : '✓ Planning updated');
-        switchTab('planning');
-      } catch(e) {
-        // JSON 파싱 실패 시 텍스트로라도 저장
-        S.cur.planning.intent = reply;
-        save(); renderPlan();
-        toast(S.lang === 'ko' ? '✓ 기획 의도에 반영됨' : '✓ Added to intent');
-      }
-    }
-    clearUpload();
-  } catch(e) {
-    toast('Error: ' + e.message);
-  }
-
-  btn.disabled = false;
-  btn.textContent = type === 'synopsis' ? '📖 시놉시스로' : '📋 기획서로';
-}
-
-
-// ── 대본 보기 모드 전환 ──
-let scriptViewMode = 'single'; // 'single' | 'full'
-
-function setScriptView(mode) {
-  scriptViewMode = mode;
-  document.getElementById('svt-single').classList.toggle('on', mode === 'single');
-  document.getElementById('svt-full').classList.toggle('on', mode === 'full');
-
-  const scSb    = document.getElementById('sc-sb');
-  const scBody  = document.getElementById('sc-body');
-  const scProm  = document.getElementById('sc-prompt');
-  const fullPane= document.getElementById('full-script-pane');
-  const ctrls   = document.getElementById('sc-ctrls');
-  const reqBar  = document.getElementById('req-bar');
-
-  if (mode === 'full') {
-    scSb.style.display    = 'none';
-    scBody.style.display  = 'none';
-    scProm.style.display  = 'none';
-    if (reqBar) reqBar.style.display = 'none';
-    fullPane.classList.add('fs-show');
-    ctrls.style.display    = 'none';
-    renderFullScript();
-  } else {
-    scSb.style.display    = '';
-    scBody.style.display  = '';
-    fullPane.classList.remove('fs-show');
-    if (S.curSc) {
-      ctrls.style.display = 'flex';
-      if (S.curSc.state === 'requested') {
-        if (reqBar) reqBar.style.display = 'flex';
-        scProm.style.display = '';
-      }
-    }
-  }
-}
-
-function renderFullScript() {
-  const pane = document.getElementById('full-script-pane');
-  if (!S.cur?.scenes?.length) {
-    pane.innerHTML = `<div style="color:var(--text3);font-family:var(--fm);font-size:12px;text-align:center;padding:40px">씬이 없습니다. 대화 탭에서 씬을 추가해보세요.</div>`;
-    return;
-  }
-
-  const typeClass = { action:'s-action', character:'s-char', dialogue:'s-dlg', parenthetical:'s-paren' };
-  let html = `<div style="max-width:640px;margin:0 auto">`;
-
-  // 상단 제목
-  html += `<div style="text-align:center;margin-bottom:40px">
-    <div style="font-family:var(--fd);font-size:28px;color:var(--accent);font-style:italic;margin-bottom:4px">${S.cur.title || ''}</div>
-    <div style="font-size:11px;color:var(--text3);font-family:var(--fm)">${S.cur.medium || ''}</div>
-  </div>`;
-
-  S.cur.scenes.forEach((sc, i) => {
-    // 씬 구분선
-    html += `<div class="full-script-divider">
-      <div class="full-script-divider-line"></div>
-      <div class="full-script-divider-label">SC ${i+1} — ${sc.title}</div>
-      <div class="full-script-divider-line"></div>
-    </div>`;
-
-    // 슬러그라인
-    if (sc.slug) {
-      html += `<div class="full-script-slug-line">${sc.slug}</div>`;
-    }
-
-    // 씬 상태 배지
-    const stateColors = { locked:'var(--text3)', editable:'var(--accent)', requested:'var(--amber)' };
-    const stateTxt = STATE_UI[S.lang][sc.state];
-    html += `<div style="font-size:9px;color:${stateColors[sc.state]};font-family:var(--fm);margin-bottom:10px">${stateTxt}${sc.lines.filter(l=>l.locked).length > 0 ? ` · 줄🔒${sc.lines.filter(l=>l.locked).length}` : ''}</div>`;
-
-    html += `<div class="full-script-block">`;
-    sc.lines.forEach(line => {
-      const cls = typeClass[line.type] || 's-action';
-      const lockCls = line.locked ? ' ll-locked' : '';
-      const escaped = line.text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      html += `<div class="${cls}${lockCls}">${escaped}</div>`;
-    });
-    html += `</div>`;
-  });
-
-  html += `</div>`;
-  pane.innerHTML = html;
-}
+function updateSlug() {}
+function saveReqInst() {}
+function updateScTitle() {}
+function syncSceneToBoard() { syncAllToBoard(); }
+function setScriptView() {}
+function renderFullScriptLegacy() {}
 
 
 // ════════════════════════════════════════════
