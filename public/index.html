@@ -478,6 +478,15 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 .sc-board-sync-btn{background:transparent;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);font-size:10px;padding:4px 10px;cursor:pointer;transition:all .15s;font-family:var(--fm)}
 .sc-board-sync-btn:hover{border-color:var(--blue);color:var(--blue)}
 .sc-board-sync-btn.synced{border-color:var(--green);color:var(--green)}
+
+/* ── 프로젝트 컨텍스트 메뉴 ── */
+.pitem-wrap{position:relative}
+.pitem-wrap:hover .pitem-menu{opacity:1;pointer-events:auto}
+.pitem-menu{position:absolute;right:6px;top:50%;transform:translateY(-50%);display:flex;gap:3px;opacity:0;pointer-events:none;transition:opacity .15s}
+.pitem-menu-btn{width:20px;height:20px;border-radius:4px;border:1px solid var(--border2);background:var(--bg3);color:var(--text3);font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0}
+.pitem-menu-btn:hover{background:var(--bg4)}
+.pitem-menu-btn.del:hover{border-color:rgba(224,96,96,.4);color:var(--red);background:rgba(224,96,96,.08)}
+.pitem-menu-btn.ren:hover{border-color:var(--accent2);color:var(--accent);background:rgba(200,169,110,.08)}
 </style>
 </head>
 <body>
@@ -901,12 +910,62 @@ function createProject() {
 function renderPList() {
   const el = document.getElementById('plist'); el.innerHTML = '';
   S.projects.forEach(p => {
+    const wrap = document.createElement('div'); wrap.className = 'pitem-wrap';
+
     const d = document.createElement('div');
     d.className = 'pitem' + (S.cur?.id === p.id ? ' on' : '');
     d.onclick = () => selectProject(p.id);
-    d.innerHTML = `<div class="pname">${p.title}</div><div class="pmeta"><span class="ptag ptag-m">${p.medium}</span>${(p.genreTags || []).map(t => `<span class="ptag ptag-g">${t}</span>`).join('')}</div>`;
-    el.appendChild(d);
+    d.innerHTML = '<div class="pname">' + p.title + '</div><div class="pmeta"><span class="ptag ptag-m">' + p.medium + '</span>' + (p.genreTags || []).map(t => '<span class="ptag ptag-g">' + t + '</span>').join('') + '</div>';
+    wrap.appendChild(d);
+
+    // 이름 변경 / 삭제 버튼
+    const menu = document.createElement('div'); menu.className = 'pitem-menu';
+
+    const renBtn = document.createElement('button'); renBtn.className = 'pitem-menu-btn ren'; renBtn.title = '이름 변경'; renBtn.textContent = '✎';
+    renBtn.onclick = e => { e.stopPropagation(); renameProject(p.id); };
+    menu.appendChild(renBtn);
+
+    const delBtn = document.createElement('button'); delBtn.className = 'pitem-menu-btn del'; delBtn.title = '프로젝트 삭제'; delBtn.textContent = '✕';
+    delBtn.onclick = e => { e.stopPropagation(); deleteProject(p.id); };
+    menu.appendChild(delBtn);
+
+    wrap.appendChild(menu);
+    el.appendChild(wrap);
   });
+}
+
+function renameProject(id) {
+  const p = S.projects.find(p => p.id === id); if (!p) return;
+  const newTitle = prompt(S.lang === 'ko' ? '새 프로젝트 이름:' : 'New project name:', p.title);
+  if (!newTitle || newTitle === p.title) return;
+  p.title = newTitle.trim();
+  // 현재 프로젝트면 시놉시스 탭 제목도 업데이트
+  if (S.cur?.id === id) {
+    const synTitle = document.getElementById('syn-title');
+    if (synTitle) synTitle.textContent = p.title;
+  }
+  save(); renderPList();
+  toast(S.lang === 'ko' ? '✓ 이름 변경됨: ' + p.title : '✓ Renamed: ' + p.title);
+}
+
+function deleteProject(id) {
+  const p = S.projects.find(p => p.id === id); if (!p) return;
+  const p2 = S.projects.find(proj => proj.id === id); if (!p2) return;
+  if (!confirm(p2.title + (S.lang === 'ko' ? ' 프로젝트를 삭제할까요?' : ' - Delete this project?'))) return;
+  // deleted
+  S.projects = S.projects.filter(proj => proj.id !== id);
+  // 현재 선택된 프로젝트면 초기화
+  if (S.cur?.id === id) {
+    S.cur = null; S.curSc = null;
+    if (S.projects.length > 0) {
+      selectProject(S.projects[0].id);
+    } else {
+      document.getElementById('ws').style.display = 'none';
+      document.getElementById('empty').style.display = 'flex';
+    }
+  }
+  save(); renderPList();
+  toast(S.lang === 'ko' ? '🗑 "' + p2.title + '" 삭제됨' : '🗑 Deleted "' + p2.title + '"');
 }
 
 function selectProject(id) {
