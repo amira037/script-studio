@@ -478,6 +478,9 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 .sc-board-sync-btn{background:transparent;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);font-size:10px;padding:4px 10px;cursor:pointer;transition:all .15s;font-family:var(--fm)}
 .sc-board-sync-btn:hover{border-color:var(--blue);color:var(--blue)}
 .sc-board-sync-btn.synced{border-color:var(--green);color:var(--green)}
+.sc-sync-btn{background:transparent;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);font-size:10px;padding:4px 8px;cursor:pointer;transition:all .15s;font-family:var(--fm);white-space:nowrap}
+.sc-sync-btn:hover{border-color:var(--accent2);color:var(--accent);background:rgba(200,169,110,.07)}
+.sc-sync-btn.flash{border-color:var(--green);color:var(--green)}
 
 /* ── 프로젝트 컨텍스트 메뉴 ── */
 .pitem-wrap{position:relative}
@@ -542,10 +545,7 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 .nav-toggle-btn{display:none;background:transparent;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);font-size:11px;padding:4px 9px;cursor:pointer;font-family:var(--fm)}
 .nav-toggle-btn:hover{color:var(--accent);border-color:var(--accent2)}
 
-.desk-only{display:flex}
 @media(max-width:680px){
-  .desk-only{display:none!important}
-
   .app-nav{position:fixed;left:0;top:0;bottom:0;z-index:30;transform:translateX(-100%);width:220px!important;border-right:1px solid var(--border2)}
   .app-nav.nav-hidden{transform:translateX(-100%)!important;width:220px!important}
   .app-nav.mobile-open{transform:translateX(0);box-shadow:4px 0 20px rgba(0,0,0,.5)}
@@ -575,124 +575,100 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
   .nav-toggle-btn{display:none}
 }
 
-/* ══ 씬 번호 강조 ══ */
-.scene-block-num{font-size:11px;color:var(--text3);font-family:var(--fm);flex-shrink:0;background:rgba(200,169,110,.12);border:1px solid rgba(200,169,110,.25);border-radius:4px;padding:2px 8px;font-weight:600;letter-spacing:.04em;color:var(--accent)}
+/* ① 씬 번호 주목성 */
+.scene-block-num{font-family:var(--fd);font-size:20px;color:var(--accent);font-style:italic;flex-shrink:0;min-width:52px;line-height:1.1;opacity:.95}
 
-/* ══ 네비 상단 페이지 버튼 ══ */
-.nav-page-btns{display:flex;gap:4px;padding:6px 8px;border-bottom:1px solid var(--border);flex-shrink:0}
-.nav-page-btn{flex:1;background:transparent;border:1px solid var(--border2);border-radius:5px;color:var(--text3);font-size:10px;padding:4px 3px;cursor:pointer;transition:all .15s;font-family:var(--fm);text-align:center;white-space:nowrap}
-.nav-page-btn:hover{border-color:var(--accent2);color:var(--accent);background:rgba(200,169,110,.07)}
+/* ② 헤더 제거 */
+.hdr{display:none!important}
 
-/* ══ 데스크탑: 탭 숨김 ══ */
-@media(min-width:681px){
-  .app-tabs{display:none}
-  .app-hdr{display:none}
-  /* 씬 네비 항상 표시 */
-  .app-nav.nav-hidden{width:190px!important;overflow:visible!important;border-right:1px solid var(--border)!important}
-}
+/* ② 홈화면 API/언어 설정 */
+.home-hdr-r{display:flex;align-items:center;gap:8px}
+.home-api-pill{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text3);cursor:pointer;padding:4px 10px;border-radius:var(--r);border:1px solid var(--border);transition:all .15s}
+.home-api-pill:hover{border-color:var(--border2);color:var(--text2)}
 
-/* ══ 홈 헤더에 설정 추가 ══ */
-.home-settings{display:flex;align-items:center;gap:8px}
-
-/* ══ 데스크탑 AI 대화창 (하단) ══ */
-.desk-chat{flex-shrink:0;border-top:1px solid var(--border);background:var(--bg2);display:flex;flex-direction:column;transition:height .2s}
-.desk-chat.open{height:280px}
-.desk-chat.closed{height:40px}
-.desk-chat-hdr{height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;cursor:pointer;flex-shrink:0;user-select:none}
-.desk-chat-hdr:hover{background:rgba(255,255,255,.03)}
-.desk-chat-title{font-size:11px;color:var(--text2);font-family:var(--fm);display:flex;align-items:center;gap:6px}
-.desk-chat-title-dot{width:6px;height:6px;border-radius:50%;background:var(--text3)}
-.desk-chat-title-dot.live{background:var(--green);animation:ping 1.5s infinite}
-.desk-chat-toggle{font-size:10px;color:var(--text3);background:transparent;border:none;cursor:pointer;padding:2px 6px}
-.desk-chat-body{flex:1;overflow:hidden;display:flex;flex-direction:column}
-.desk-msgs{flex:1;overflow-y:auto;padding:8px 14px;display:flex;flex-direction:column;gap:8px}
-.desk-msg{display:flex;gap:7px;animation:fup .2s ease}
-.desk-msg .av{width:22px;height:22px;font-size:9px}
-.desk-msg .mtxt{font-size:12px;padding:7px 10px}
-.desk-msg .mname{font-size:9px}
-.desk-chat-in{padding:7px 12px;border-top:1px solid var(--border);display:flex;gap:6px;align-items:flex-end;flex-shrink:0}
-.desk-cta{flex:1;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-family:var(--fb);font-size:12px;padding:7px 10px;resize:none;min-height:34px;max-height:80px;outline:none;transition:border .15s;line-height:1.5}
-.desk-cta:focus{border-color:var(--accent2)}
-.desk-send{background:var(--accent);color:#0e0e10;border:none;width:34px;height:34px;border-radius:var(--r);cursor:pointer;font-size:14px;flex-shrink:0;transition:all .15s}
-.desk-send:hover{background:#d4b97e}
-.desk-send:disabled{background:var(--bg4);color:var(--text3);cursor:not-allowed}
-
-/* ══ 모바일 AI 대화 FAB ══ */
-.ai-fab{display:none;position:fixed;bottom:80px;right:20px;z-index:40;width:52px;height:52px;border-radius:50%;background:var(--bg3);color:var(--accent);border:1px solid var(--accent2);font-size:16px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.5);transition:all .2s;align-items:center;justify-content:center;flex-direction:column;gap:2px}
-.ai-fab:hover{background:var(--bg4);transform:scale(1.05)}
-.ai-fab-label{font-size:8px;font-family:var(--fm);font-weight:600;color:var(--accent)}
-
-/* ══ 모바일 AI 대화 드로어 ══ */
-.mobile-chat-drawer{display:none;position:fixed;left:0;right:0;bottom:0;z-index:45;background:var(--bg2);border-top:1px solid var(--border2);border-radius:16px 16px 0 0;height:65vh;flex-direction:column;box-shadow:0 -8px 32px rgba(0,0,0,.5)}
-.mobile-chat-drawer.show{display:flex}
-.mobile-chat-hdr{padding:10px 16px 6px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-.mobile-chat-handle{width:36px;height:4px;border-radius:2px;background:var(--border2);margin:0 auto 6px}
-.mobile-chat-close{background:transparent;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:4px 8px}
-.mobile-chat-drawer-body{flex:1;overflow:hidden;display:flex;flex-direction:column}
-.drawer-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:44}
-.drawer-overlay.show{display:block}
-
-@media(max-width:680px){
-  .ai-fab{display:flex}
-  .desk-chat{display:none}
-}
-@media(min-width:681px){
-  .ai-fab{display:none}
-  .mobile-chat-drawer{display:none!important}
-}
-
-/* ══ 대화 메시지 삭제 ══ */
-.msg-del-btn{opacity:0;background:transparent;border:none;color:var(--text3);font-size:10px;cursor:pointer;padding:2px 5px;border-radius:3px;transition:all .15s;flex-shrink:0;align-self:flex-start;margin-top:2px}
-.msg:hover .msg-del-btn{opacity:1}
-.msg-del-btn:hover{color:var(--red);background:rgba(224,96,96,.1)}
-
-/* ── 1. 씬 번호 주목성 ── */
-.scene-block-num{font-family:var(--fd);font-size:22px;color:var(--accent);font-style:italic;opacity:.9;flex-shrink:0;min-width:48px;line-height:1}
-
-/* ── 2. 네비 탭 버튼 ── */
-.nav-tab-bar{display:flex;flex-direction:column;gap:2px;padding:8px 7px;border-bottom:1px solid var(--border);flex-shrink:0}
-.nav-tab-btn{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:var(--r);border:none;background:transparent;color:var(--text2);font-size:11px;cursor:pointer;transition:all .15s;width:100%;text-align:left}
-.nav-tab-btn:hover{background:var(--bg3);color:var(--text)}
-.nav-tab-btn.on{background:var(--bg4);color:var(--accent)}
-.nav-tab-btn .ntb-icon{font-size:13px;flex-shrink:0;width:18px;text-align:center}
-.nav-home-btn{display:flex;align-items:center;gap:6px;padding:7px 8px;border-radius:var(--r);border:none;background:transparent;color:var(--text3);font-size:10px;cursor:pointer;transition:all .15s;width:100%;font-family:var(--fm)}
-.nav-home-btn:hover{background:var(--bg3);color:var(--accent)}
-.nav-toggle-scene-btn{display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:var(--r);border:1px solid var(--border2);background:transparent;color:var(--text3);font-size:10px;cursor:pointer;transition:all .15s;font-family:var(--fm);margin-top:2px}
-.nav-toggle-scene-btn:hover{border-color:var(--accent2);color:var(--accent)}
-.nav-toggle-scene-btn.nav-shown{border-color:var(--accent2);color:var(--accent);background:rgba(200,169,110,.06)}
-
-/* ── 3. 대본 하단 AI 프롬프트 바 ── */
-.script-ai-bar{padding:8px 16px;background:var(--bg2);border-top:1px solid var(--border);flex-shrink:0;display:flex;gap:7px;align-items:flex-end}
-.script-ai-inp{flex:1;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r2);color:var(--text);font-family:var(--fb);font-size:12px;padding:8px 12px;resize:none;min-height:36px;max-height:90px;outline:none;transition:border .15s;line-height:1.5}
-.script-ai-inp:focus{border-color:var(--accent2)}
-.script-ai-inp::placeholder{color:var(--text3)}
-.script-ai-send{background:var(--accent);color:#0e0e10;border:none;width:36px;height:36px;border-radius:var(--r);cursor:pointer;font-size:15px;transition:all .15s;flex-shrink:0}
-.script-ai-send:hover{background:#d4b97e}
-.script-ai-send:disabled{background:var(--bg4);color:var(--text3);cursor:not-allowed}
-.script-ai-status{font-size:10px;color:var(--text3);font-family:var(--fm);padding:0 4px;align-self:center;white-space:nowrap;transition:color .3s}
-.script-ai-status.working{color:var(--amber)}
-.script-ai-status.done{color:var(--green)}
-
-/* ── 4. 채팅 메시지 삭제 ── */
-.msg-del-btn{opacity:0;background:transparent;border:none;color:var(--text3);font-size:10px;cursor:pointer;padding:2px 5px;border-radius:3px;transition:all .15s;flex-shrink:0;align-self:flex-start;margin-top:2px}
-.msg:hover .msg-del-btn{opacity:1}
-.msg-del-btn:hover{color:var(--red);background:rgba(224,96,96,.1)}
-
-/* ── 홈화면 언어/API 설정 ── */
-.home-settings{display:flex;align-items:center;gap:8px}
-
-/* ── app-hdr 완전 제거 후 nav 안에 통합 ── */
+/* ③ 앱 헤더/탭바 제거 (네비로 통합) */
 .app-hdr{display:none!important}
 .app-tabs{display:none!important}
 
-/* ── 씬 네비 toggle (데스크탑) ── */
-.app-nav{transition:width .2s}
+/* ③ 네비 탭 버튼 */
+/* 네비 상단 레이아웃 */
+.nav-top-row{display:flex;align-items:center;gap:6px;padding:8px 10px 6px;border-bottom:1px solid var(--border);flex-shrink:0}
+.nav-home-btn{background:transparent;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);font-size:10px;padding:4px 8px;cursor:pointer;transition:all .15s;font-family:var(--fm);white-space:nowrap;flex-shrink:0}
+.nav-home-btn:hover{border-color:var(--accent2);color:var(--accent)}
+.nav-proj-label{font-family:var(--fd);font-size:12px;color:var(--accent);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* AI 대화 버튼 — 크게 고정 */
+.nav-chat-btn{display:flex;align-items:center;gap:8px;padding:10px 12px;margin:6px 6px 0;border-radius:var(--r);border:1px solid var(--accent2);background:rgba(200,169,110,.07);color:var(--accent);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;width:calc(100% - 12px)}
+.nav-chat-btn:hover{background:rgba(200,169,110,.14);border-color:var(--accent)}
+.nav-chat-btn.on{background:rgba(200,169,110,.18);border-color:var(--accent)}
+.nav-chat-icon{font-size:16px;flex-shrink:0}
+
+/* 5개 아이콘 탭 — 가로 한 줄 */
+.nav-tab-section{display:flex;flex-direction:row;padding:5px 6px;border-bottom:1px solid var(--border);flex-shrink:0;gap:2px}
+.nav-page-btn{display:flex;align-items:center;justify-content:center;flex:1;padding:7px 4px;border-radius:var(--r);border:none;background:transparent;color:var(--text3);font-size:17px;cursor:pointer;transition:all .15s;position:relative}
+.nav-page-btn:hover{background:var(--bg3);color:var(--text2)}
+.nav-page-btn.on{background:var(--bg4);color:var(--accent)}
+.nav-page-btn .npb-icon{font-size:17px}
+/* 툴팁 */
+/* 툴팁 비활성화 — 흐림 버그 원인 */
+.nav-page-btn::after{display:none}
+.nav-scene-toggle{width:100%;background:transparent;border:none;border-top:1px solid var(--border);color:var(--text3);font-size:10px;padding:7px 10px;cursor:pointer;font-family:var(--fm);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;transition:all .15s}
+.nav-scene-toggle:hover{background:var(--bg3);color:var(--text2)}
+.nav-scene-toggle.open{color:var(--accent2)}
+.nav-scene-body{display:flex;flex-direction:column;flex:1;overflow:hidden}
+.nav-scene-body.closed{display:none}
+
+/* ④ 대본 하단 AI 지시창 */
+.script-ai-bar{padding:8px 14px;background:var(--bg2);border-top:1px solid var(--border);flex-shrink:0;display:flex;gap:7px;align-items:flex-end}
+.script-ai-inp{flex:1;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r2);color:var(--text);font-family:var(--fb);font-size:12px;padding:8px 12px;resize:none;min-height:36px;max-height:80px;outline:none;line-height:1.5;transition:border .15s}
+.script-ai-inp:focus{border-color:var(--accent2)}
+.script-ai-inp::placeholder{color:var(--text3);font-size:11px}
+.script-ai-send{background:var(--accent);color:#0e0e10;border:none;width:36px;height:36px;border-radius:var(--r);cursor:pointer;font-size:15px;flex-shrink:0;transition:all .15s}
+.script-ai-send:hover{background:#d4b97e}
+.script-ai-send:disabled{background:var(--bg4);color:var(--text3);cursor:not-allowed}
+.script-ai-status{font-size:10px;color:var(--text3);font-family:var(--fm);align-self:center;white-space:nowrap;min-width:56px;text-align:center;transition:color .2s}
+.script-ai-status.working{color:var(--amber)}
+.script-ai-status.done{color:var(--green)}
+
+/* ⑤ 메시지 삭제 버튼 */
+.msg-del-btn{opacity:0;background:transparent;border:none;color:var(--text3);font-size:10px;cursor:pointer;padding:2px 5px;border-radius:3px;transition:all .15s;flex-shrink:0}
+.msg:hover .msg-del-btn{opacity:1}
+.msg-del-btn:hover{color:var(--red);background:rgba(224,96,96,.1)}
+
+/* ⑥ 프로젝트 카드 그리드 */
+.proj-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px;padding-bottom:20px}
+.proj-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);overflow:hidden;cursor:pointer;transition:all .2s}
+.proj-card:hover{border-color:var(--accent2);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.proj-card-thumb{height:96px;background:var(--bg3);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;border-bottom:1px solid var(--border)}
+.proj-card-bg-letter{position:absolute;font-family:var(--fd);font-size:60px;color:var(--accent);opacity:.1;pointer-events:none;user-select:none}
+.proj-card-center{position:relative;z-index:1;text-align:center}
+.proj-card-title{font-family:var(--fd);font-size:15px;color:var(--accent);font-style:italic;margin-bottom:4px}
+.proj-card-medium{font-size:9px;color:var(--text3);font-family:var(--fm);background:rgba(200,169,110,.1);padding:2px 8px;border-radius:3px}
+.proj-card-body{padding:10px 14px}
+.proj-card-meta{font-size:10px;color:var(--text3);font-family:var(--fm);margin-bottom:5px}
+.proj-card-acts{display:flex;gap:5px;padding:0 14px 12px}
+.proj-card-open{flex:1;background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);font-size:11px;font-weight:600;padding:7px;cursor:pointer;transition:all .15s}
+.proj-card-open:hover{background:#d4b97e}
+.proj-card-icon-btn{width:30px;background:transparent;border:1px solid var(--border2);border-radius:var(--r);color:var(--text3);font-size:11px;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center}
+.proj-card-icon-btn:hover{color:var(--text2);background:var(--bg3)}
+.proj-card-icon-btn.del:hover{border-color:rgba(224,96,96,.4);color:var(--red)}
+.proj-new-card{background:transparent;border:2px dashed var(--border2);border-radius:var(--r2);min-height:190px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer;transition:all .2s}
+.proj-new-card:hover{border-color:var(--accent2);background:rgba(200,169,110,.04)}
+
+/* 모바일 FAB */
+.sc-fab{display:none;position:fixed;bottom:76px;right:16px;z-index:40;width:46px;height:46px;border-radius:50%;background:var(--bg3);color:var(--accent);border:1px solid var(--accent2);cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.5);flex-direction:column;align-items:center;justify-content:center;gap:1px;font-size:14px;transition:all .2s}
+.sc-fab:active{transform:scale(.93)}
+.sc-fab-lbl{font-size:8px;font-family:var(--fm);font-weight:700}
+.sc-mob-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:29}
+.sc-mob-overlay.show{display:block}
 
 @media(max-width:680px){
-  .nav-tab-bar .nav-tab-btn span:not(.ntb-icon){display:none}
-  .nav-tab-bar .nav-home-btn span:last-child{display:none}
-  .nav-tab-bar{padding:6px 5px}
+  .sc-fab{display:flex}
+  .proj-grid{grid-template-columns:1fr 1fr}
+  /* 데스크탑 전용 숨김 */
+  .nav-top-row .nav-proj-label{display:none}
 }
+@media(max-width:400px){.proj-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -715,12 +691,12 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 <div class="home-screen" id="home-screen">
   <div class="home-hdr">
     <div class="home-logo"><span class="home-logo-dot"></span>Script Studio</div>
-    <div class="home-settings">
+    <div class="home-hdr-r">
       <button class="lbtn on" onclick="setLang('ko')" id="btn-ko">한국어</button>
       <button class="lbtn" onclick="setLang('en')" id="btn-en">EN</button>
-      <div class="api-pill" onclick="openModal('api-modal')" style="cursor:pointer;padding:4px 10px;border-radius:var(--r);border:1px solid var(--border);display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text3)">
+      <div class="home-api-pill" onclick="openModal('api-modal')">
         <span class="api-dot" id="api-dot" style="width:6px;height:6px;border-radius:50%;background:var(--text3)"></span>
-        <span id="api-txt">API 키</span>
+        <span id="api-txt">API 설정</span>
       </div>
       <span class="sdot" id="sdot" style="width:6px;height:6px;border-radius:50%;background:var(--text3)"></span>
     </div>
@@ -741,15 +717,20 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 
 <!-- 앱 화면 (프로젝트 진입 후) -->
 <div id="app-screen" style="display:none;flex-direction:column;height:100vh;overflow:hidden">
-  <!-- 앱 헤더 (모바일 전용) -->
+  <!-- 앱 헤더 -->
   <div class="app-hdr">
     <button class="app-back-btn" onclick="goHome()">← 홈</button>
     <div class="app-proj-title" id="app-proj-title">—</div>
     <span class="app-proj-medium" id="app-proj-medium"></span>
     <button class="nav-toggle-btn" id="nav-toggle-btn" onclick="toggleMobileNav()">☰ 씬</button>
+    <span class="sdot" id="sdot" style="flex-shrink:0"></span>
+    <div class="api-pill" onclick="openModal('api-modal')" id="api-pill" style="cursor:pointer;padding:4px 10px;border-radius:var(--r);border:1px solid var(--border);display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text3)">
+      <span class="api-dot" id="api-dot" style="width:6px;height:6px;border-radius:50%;background:var(--text3)"></span>
+      <span id="api-txt">API</span>
+    </div>
   </div>
 
-<!-- 탭 -->
+  <!-- 탭 -->
   <div class="app-tabs">
     <button class="app-tab on" data-tab="chat" onclick="switchTab('chat')">💬 AI 대화</button>
     <button class="app-tab" data-tab="script" onclick="switchTab('script')">📄 대본</button>
@@ -761,39 +742,49 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 
   <!-- 레이아웃: 씬 네비 + 탭 컨텐츠 -->
   <div class="app-layout">
-    <!-- 씬 네비게이터 (대본 탭 전용, 항상 고정) -->
+    <!-- 씬 네비게이터 + 탭 버튼 통합 -->
     <div class="app-nav" id="app-nav">
-      <!-- 네비 탭 바 -->
-      <div class="nav-tab-bar">
-        <button class="nav-home-btn" onclick="goHome()">
-          <span>←</span><span>홈</span>
-          <span style="font-family:var(--fd);font-size:11px;color:var(--accent);margin-left:4px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="nav-proj-title">—</span>
-        </button>
-        <button class="nav-tab-btn on" data-ntab="script" onclick="switchTab('script')"><span class="ntb-icon">📄</span><span>대본</span></button>
-        <button class="nav-tab-btn" data-ntab="chars" onclick="switchTab('chars')"><span class="ntb-icon">👥</span><span>등장인물</span></button>
-        <button class="nav-tab-btn" data-ntab="synopsis" onclick="switchTab('synopsis')"><span class="ntb-icon">📖</span><span>시놉시스</span></button>
-        <button class="nav-tab-btn" data-ntab="planning" onclick="switchTab('planning')"><span class="ntb-icon">📋</span><span>기획서</span></button>
-        <button class="nav-tab-btn" data-ntab="board" onclick="switchTab('board')"><span class="ntb-icon">🎬</span><span>콘티</span></button>
-        <button class="nav-tab-btn" data-ntab="chat" onclick="switchTab('chat')"><span class="ntb-icon">💬</span><span>AI 대화</span></button>
-        <button class="nav-toggle-scene-btn nav-shown" id="nav-toggle-scene-btn" onclick="toggleSceneNav()"><span>☰</span><span>씬 목록</span></button>
+      <!-- 홈 + 프로젝트명 -->
+      <div class="nav-top-row">
+        <button class="nav-home-btn" onclick="goHome()">← 홈</button>
+        <span class="nav-proj-label" id="nav-proj-label">—</span>
       </div>
-      class="sc-nav-top">
-        <div class="sc-nav-top-row">
-          <span class="sc-nav-title">SCENES</span>
-          <button class="sc-sel-all" id="sc-sel-all" onclick="toggleSelectAll()">전체 선택</button>
+      <!-- AI 대화 버튼 (크게 고정) -->
+      <button class="nav-chat-btn" data-ntab="chat" id="nav-chat-btn" onclick="switchTab('chat')">
+        <span class="nav-chat-icon">💬</span>
+        <span>AI 대화</span>
+      </button>
+      <!-- 5개 탭 아이콘 (가로) -->
+      <div class="nav-tab-section">
+        <button class="nav-page-btn on" data-ntab="script" onclick="switchTab('script')" title="대본"><span class="npb-icon">📄</span></button>
+        <button class="nav-page-btn" data-ntab="chars"    onclick="switchTab('chars')"    title="등장인물"><span class="npb-icon">👥</span></button>
+        <button class="nav-page-btn" data-ntab="synopsis" onclick="switchTab('synopsis')" title="시놉시스"><span class="npb-icon">📖</span></button>
+        <button class="nav-page-btn" data-ntab="planning" onclick="switchTab('planning')" title="기획서"><span class="npb-icon">📋</span></button>
+        <button class="nav-page-btn" data-ntab="board"    onclick="switchTab('board')"    title="콘티"><span class="npb-icon">🎬</span></button>
+      </div>
+      <!-- 씬 목록 토글 -->
+      <button class="nav-scene-toggle open" id="nav-scene-toggle" onclick="toggleNavScene()">
+        <span>☰ 씬 목록</span><span id="nav-scene-arrow">▲</span>
+      </button>
+      <!-- 씬 목록 패널 -->
+      <div class="nav-scene-body" id="nav-scene-body">
+        <div class="sc-nav-top">
+          <div class="sc-nav-top-row">
+            <span class="sc-nav-title">SCENES</span>
+            <button class="sc-sel-all" id="sc-sel-all" onclick="toggleSelectAll()">전체 선택</button>
+          </div>
+          <div class="multi-req-bar" id="multi-req-bar">
+            <div class="multi-req-label" id="multi-req-label">선택된 씬에 AI 편집 요청</div>
+            <input class="multi-req-inp" id="multi-req-inp" placeholder="수정 지시...">
+            <button class="multi-req-btn" id="multi-req-btn" onclick="aiEditMultiple()">✦ 선택 씬 AI 수정</button>
+          </div>
         </div>
-        <div class="multi-req-bar" id="multi-req-bar">
-          <div class="multi-req-label" id="multi-req-label">선택된 씬에 AI 편집 요청</div>
-          <input class="multi-req-inp" id="multi-req-inp" placeholder="수정 지시...">
-          <button class="multi-req-btn" id="multi-req-btn" onclick="aiEditMultiple()">✦ 선택 씬 AI 수정</button>
+        <div class="sc-nav-list" id="scene-list"></div>
+        <div class="sc-nav-btm">
+          <button class="sc-nav-add" onclick="addScene()">+ 씬 추가</button>
         </div>
       </div>
-      <div class="sc-nav-list" id="scene-list"></div>
-      <div class="sc-nav-btm">
-        <button class="sc-nav-add" onclick="addScene()">+ 씬 추가</button>
-      </div>
-      </div><!-- /scene-nav-section -->
-    </div>
+    </div><!-- /app-nav -->
 
     <!-- 탭 컨텐츠 -->
     <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0">
@@ -872,10 +863,17 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
           <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
             <!-- 상단 툴바 -->
             <div class="sc-top-bar">
-              <div class="sc-top-bar-left">
-                <span style="font-size:10px;color:var(--text3);font-family:var(--fm)" id="sc-top-info">전체 대본</span>
+              <div class="sc-top-bar-left" style="display:flex;align-items:center;gap:6px">
+                <button class="sc-sync-btn" onclick="selectAllScenesInScript()" id="sc-sel-all-script" style="font-size:10px">전체 선택</button>
+                <button class="sc-sync-btn" onclick="lockSelectedScenes()" style="font-size:10px">🔒 잠금</button>
+                <span style="font-size:10px;color:var(--text3);font-family:var(--fm)" id="sc-top-info"></span>
               </div>
-              <button class="sc-board-sync-btn" id="sc-board-sync-btn" onclick="syncAllToBoard()">↗ 콘티 반영</button>
+              <div style="display:flex;gap:5px;flex-wrap:wrap">
+                <button class="sc-sync-btn" onclick="syncAllToChars()">👥 인물</button>
+                <button class="sc-sync-btn" onclick="syncAllToSynopsis()">📖 시놉시스</button>
+                <button class="sc-sync-btn" onclick="syncAllToPlan()">📋 기획서</button>
+                <button class="sc-sync-btn" onclick="syncAllToBoard()">🎬 콘티</button>
+              </div>
             </div>
             <!-- 집중편집 배너 -->
             <div class="focus-banner" id="focus-banner">
@@ -886,10 +884,10 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
             <div class="sc-full-body" id="sc-full-body">
               <div style="color:var(--text3);font-family:var(--fm);font-size:12px;text-align:center;padding:40px">씬을 추가하거나 AI와 대화해서 대본을 만들어보세요.</div>
             </div>
-            <!-- 하단 AI 프롬프트 바 -->
+            <!-- 하단 AI 지시창 -->
             <div class="script-ai-bar">
               <textarea class="script-ai-inp" id="script-ai-inp" rows="1"
-                placeholder="대본 지시: 씬2 용신 대사를 더 장엄하게 / 씬3 제목을 개울가로 / 씬3~5 청이 춤 장면 교차 추가..."
+                placeholder="대본 지시: 씬2 용신 대사 더 장엄하게 / 씬3 제목 개울가로 / 씬3~5 청이 춤 교차..."
                 onkeydown="scriptAiKey(event)" oninput="autoH(this)"></textarea>
               <span class="script-ai-status" id="script-ai-status"></span>
               <button class="script-ai-send" id="script-ai-send" onclick="sendScriptAi()">↑</button>
@@ -984,6 +982,8 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
     </main>
     </div><!-- /탭컨텐츠 -->
   </div><!-- /app-layout -->
+    </div><!-- /tabs-content -->
+  </div><!-- /app-layout -->
 </div><!-- /app-screen -->
 
 <!-- API 모달 -->
@@ -1020,6 +1020,10 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 </div>
 
 <div class="toast" id="toast"></div>
+<div class="sc-mob-overlay" id="sc-mob-overlay" onclick="closeMobNav()"></div>
+<button class="sc-fab" id="sc-fab" onclick="toggleMobNav()" style="display:none">
+  <span>☰</span><span class="sc-fab-lbl">씬</span>
+</button>
 
 <!-- 모바일 씬 네비 오버레이 -->
 <div class="sc-nav-overlay" id="sc-nav-overlay" onclick="closeMobileNav()"></div>
@@ -1029,30 +1033,6 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
   <span style="font-size:16px">☰</span>
   <span class="sc-fab-label">씬</span>
 </button>
-
-<!-- 모바일 AI 대화 FAB -->
-<button class="ai-fab" id="ai-fab" onclick="toggleMobileChat()">
-  <span>✦</span>
-  <span class="ai-fab-label">AI</span>
-</button>
-
-<!-- 모바일 AI 대화 드로어 -->
-<div class="drawer-overlay" id="drawer-overlay" onclick="closeMobileChat()"></div>
-<div class="mobile-chat-drawer" id="mobile-chat-drawer">
-  <div class="mobile-chat-handle"></div>
-  <div class="mobile-chat-hdr">
-    <span style="font-size:12px;color:var(--accent);font-family:var(--fm)">✦ AI 대화 — 대본 편집</span>
-    <button class="mobile-chat-close" onclick="closeMobileChat()">✕</button>
-  </div>
-  <div class="mobile-chat-drawer-body">
-    <div class="desk-msgs" id="mobile-desk-msgs"></div>
-    <div class="desk-chat-in" style="padding:8px 12px">
-      <textarea class="desk-cta" id="mobile-desk-cta" rows="1"
-        placeholder="씬2 용신 대사 장엄하게..." onkeydown="mobileDeskKey(event)" oninput="autoH(this)"></textarea>
-      <button class="desk-send" onclick="sendMobileDeskChat()">↑</button>
-    </div>
-  </div>
-</div>
 
 <script>
 // ════════════════════════════════════════════
@@ -1306,19 +1286,56 @@ function selectProject(id) {
 function switchTab(n) {
   document.querySelectorAll('.app-tab').forEach(t => t.classList.toggle('on', t.dataset.tab === n));
   document.querySelectorAll('.app-tc').forEach(c => c.classList.toggle('on', c.id === 'app-tc-' + n));
-  // 씬 네비 — 대본 탭일 때만 표시
-  const nav = document.getElementById('app-nav');
-  if (nav) nav.classList.toggle('nav-hidden', n !== 'script');
-  // FAB 버튼들
+  // 네비 탭 버튼 활성화
+  document.querySelectorAll('.nav-page-btn').forEach(t => t.classList.toggle('on', t.dataset.ntab === n));
+  // AI 대화 크게 버튼
+  const ncb = document.getElementById('nav-chat-btn');
+  if (ncb) ncb.classList.toggle('on', n === 'chat');
+  // 씬 패널 — 대본 탭에서만
+  const scBody = document.getElementById('nav-scene-body');
+  const scToggle = document.getElementById('nav-scene-toggle');
+  if (scBody) {
+    if (n !== 'script') {
+      scBody.classList.add('closed');
+      if (scToggle) scToggle.style.display = 'none';
+    } else {
+      if (navSceneOpen) scBody.classList.remove('closed');
+      if (scToggle) scToggle.style.display = '';
+    }
+  }
+  // FAB — 대본 탭만
   const fab = document.getElementById('sc-fab');
-  const aiFab = document.getElementById('ai-fab');
   if (fab) fab.style.display = n === 'script' ? 'flex' : 'none';
-  if (aiFab) aiFab.style.display = n === 'script' ? 'flex' : 'none';
-  // 탭 전환 시 모바일 네비/드로어 닫기
-  if (n !== 'script') { closeMobileNav(); closeMobileChat(); }
-  // 대본 탭 대화창 렌더
-  if (n === 'script') renderDeskMsgs();
+  // 모바일 nav 닫기
+  if (n !== 'script') closeMobNav();
 }
+
+let navSceneOpen = true;
+function toggleNavScene() {
+  navSceneOpen = !navSceneOpen;
+  const body = document.getElementById('nav-scene-body');
+  const arrow = document.getElementById('nav-scene-arrow');
+  const toggle = document.getElementById('nav-scene-toggle');
+  if (body) body.classList.toggle('closed', !navSceneOpen);
+  if (arrow) arrow.textContent = navSceneOpen ? '▲' : '▼';
+  if (toggle) toggle.classList.toggle('open', navSceneOpen);
+}
+
+function toggleMobNav() {
+  const nav = document.getElementById('app-nav');
+  const ov = document.getElementById('sc-mob-overlay');
+  const isOpen = nav.classList.contains('mobile-open');
+  nav.classList.toggle('mobile-open', !isOpen);
+  if (ov) ov.classList.toggle('show', !isOpen);
+}
+function closeMobNav() {
+  const nav = document.getElementById('app-nav');
+  const ov = document.getElementById('sc-mob-overlay');
+  if (nav) nav.classList.remove('mobile-open');
+  if (ov) ov.classList.remove('show');
+}
+function closeMobileNav() { closeMobNav(); }
+function toggleMobileNav() { toggleMobNav(); }
 
 // ════════════════════════════════════════════
 // CHAT
@@ -1336,23 +1353,15 @@ function appendMsgEl(m, i) {
   const av = m.role === 'user' ? '<div class="av usr">나</div>' : '<div class="av ai">✦</div>';
   const liked = m.liked ? 'liked' : '';
   const ll = S.lang === 'ko' ? (m.liked ? '좋아요 ♥' : '좋아요 ♡') : (m.liked ? 'Liked ♥' : 'Like ♡');
-  const mb = document.createElement('div'); mb.className = 'mb'; mb.style.cssText = 'flex:1;min-width:0';
-  const topRow = document.createElement('div'); topRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between';
-  const mname = document.createElement('div'); mname.className = 'mname';
-  mname.textContent = m.role === 'user' ? (S.lang === 'ko' ? '나' : 'Me') : 'Script Studio AI';
-  const delBtn2 = document.createElement('button'); delBtn2.className = 'msg-del-btn'; delBtn2.title = '삭제'; delBtn2.textContent = '✕';
-  delBtn2.onclick = (function(idx){ return function(){ deleteMsg(idx); }; })(i);
-  topRow.appendChild(mname); topRow.appendChild(delBtn2);
-  const mtxt = document.createElement('div'); mtxt.className = 'mtxt'; mtxt.innerHTML = m.text.replace(/\n/g, '<br>');
-  const macts = document.createElement('div'); macts.className = 'macts';
-  const likeBtn = document.createElement('button'); likeBtn.className = 'like-btn ' + liked;
-  likeBtn.textContent = ll;
-  likeBtn.onclick = (function(idx){ return function(){ toggleLike(idx); }; })(i);
-  macts.appendChild(likeBtn);
-  mb.appendChild(topRow); mb.appendChild(mtxt); mb.appendChild(macts);
-  d.innerHTML = av; d.appendChild(mb);
-
+  const who = m.role === 'user' ? (S.lang==='ko'?'나':'Me') : 'Script Studio AI';
+  d.innerHTML = av + '<div class="mb"><div class="mname" style="display:flex;align-items:center;justify-content:space-between"><span>'+who+'</span><button class="msg-del-btn" onclick="deleteMsg('+i+')">✕</button></div><div class="mtxt">'+m.text.replace(/\n/g,'<br>')+'</div><div class="macts"><button class="like-btn '+liked+'" onclick="toggleLike('+i+')">'+ll+'</button></div></div>';
   el.appendChild(d);
+}
+
+function deleteMsg(i) {
+  if (!S.cur) return;
+  S.cur.messages.splice(i, 1);
+  save(); renderMsgs();
 }
 
 function toggleLike(i) { S.cur.messages[i].liked = !S.cur.messages[i].liked; save(); renderMsgs(); }
@@ -2016,6 +2025,24 @@ function renderFullScript() {
     const hdr = document.createElement('div');
     hdr.className = 'scene-block-header';
 
+    // 씬 선택 체크박스
+    const scCb = document.createElement('input'); scCb.type = 'checkbox';
+    scCb.checked = selectedSceneIds.has(sc.id);
+    scCb.style.cssText = 'width:14px;height:14px;flex-shrink:0;accent-color:var(--accent);cursor:pointer;margin-top:1px';
+    scCb.title = S.lang === 'ko' ? '씬 선택' : 'Select scene';
+    scCb.onclick = e => {
+      e.stopPropagation();
+      if (scCb.checked) selectedSceneIds.add(sc.id); else selectedSceneIds.delete(sc.id);
+      updateMultiReqBar(); renderSceneList();
+      // 전체선택 버튼 상태 갱신
+      const selAllBtn = document.getElementById('sc-sel-all-script');
+      if (selAllBtn) {
+        const allSel = (S.cur?.scenes||[]).every(s => selectedSceneIds.has(s.id));
+        selAllBtn.textContent = allSel ? '전체 해제' : '전체 선택';
+      }
+    };
+    hdr.appendChild(scCb);
+
     const divL = document.createElement('div'); divL.className = 'scene-block-divider';
     const numEl = document.createElement('div'); numEl.className = 'scene-block-num';
     numEl.textContent = 'SC ' + (i + 1);
@@ -2337,6 +2364,162 @@ function syncAllToBoard() {
   toast('✓ 콘티에 반영됐습니다');
 }
 
+// ════════════════════════════════════════════
+// 대본 → AI 분석 반영 (Haiku)
+// ════════════════════════════════════════════
+
+// 공통: 대본 전체 텍스트 추출
+function getScriptText() {
+  return (S.cur.scenes || []).map((sc, i) =>
+    'SC' + (i+1) + ' [' + sc.title + '] ' + (sc.slug || '') + '\n' +
+    sc.lines.map(l => {
+      if (l.type === 'character') return '\n' + l.text + ':';
+      if (l.type === 'dialogue') return '  ' + l.text;
+      if (l.type === 'action') return '(' + l.text + ')';
+      return l.text;
+    }).join('\n')
+  ).join('\n\n');
+}
+
+// 공통: 버튼 로딩 상태
+function setSyncBtnLoading(emoji, loading) {
+  document.querySelectorAll('.sc-sync-btn').forEach(btn => {
+    if (btn.textContent.startsWith(emoji)) {
+      btn.disabled = loading;
+      btn.textContent = loading ? emoji + ' ⏳' : btn.dataset.orig || btn.textContent;
+      if (!loading) btn.classList.add('flash');
+      setTimeout(() => btn.classList.remove('flash'), 1500);
+    }
+  });
+}
+
+// ── 👥 등장인물 반영 ──
+async function syncAllToChars() {
+  if (!S.cur) return;
+  const scriptTxt = getScriptText();
+  if (!scriptTxt.trim()) { toast('대본 내용이 없습니다'); return; }
+
+  // 버튼 로딩
+  const btn = [...document.querySelectorAll('.sc-sync-btn')].find(b => b.textContent.includes('👥'));
+  const origTxt = btn?.textContent || '👥 인물';
+  if (btn) { btn.disabled = true; btn.textContent = '👥 ⏳'; }
+
+  try {
+    const sys = '당신은 대본 분석 전문가입니다. JSON만 출력하세요. 설명 없이.';
+    const prompt = '다음 대본에서 등장인물을 분석해 JSON 배열로 출력하세요.\n형식: [{"name":"이름","role":"역할","description":"성격/특징 2-3문장","traits":["특성1","특성2"]}]\n\n대본:\n' + scriptTxt.slice(0, 6000);
+    const raw = await callClaude([{role:'user', content:prompt}], sys, 2000, MODEL_HAIKU);
+    const arr = JSON.parse(raw.replace(/```json?|```/g, '').trim());
+    if (Array.isArray(arr) && arr.length > 0) {
+      // 기존 인물은 유지하고 새 인물만 추가 (이름 기준 merge)
+      const existing = S.cur.characters || [];
+      arr.forEach(nc => {
+        const found = existing.find(e => e.name === nc.name);
+        if (found) {
+          // 기존 인물 업데이트 (description, traits만)
+          if (nc.description) found.description = nc.description;
+          if (nc.traits) found.traits = nc.traits;
+        } else {
+          existing.push(nc);
+        }
+      });
+      S.cur.characters = existing;
+      save(); renderChars();
+      toast('✓ 등장인물 ' + arr.length + '명 분석 완료');
+    } else {
+      toast('인물 데이터를 찾을 수 없습니다');
+    }
+  } catch(e) {
+    toast('오류: ' + e.message);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = origTxt; btn.classList.add('flash'); setTimeout(()=>btn.classList.remove('flash'),1500); }
+}
+
+// ── 📖 시놉시스 반영 ──
+async function syncAllToSynopsis() {
+  if (!S.cur) return;
+  const scriptTxt = getScriptText();
+  if (!scriptTxt.trim()) { toast('대본 내용이 없습니다'); return; }
+
+  const btn = [...document.querySelectorAll('.sc-sync-btn')].find(b => b.textContent.includes('📖'));
+  const origTxt = btn?.textContent || '📖 시놉시스';
+  if (btn) { btn.disabled = true; btn.textContent = '📖 ⏳'; }
+
+  try {
+    const sys = '당신은 전문 대본 작가입니다. 지시대로만 출력하세요.';
+    const prompt = '다음 대본을 바탕으로 시놉시스를 자유롭게 작성하세요.\n' +
+      '작품의 세계관, 인물 관계, 핵심 사건, 감정적 흐름을 자연스럽게 서술해주세요. 분량은 적절하게 조절하세요.\n\n대본:\n' + scriptTxt.slice(0, 6000);
+    const syn = await callClaude([{role:'user', content:prompt}], sys, 1500, MODEL_HAIKU);
+    S.cur.synopsis = syn.trim();
+    const synEdit = document.getElementById('syn-edit');
+    if (synEdit) synEdit.value = S.cur.synopsis;
+    save(); renderSynopsis();
+    toast('✓ 시놉시스 생성 완료');
+  } catch(e) {
+    toast('오류: ' + e.message);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = origTxt; btn.classList.add('flash'); setTimeout(()=>btn.classList.remove('flash'),1500); }
+}
+
+// ── 📋 기획서 반영 ──
+async function syncAllToPlan() {
+  if (!S.cur) return;
+  const scriptTxt = getScriptText();
+  if (!scriptTxt.trim()) { toast('대본 내용이 없습니다'); return; }
+
+  const btn = [...document.querySelectorAll('.sc-sync-btn')].find(b => b.textContent.includes('📋'));
+  const origTxt = btn?.textContent || '📋 기획서';
+  if (btn) { btn.disabled = true; btn.textContent = '📋 ⏳'; }
+
+  try {
+    const sys = '당신은 전문 공연 기획자입니다. JSON만 출력하세요.';
+    const prompt = '다음 대본을 분석해 기획서 핵심 항목을 JSON으로 출력하세요.\n' +
+      '형식: {"intent":"기획 의도 (작품이 왜 필요한가, 2-3문장)","theme":"주제 (핵심 메시지, 1-2문장)","impact":"기대 효과 (관객/사회적 영향, 2-3문장)"}\n\n대본:\n' + scriptTxt.slice(0, 6000);
+    const raw = await callClaude([{role:'user', content:prompt}], sys, 1000, MODEL_HAIKU);
+    const data = JSON.parse(raw.replace(/```json?|```/g, '').trim());
+    if (data.intent) S.cur.planning.intent = data.intent;
+    if (data.theme) S.cur.planning.theme = data.theme;
+    if (data.impact) S.cur.planning.impact = data.impact;
+    save(); renderPlan();
+    toast('✓ 기획서 분석 완료');
+  } catch(e) {
+    toast('오류: ' + e.message);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = origTxt; btn.classList.add('flash'); setTimeout(()=>btn.classList.remove('flash'),1500); }
+}
+
+function flashSyncBtn(label) {
+  document.querySelectorAll('.sc-sync-btn').forEach(btn => {
+    if (btn.textContent.includes(label.slice(0,2))) {
+      btn.classList.add('flash');
+      setTimeout(() => btn.classList.remove('flash'), 1500);
+    }
+  });
+}
+
+// 씬 일괄 잠금 토글 (선택된 씬들)
+function lockSelectedScenes() {
+  if (!selectedSceneIds.size) { toast('씬을 먼저 선택하세요'); return; }
+  const scenes = S.cur.scenes.filter(s => selectedSceneIds.has(s.id));
+  const allLocked = scenes.every(s => s.state === 'locked');
+  scenes.forEach(s => { s.state = allLocked ? 'editable' : 'locked'; });
+  save(); renderSceneList(); renderFullScript();
+  toast(allLocked ? '🔓 선택 씬 잠금 해제' : '🔒 선택 씬 잠금됨');
+}
+
+// 선택된 씬 전체 선택/해제 (대본 화면에서)
+function selectAllScenesInScript() {
+  const scenes = S.cur?.scenes || [];
+  const allSel = scenes.every(s => selectedSceneIds.has(s.id));
+  if (allSel) selectedSceneIds.clear();
+  else scenes.forEach(s => selectedSceneIds.add(s.id));
+  updateMultiReqBar();
+  renderFullScript();
+  renderSceneList();
+  // 버튼 텍스트 갱신
+  const btn = document.getElementById('sc-sel-all-script');
+  if (btn) btn.textContent = allSel ? '전체 선택' : '전체 해제';
+}
+
 // ── 씬 추가 ──
 function addScene() {
   if (!S.cur) return;
@@ -2640,27 +2823,19 @@ function enterProject(id) {
   const appScreen = document.getElementById('app-screen');
   appScreen.style.display = 'flex';
 
-  // empty 숨기고 ws 표시
-  const emptyEl = document.getElementById('empty');
-  const wsEl = document.getElementById('ws');
-  if (emptyEl) emptyEl.style.display = 'none';
-  if (wsEl) { wsEl.style.display = 'flex'; wsEl.style.flex = '1'; wsEl.style.flexDirection = 'column'; wsEl.style.overflow = 'hidden'; }
+  // 네비 프로젝트명 업데이트
+  const npl = document.getElementById('nav-proj-label');
+  if (npl) npl.textContent = S.cur.title;
 
-  // 헤더 업데이트
+  // 헤더 업데이트 (앱 헤더 숨겨도 존재)
   const titleEl = document.getElementById('app-proj-title');
   const medEl = document.getElementById('app-proj-medium');
   if (titleEl) titleEl.textContent = S.cur.title;
   if (medEl) medEl.textContent = S.cur.medium;
-  // 네비 프로젝트 제목
-  const navTitle = document.getElementById('nav-proj-title');
-  if (navTitle) navTitle.textContent = S.cur.title;
-  // app-nav 항상 표시 (진입 시)
-  const nav2 = document.getElementById('app-nav');
-  if (nav2) nav2.classList.remove('nav-hidden');
 
-  // 씬 네비 초기 숨김
+  // app-nav 항상 표시
   const nav = document.getElementById('app-nav');
-  if (nav) nav.classList.add('nav-hidden');
+  if (nav) nav.classList.remove('nav-hidden');
 
   // 렌더
   renderMsgs(); renderSceneList(); renderChars(); renderBoard();
@@ -2674,8 +2849,8 @@ function enterProject(id) {
   clearSceneEditor();
   updateApiUI(!!S.apiKey);
 
-  // 첫 화면: AI 대화 탭
-  switchTab('chat');
+  // 첫 화면: 대본 탭
+  switchTab('script');
 }
 
 function toggleMobileNav() {
@@ -2781,147 +2956,6 @@ function importProject(event) {
 
 
 // ════════════════════════════════════════════
-// 대본 탭 AI 대화창 (데스크탑 + 모바일 공유)
-// 대화 히스토리는 S.cur.messages 에 통합
-// ════════════════════════════════════════════
-let deskChatOpen = true;
-
-function toggleDeskChat() {
-  deskChatOpen = !deskChatOpen;
-  const dc = document.getElementById('desk-chat');
-  const toggle = document.getElementById('desk-chat-toggle');
-  if (dc) dc.className = 'desk-chat ' + (deskChatOpen ? 'open' : 'closed');
-  if (toggle) toggle.textContent = deskChatOpen ? '▼' : '▲';
-}
-
-function toggleMobileChat() {
-  const drawer = document.getElementById('mobile-chat-drawer');
-  const overlay = document.getElementById('drawer-overlay');
-  if (!drawer) return;
-  const isOpen = drawer.classList.contains('show');
-  if (isOpen) { closeMobileChat(); } 
-  else {
-    drawer.classList.add('show');
-    if (overlay) overlay.classList.add('show');
-    renderDeskMsgs();
-  }
-}
-
-function closeMobileChat() {
-  const drawer = document.getElementById('mobile-chat-drawer');
-  const overlay = document.getElementById('drawer-overlay');
-  if (drawer) drawer.classList.remove('show');
-  if (overlay) overlay.classList.remove('show');
-}
-
-// 대본 탭 AI 대화 메시지 렌더
-function renderDeskMsgs() {
-  ['desk-msgs', 'mobile-desk-msgs'].forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.innerHTML = '';
-    (S.cur?.messages || []).forEach((m, i) => {
-      const d = document.createElement('div');
-      d.className = 'msg desk-msg ' + (m.role === 'user' ? 'usr' : '');
-      const av = m.role === 'user'
-        ? '<div class="av usr" style="width:22px;height:22px;font-size:9px">나</div>'
-        : '<div class="av ai" style="width:22px;height:22px;font-size:9px">✦</div>';
-      d.innerHTML = av + '<div class="mb"><div class="mname" style="font-size:9px">' + (m.role === 'user' ? '나' : 'AI') + '</div><div class="mtxt" style="font-size:12px;padding:7px 10px">' + m.text.replace(/\n/g, '<br>') + '</div></div>';
-      el.appendChild(d);
-    });
-    el.scrollTop = 9999;
-  });
-}
-
-// 대본 탭 채팅 키 이벤트
-function deskChatKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendDeskChat(); }
-}
-function mobileDeskKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMobileDeskChat(); }
-}
-
-async function sendDeskChat() {
-  const inp = document.getElementById('desk-cta');
-  const txt = inp?.value.trim();
-  if (!txt || !S.cur) return;
-  inp.value = ''; inp.style.height = 'auto';
-  await _sendScriptChat(txt, document.getElementById('desk-send'));
-}
-
-async function sendMobileDeskChat() {
-  const inp = document.getElementById('mobile-desk-cta');
-  const txt = inp?.value.trim();
-  if (!txt || !S.cur) return;
-  inp.value = ''; inp.style.height = 'auto';
-  await _sendScriptChat(txt, null);
-}
-
-async function _sendScriptChat(txt, sendBtn) {
-  if (sendBtn) sendBtn.disabled = true;
-  const dot = document.getElementById('desk-chat-dot');
-  if (dot) dot.classList.add('live');
-
-  // 메시지 추가 (메인 히스토리에 통합)
-  S.cur.messages.push({ role: 'user', text: txt, liked: false });
-  save();
-  renderMsgs();      // AI 대화 탭 동기화
-  renderDeskMsgs();  // 대본 탭 대화창 동기화
-
-  // 대본 컨텍스트 포함 시스템 프롬프트
-  const scenesSummary = (S.cur.scenes || []).map((sc, i) =>
-    'SC' + (i+1) + ' "' + sc.title + '" (' + sc.state + '): ' + sc.lines.slice(0,2).map(l=>l.text).join(' / ')
-  ).join('\n');
-  const scriptSys = getSys() + '\n\n현재 대본 씬 목록:\n' + scenesSummary + '\n\n씬 수정/제목변경/추가 등을 요청받으면 반드시 해당 씬의 JSON을 ##SAVE_SCENE## 태그나 ```json 블록으로 출력하세요. 씬 번호는 SC1, SC2 등으로 참조하세요.';
-
-  const msgs = S.cur.messages.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
-
-  // typing dots
-  const typingId = 'desk-typing-' + Date.now();
-  ['desk-msgs', 'mobile-desk-msgs'].forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const t = document.createElement('div'); t.className = 'msg desk-msg'; t.id = typingId;
-    t.innerHTML = '<div class="av ai" style="width:22px;height:22px;font-size:9px">✦</div><div class="mb"><div class="mtxt" style="font-size:12px;padding:7px 10px"><div class="dots"><span></span><span></span><span></span></div></div></div>';
-    el.appendChild(t); el.scrollTop = 9999;
-  });
-
-  try {
-    const reply = await callClaude(msgs, scriptSys, 2000);
-    document.querySelectorAll('#' + typingId).forEach(e => e.remove());
-    S.cur.messages.push({ role: 'assistant', text: reply, liked: false });
-    save();
-    autoTagGenre(reply);
-    renderMsgs();
-    renderDeskMsgs();
-    // 씬 감지 + 자동 반영
-    const detected = detectScriptContent(reply);
-    if (detected.length > 0) appendDetectCard(detected);
-    checkAutoSaveSignal(reply);
-    // 저장 명령어 처리
-    if (isSaveCommand(txt)) handleSaveCommand(txt);
-  } catch(e) {
-    document.querySelectorAll('#' + typingId).forEach(el => el.remove());
-    S.cur.messages.push({ role: 'assistant', text: '오류: ' + e.message, liked: false });
-    save(); renderMsgs(); renderDeskMsgs();
-  }
-
-  if (sendBtn) sendBtn.disabled = false;
-  if (dot) dot.classList.remove('live');
-}
-
-// ════════════════════════════════════════════
-// 대화 메시지 개별 삭제
-// ════════════════════════════════════════════
-function deleteMsg(i) {
-  if (!S.cur) return;
-  S.cur.messages.splice(i, 1);
-  save(); renderMsgs(); renderDeskMsgs();
-}
-
-
-
-// ════════════════════════════════════════════
 // 대본 하단 AI 직접 지시
 // ════════════════════════════════════════════
 function scriptAiKey(e) {
@@ -2930,64 +2964,63 @@ function scriptAiKey(e) {
 
 async function sendScriptAi() {
   const inp = document.getElementById('script-ai-inp');
-  const statusEl = document.getElementById('script-ai-status');
-  const sendBtn = document.getElementById('script-ai-send');
-  const txt = inp.value.trim();
+  const stat = document.getElementById('script-ai-status');
+  const btn = document.getElementById('script-ai-send');
+  const txt = inp?.value.trim();
   if (!txt || !S.cur) return;
   inp.value = ''; inp.style.height = 'auto';
-  sendBtn.disabled = true;
-  if (statusEl) { statusEl.textContent = 'AI 처리 중...'; statusEl.className = 'script-ai-status working'; }
+  btn.disabled = true;
+  if (stat) { stat.textContent = 'AI 처리 중...'; stat.className = 'script-ai-status working'; }
   addMsg('user', '[대본 지시] ' + txt);
+
   try {
-    const sceneSummary = (S.cur.scenes || []).map((sc, i) => 'SC'+(i+1)+'.'+(sc.title)+'('+sc.slug+')').join(', ');
-    const scNums = [];
-    const numRe = /씬\s*(\d+)/g;
-    let nm;
-    while ((nm = numRe.exec(txt)) !== null) scNums.push(parseInt(nm[1]) - 1);
-    let sceneDetail = '';
-    if (scNums.length > 0) {
-      sceneDetail = scNums.filter(i => i >= 0 && i < S.cur.scenes.length).map(i => {
-        const sc = S.cur.scenes[i];
-        return 'SC'+(i+1)+' "'+sc.title+'": '+JSON.stringify(sc.lines.map((l,li) => ({index:li,type:l.type,text:l.text,locked:l.locked||false})));
+    const sceneSummary = (S.cur.scenes||[]).map((s,i) => 'SC'+(i+1)+'.'+s.title+'('+s.slug+')').join(', ');
+    const numRe = /씬\s*(\d+)/g; const nums = []; let nm;
+    while ((nm = numRe.exec(txt)) !== null) nums.push(parseInt(nm[1]) - 1);
+    let detail = '';
+    if (nums.length > 0) {
+      detail = nums.filter(i => i >= 0 && i < S.cur.scenes.length).map(i => {
+        const s = S.cur.scenes[i];
+        return 'SC'+(i+1)+' "'+s.title+'":'+JSON.stringify(s.lines.map((l,j)=>({index:j,type:l.type,text:l.text,locked:l.locked||false})));
       }).join('\n');
     }
-    const sys = '당신은 전문 대본 작가입니다. 사용자 지시에 따라 씬을 수정하세요. 씬 목록: '+sceneSummary+'. locked:true 줄은 수정하지 마세요. 수정할 씬만 JSON 배열로 출력: [{"sceneIndex":0,"title":"...","slug":"...","lines":[{"type":"...","text":"...","locked":false}]}] JSON만 출력.';
-    const userMsg = sceneDetail ? txt + '\n\n해당 씬 상세:\n' + sceneDetail : txt;
-    const raw = await callClaude([{ role: 'user', content: userMsg }], sys, 4000);
-    const arrMatch = raw.match(/\[([\s\S]*)\]/);
-    if (arrMatch) {
-      const updates = JSON.parse('[' + arrMatch[1] + ']');
-      let updatedCount = 0;
-      updates.forEach(upd => {
-        const idx = upd.sceneIndex;
-        if (idx === undefined || idx === null || !S.cur.scenes[idx]) return;
+    const sys = '당신은 전문 대본 작가입니다. 씬 목록: '+sceneSummary+'. locked:true 줄은 절대 수정하지 마세요. 수정할 씬만 JSON 배열로 출력: [{"sceneIndex":0,"title":"...","slug":"...","lines":[{"type":"...","text":"...","locked":false}]}] JSON만 출력.';
+    const raw = await callClaude([{role:'user', content: detail ? txt+'\n\n해당 씬 상세:\n'+detail : txt}], sys, 4000);
+
+    const arrM = raw.match(/\[[\s\S]*\]/);
+    if (arrM) {
+      const updates = JSON.parse(arrM[0]);
+      let cnt = 0;
+      updates.forEach(u => {
+        const idx = u.sceneIndex;
+        if (idx === undefined || !S.cur.scenes[idx]) return;
         const sc = S.cur.scenes[idx];
-        if (upd.title) sc.title = upd.title;
-        if (upd.slug) sc.slug = upd.slug;
-        if (upd.lines) {
-          sc.lines = upd.lines.map((nl, i) => {
+        if (u.title) sc.title = u.title;
+        if (u.slug) sc.slug = u.slug;
+        if (u.lines) {
+          sc.lines = u.lines.map((nl, i) => {
             const old = sc.lines[i];
-            if (old && old.locked) return { ...old };
-            return { type: nl.type, text: nl.text, locked: nl.locked || false };
+            if (old && old.locked) return {...old};
+            return {type:nl.type, text:nl.text, locked:nl.locked||false};
           });
         }
-        updatedCount++;
+        cnt++;
       });
       save(); renderSceneList(); renderFullScript(); renderBoard();
-      const resultMsg = '✓ ' + updatedCount + '개 씬 수정됨: ' + updates.map(u => 'SC'+(u.sceneIndex+1)+' "'+((u.title)||S.cur.scenes[u.sceneIndex]?.title||'')+'"').join(', ');
-      if (statusEl) { statusEl.textContent = resultMsg; statusEl.className = 'script-ai-status done'; }
-      addMsg('assistant', resultMsg);
-      toast(resultMsg);
+      const msg = '✓ ' + cnt + '개 씬 수정됨';
+      if (stat) { stat.textContent = msg; stat.className = 'script-ai-status done'; }
+      addMsg('assistant', msg);
+      toast(msg);
     } else {
       addMsg('assistant', raw);
-      if (statusEl) { statusEl.textContent = '✓ 완료'; statusEl.className = 'script-ai-status done'; }
+      if (stat) { stat.textContent = '✓ 완료'; stat.className = 'script-ai-status done'; }
     }
   } catch(e) {
-    if (statusEl) { statusEl.textContent = '오류: ' + e.message; statusEl.className = 'script-ai-status'; }
+    if (stat) { stat.textContent = '오류'; stat.className = 'script-ai-status'; }
     addMsg('assistant', '오류: ' + e.message);
   }
-  sendBtn.disabled = false;
-  setTimeout(() => { if (statusEl) { statusEl.textContent = ''; statusEl.className = 'script-ai-status'; } }, 5000);
+  btn.disabled = false;
+  setTimeout(() => { if (stat) { stat.textContent = ''; stat.className = 'script-ai-status'; } }, 4000);
 }
 
 // ════════════════════════════════════════════
