@@ -884,14 +884,7 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
             <div class="sc-full-body" id="sc-full-body">
               <div style="color:var(--text3);font-family:var(--fm);font-size:12px;text-align:center;padding:40px">씬을 추가하거나 AI와 대화해서 대본을 만들어보세요.</div>
             </div>
-            <!-- 하단 AI 지시창 -->
-            <div class="script-ai-bar">
-              <textarea class="script-ai-inp" id="script-ai-inp" rows="1"
-                placeholder="대본 지시: 씬2 용신 대사 더 장엄하게 / 씬3 제목 개울가로 / 씬3~5 청이 춤 교차..."
-                onkeydown="scriptAiKey(event)" oninput="autoH(this)"></textarea>
-              <span class="script-ai-status" id="script-ai-status"></span>
-              <button class="script-ai-send" id="script-ai-send" onclick="sendScriptAi()">↑</button>
-            </div>
+
           </div>
 
         
@@ -984,6 +977,14 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
   </div><!-- /app-layout -->
     </div><!-- /tabs-content -->
   </div><!-- /app-layout -->
+  <!-- AI 지시창 — 대본 탭 활성 시 표시, 항상 하단 고정 -->
+  <div class="script-ai-bar" id="script-ai-bar-global" style="display:none">
+    <textarea class="script-ai-inp" id="script-ai-inp" rows="1"
+      placeholder="대본 지시: 씬2 용신 대사 더 장엄하게 / 씬3 제목 개울가로..."
+      onkeydown="scriptAiKey(event)" oninput="autoH(this)"></textarea>
+    <span class="script-ai-status" id="script-ai-status"></span>
+    <button class="script-ai-send" id="script-ai-send" onclick="sendScriptAi()">↑</button>
+  </div>
 </div><!-- /app-screen -->
 
 <!-- API 모달 -->
@@ -1226,11 +1227,13 @@ function renderHomeGrid() {
     const enterBtn = document.createElement('button'); enterBtn.className = 'proj-card-btn';
     enterBtn.textContent = S.lang === 'ko' ? '열기' : 'Open';
     enterBtn.onclick = e => { e.stopPropagation(); enterProject(p.id); };
+    const expBtn = document.createElement('button'); expBtn.className = 'proj-card-icon-btn'; expBtn.title = S.lang === 'ko' ? '내보내기' : 'Export'; expBtn.textContent = '⬇';
+    expBtn.onclick = e => { e.stopPropagation(); exportProjectById(p.id); };
     const renBtn = document.createElement('button'); renBtn.className = 'proj-card-icon-btn'; renBtn.title = '이름 변경'; renBtn.textContent = '✎';
     renBtn.onclick = e => { e.stopPropagation(); renameProject(p.id); };
     const delBtn2 = document.createElement('button'); delBtn2.className = 'proj-card-icon-btn del'; delBtn2.title = '삭제'; delBtn2.textContent = '🗑';
     delBtn2.onclick = e => { e.stopPropagation(); deleteProject(p.id); };
-    actions.appendChild(enterBtn); actions.appendChild(renBtn); actions.appendChild(delBtn2);
+    actions.appendChild(enterBtn); actions.appendChild(expBtn); actions.appendChild(renBtn); actions.appendChild(delBtn2);
     card.appendChild(actions);
 
     grid.appendChild(card);
@@ -1306,6 +1309,9 @@ function switchTab(n) {
   // FAB — 대본 탭만
   const fab = document.getElementById('sc-fab');
   if (fab) fab.style.display = n === 'script' ? 'flex' : 'none';
+  // AI 지시창 — 대본 탭만
+  const aiBar = document.getElementById('script-ai-bar-global');
+  if (aiBar) aiBar.style.display = n === 'script' ? 'flex' : 'none';
   // 모바일 nav 닫기
   if (n !== 'script') closeMobNav();
 }
@@ -2877,6 +2883,19 @@ function closeMobileNav() {
 // ════════════════════════════════════════════
 // 프로젝트 내보내기 / 불러오기
 // ════════════════════════════════════════════
+
+function exportProjectById(id) {
+  const proj = S.projects.find(p => p.id === id);
+  if (!proj) return;
+  const data = { _version: 1, _exported: new Date().toISOString(), _app: 'Script Studio', ...proj };
+  const json = JSON.stringify(data, null, 2);
+  const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const filename = proj.title.replace(/[^a-zA-Z0-9가-힣_\-]/g, '_') + '_' + new Date().toISOString().slice(0, 10) + '.json';
+  const a = Object.assign(document.createElement('a'), { href: url, download: filename });
+  a.click(); URL.revokeObjectURL(url);
+  toast(S.lang === 'ko' ? '✓ "' + proj.title + '" 내보내기 완료' : '✓ Exported "' + proj.title + '"');
+}
 
 function exportProject() {
   if (!S.cur) { toast(S.lang === 'ko' ? '내보낼 프로젝트를 선택하세요.' : 'Select a project to export.'); return; }
