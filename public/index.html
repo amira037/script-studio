@@ -701,7 +701,7 @@ async function callClaude(messages, sys, onStream) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: model || MODEL_SONNET,
       max_tokens: maxTokens || 1500,
       system: sys || getSys(),
       messages,
@@ -2089,7 +2089,8 @@ async function convertSelectedScenes(sceneList) {
         S.lang === 'ko'
           ? '당신은 전문 대본 작가입니다. JSON만 출력하세요.'
           : 'You are a professional screenwriter. Output ONLY JSON.',
-        3000
+        3000,
+        MODEL_HAIKU
       );
 
       const detected = detectScriptContent(reply);
@@ -2137,7 +2138,7 @@ async function analyzeAs(type) {
         : `Based on this content, write a planning document as JSON.\nJSON only: {"intent":"...","theme":"...","impact":"..."}\n\n${excerpt}`);
 
   try {
-    const reply = await callClaude([{ role: 'user', content: prompt }]);
+    const reply = await callClaude([{ role: 'user', content: prompt }], null, 2000, MODEL_HAIKU);
     if (type === 'synopsis') {
       S.cur.synopsis = reply;
       document.getElementById('syn-edit').value = reply;
