@@ -349,6 +349,30 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 .full-script-block .s-dlg{max-width:320px;text-align:center;margin:0 auto;display:block;width:100%}
 .full-script-block .ll-locked{opacity:.6;border-left:2px solid var(--text3);padding-left:6px}
 .full-script-block div{min-height:1.2em}
+
+/* ── 씬 제목 인라인 편집 ── */
+.sc-tbig-edit{font-family:var(--fd);font-size:15px;background:transparent;border:none;outline:none;color:var(--text);width:100%;border-bottom:1px dashed transparent;transition:border .15s}
+.sc-tbig-edit:hover{border-bottom-color:var(--border2)}
+.sc-tbig-edit:focus{border-bottom-color:var(--accent)}
+
+/* ── 줄 추가 툴바 ── */
+.line-add-bar{display:flex;align-items:center;gap:5px;padding:4px 6px;margin-top:4px;opacity:0;transition:opacity .15s}
+.lw:hover .line-add-bar,.line-add-bar:hover{opacity:1}
+.add-line-btn{background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text3);font-size:9px;padding:2px 7px;cursor:pointer;transition:all .15s;font-family:var(--fm)}
+.add-line-btn:hover{border-color:var(--accent2);color:var(--accent);background:rgba(200,169,110,.08)}
+
+/* ── 씬 네비 슬러그 ── */
+.sc-nav-slug{font-size:9px;color:var(--text3);font-family:var(--fm);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px}
+
+/* ── 콘티 반영 버튼 ── */
+.sync-board-btn{background:transparent;border:1px solid var(--blue);border-radius:var(--r);color:var(--blue);font-size:10px;padding:4px 9px;cursor:pointer;transition:all .15s;font-family:var(--fm);display:none}
+.sync-board-btn:hover{background:rgba(110,168,200,.12)}
+.sync-board-btn.show{display:block}
+.sync-board-btn.synced{border-color:var(--green);color:var(--green)}
+
+/* ── 전체 보기 강제 ── */
+#full-script-pane{display:none}
+#full-script-pane.fs-show{display:block!important;flex:1;overflow-y:auto;padding:28px 32px}
 </style>
 </head>
 <body>
@@ -462,7 +486,7 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
           <div class="sc-ed">
             <div class="sc-hdr">
               <div class="sc-hdr-l">
-                <div class="sc-tbig" id="sc-tbig">씬을 선택하세요</div>
+                <input class="sc-tbig-edit" id="sc-tbig" placeholder="씬 제목" oninput="updateScTitle()" value="씬을 선택하세요">
                 <input class="slug-inp" id="slug-inp" placeholder="슬러그라인: INT. 장소 - 시간" oninput="updateSlug()">
               </div>
               <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
@@ -980,7 +1004,14 @@ function detectScriptContent(text) {
     try {
       const data = JSON.parse(m[1].trim());
       if (data.lines && data.title) {
-        items.push({ type: 'scene', label: S.lang === 'ko' ? '씬' : 'Scene', data, preview: `"${data.title}" — ${data.slug || ''}` });
+        items.push({ type: 'scene', label: S.lang === 'ko' ? '씬' : 'Scene', data, preview: '"' + data.title + '" — ' + (data.slug || '') });
+      } else if (data.scenes && Array.isArray(data.scenes)) {
+        // {"title":..., "scenes":[{...}]} 구조
+        data.scenes.forEach(sc => {
+          if (sc.lines || sc.title) {
+            items.push({ type: 'scene', label: S.lang === 'ko' ? '씬' : 'Scene', data: sc, preview: '"' + (sc.title || '씬') + '" — ' + (sc.slug || '') });
+          }
+        });
       } else if (Array.isArray(data) && data[0]?.type && data[0]?.text) {
         items.push({ type: 'scene', label: S.lang === 'ko' ? '씬' : 'Scene', data: { title: S.lang === 'ko' ? '새 씬' : 'New Scene', slug: '', lines: data }, preview: S.lang === 'ko' ? `${data.length}줄 대본` : `${data.length} lines` });
       } else if (Array.isArray(data) && data[0]?.name && data[0]?.role) {
@@ -1287,24 +1318,30 @@ function selectScene(id) {
 
 function clearSceneEditor() {
   S.curSc = null;
-  document.getElementById('sc-tbig').textContent = S.lang === 'ko' ? '씬을 선택하세요' : 'Select a scene';
+  document.getElementById('sc-tbig').value = S.lang === 'ko' ? '씬을 선택하세요' : 'Select a scene';
   document.getElementById('slug-inp').value = '';
   document.getElementById('sc-body').innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text3);font-family:var(--fm);font-size:11px">' + (S.lang === 'ko' ? '← 씬을 선택하거나 새로 추가하세요' : '← Select or add a scene') + '</div>';
   document.getElementById('sc-ctrls').style.display = 'none';
   document.getElementById('req-bar').classList.remove('show');
   // 전체 보기 패널 초기 숨김
   const fp = document.getElementById('full-script-pane');
-  if (fp) fp.style.display = 'none';
+  if (fp) fp.classList.remove('fs-show');
   scriptViewMode = 'single';
   document.getElementById('svt-single').classList.add('on');
   document.getElementById('svt-full').classList.remove('on');
+  // 콘티 반영 버튼 숨김
+  const sbb = document.getElementById('sync-board-btn');
+  if (sbb) sbb.classList.remove('show');
 }
 
 function renderSceneEditor() {
   const sc = S.curSc; if (!sc) return;
-  document.getElementById('sc-tbig').textContent = sc.title;
+  document.getElementById('sc-tbig').value = sc.title;
   document.getElementById('slug-inp').value = sc.slug || '';
   updateStateCycler();
+  // 콘티 반영 버튼
+  const sbb = document.getElementById('sync-board-btn');
+  if (sbb) { sbb.classList.add('show'); sbb.classList.remove('synced'); sbb.textContent = '↗ 콘티 반영'; }
 
   // 편집 요청 바
   const rb = document.getElementById('req-bar');
@@ -1346,51 +1383,119 @@ function updateStateCycler() {
 function renderLines(body, sc, sceneLocked) {
   const block = document.createElement('div'); block.className = 'script-block';
 
-  sc.lines.forEach((line, i) => {
+  function createLineEl(line, i) {
     const wrap = document.createElement('div');
     wrap.className = 'lw' + (line.locked ? ' ll' : '');
 
-    // 줄 잠금 버튼 (씬이 잠겨있지 않을 때만)
+    // 줄 잠금 버튼
     if (!sceneLocked) {
       const lb = document.createElement('button'); lb.className = 'llbtn';
-      lb.title = line.locked
-        ? (S.lang === 'ko' ? '줄 잠금 해제' : 'Unlock line')
-        : (S.lang === 'ko' ? '이 줄 잠금' : 'Lock this line');
+      lb.title = line.locked ? (S.lang === 'ko' ? '줄 잠금 해제' : 'Unlock line') : (S.lang === 'ko' ? '이 줄 잠금' : 'Lock this line');
       lb.textContent = line.locked ? '🔒' : '○';
       lb.onclick = e => {
         e.stopPropagation();
         line.locked = !line.locked;
         wrap.classList.toggle('ll', line.locked);
         lb.textContent = line.locked ? '🔒' : '○';
-        lb.title = line.locked ? (S.lang === 'ko' ? '줄 잠금 해제' : 'Unlock line') : (S.lang === 'ko' ? '이 줄 잠금' : 'Lock this line');
         le.contentEditable = line.locked ? 'false' : 'true';
         ind.style.display = line.locked ? 'block' : 'none';
-        save(); renderSceneList(); // 줄🔒 카운트 업데이트
-        toast(line.locked
-          ? (S.lang === 'ko' ? '🔒 줄 잠금됨' : '🔒 Line locked')
-          : (S.lang === 'ko' ? '🔓 줄 잠금 해제' : '🔓 Line unlocked'));
+        save(); renderSceneList();
+        toast(line.locked ? (S.lang === 'ko' ? '🔒 줄 잠금됨' : '🔒 Line locked') : (S.lang === 'ko' ? '🔓 줄 잠금 해제' : '🔓 Line unlocked'));
       };
       wrap.appendChild(lb);
     }
 
     // 줄 편집 요소
     const le = document.createElement('div');
-    const typeClass = { action: 's-action', character: 's-char', dialogue: 's-dlg', parenthetical: 's-paren', slug: 's-slug' }[line.type] || '';
-    le.className = 'le ' + typeClass;
+    const TYPE_CLASS = { action: 's-action', character: 's-char', dialogue: 's-dlg', parenthetical: 's-paren', slug: 's-slug' };
+    le.className = 'le ' + (TYPE_CLASS[line.type] || 's-action');
     le.contentEditable = (sceneLocked || line.locked) ? 'false' : 'true';
     le.textContent = line.text;
-    le.oninput = () => { line.text = le.textContent; save(); renderBoard(); };
+
+    le.oninput = () => {
+      line.text = le.textContent;
+      save();
+      // 콘티 반영 버튼 활성화
+      const sbb = document.getElementById('sync-board-btn');
+      if (sbb) { sbb.classList.remove('synced'); sbb.textContent = '↗ 콘티 반영'; }
+    };
+
+    // 엔터키 처리 — 줄 추가
+    if (!sceneLocked && !line.locked) {
+      le.onkeydown = e => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const nextType = line.type === 'character' ? 'dialogue' : 'action';
+          const newLine = { type: nextType, text: '', locked: false };
+          sc.lines.splice(i + 1, 0, newLine);
+          save();
+          renderLines(body, sc, false); // 재렌더
+          // 새 줄로 포커스
+          setTimeout(() => {
+            const allLe = body.querySelectorAll('.le');
+            if (allLe[i + 1]) allLe[i + 1].focus();
+          }, 30);
+        }
+      };
+    }
+
     wrap.appendChild(le);
 
-    // 줄 잠금 인디케이터
+    // 잠금 인디케이터
     const ind = document.createElement('div'); ind.className = 'll-ind';
     ind.textContent = S.lang === 'ko' ? '잠금' : 'locked';
     ind.style.display = line.locked ? 'block' : 'none';
     wrap.appendChild(ind);
 
-    block.appendChild(wrap);
+    // 줄 추가 툴바 (잠금 아닐 때)
+    if (!sceneLocked && !line.locked) {
+      const addBar = document.createElement('div'); addBar.className = 'line-add-bar';
+      const types = [
+        { type: 'action',        label: S.lang === 'ko' ? '+ 지문' : '+ Action' },
+        { type: 'character',     label: S.lang === 'ko' ? '+ 배역명' : '+ Character' },
+        { type: 'dialogue',      label: S.lang === 'ko' ? '+ 대사' : '+ Dialogue' },
+        { type: 'parenthetical', label: S.lang === 'ko' ? '+ 지시' : '+ Direction' },
+      ];
+      types.forEach(t => {
+        const btn = document.createElement('button'); btn.className = 'add-line-btn';
+        btn.textContent = t.label;
+        btn.onclick = e => {
+          e.stopPropagation();
+          const newLine = { type: t.type, text: '', locked: false };
+          sc.lines.splice(i + 1, 0, newLine);
+          save();
+          renderLines(body, sc, false);
+          setTimeout(() => {
+            const allLe = body.querySelectorAll('.le');
+            if (allLe[i + 1]) allLe[i + 1].focus();
+          }, 30);
+        };
+        addBar.appendChild(btn);
+      });
+      // 줄 삭제 버튼
+      const delBtn = document.createElement('button'); delBtn.className = 'add-line-btn';
+      delBtn.style.color = 'var(--red)'; delBtn.style.borderColor = 'rgba(224,96,96,.3)';
+      delBtn.textContent = '✕';
+      delBtn.onclick = e => {
+        e.stopPropagation();
+        if (sc.lines.length <= 1) return;
+        sc.lines.splice(i, 1);
+        save(); renderLines(body, sc, false);
+      };
+      addBar.appendChild(delBtn);
+      wrap.appendChild(addBar);
+    }
+
+    return wrap;
+  }
+
+  // 기존 내용 지우고 재렌더
+  block.innerHTML = '';
+  sc.lines.forEach((line, i) => {
+    block.appendChild(createLineEl(line, i));
   });
 
+  body.innerHTML = '';
   body.appendChild(block);
 }
 
@@ -1403,6 +1508,26 @@ function cycleState() {
   S.curSc.state = STATES[(idx + 1) % STATES.length];
   save(); renderSceneEditor(); renderSceneList();
   toast(STATE_UI[S.lang][S.curSc.state]);
+}
+
+
+function updateScTitle() {
+  if (S.curSc) {
+    S.curSc.title = document.getElementById('sc-tbig').value;
+    save(); renderSceneList();
+    // 콘티 반영 버튼 활성화
+    const sbb = document.getElementById('sync-board-btn');
+    if (sbb) { sbb.classList.remove('synced'); sbb.textContent = '↗ 콘티 반영'; }
+  }
+}
+
+// 콘티 반영 버튼
+function syncSceneToBoard() {
+  renderBoard();
+  const sbb = document.getElementById('sync-board-btn');
+  if (sbb) { sbb.classList.add('synced'); sbb.textContent = '✓ 반영됨'; }
+  toast(S.lang === 'ko' ? '✓ 씬 콘티에 반영됐습니다' : '✓ Synced to storyboard');
+  setTimeout(() => { if (sbb) { sbb.classList.remove('synced'); sbb.textContent = '↗ 콘티 반영'; } }, 2000);
 }
 
 function updateSlug() { if (S.curSc) { S.curSc.slug = document.getElementById('slug-inp').value; save(); renderBoard(); } }
@@ -1466,6 +1591,9 @@ async function aiEditScene() {
 
     sc.state = 'editable';
     save(); renderSceneEditor(); renderSceneList(); renderBoard();
+    // 제목 input 업데이트
+    const titleEl = document.getElementById('sc-tbig');
+    if (titleEl && sc.title) titleEl.value = sc.title;
     toast(S.lang === 'ko' ? '✓ 씬 수정 완료 (잠긴 줄 보존됨)' : '✓ Scene updated (locked lines preserved)');
   } catch(e) {
     alert('Error: ' + e.message);
@@ -2197,13 +2325,13 @@ function setScriptView(mode) {
     scBody.style.display  = 'none';
     scProm.style.display  = 'none';
     if (reqBar) reqBar.style.display = 'none';
-    fullPane.style.display = 'block';
+    fullPane.classList.add('fs-show');
     ctrls.style.display    = 'none';
     renderFullScript();
   } else {
     scSb.style.display    = '';
     scBody.style.display  = '';
-    fullPane.style.display = 'none';
+    fullPane.classList.remove('fs-show');
     if (S.curSc) {
       ctrls.style.display = 'flex';
       if (S.curSc.state === 'requested') {
