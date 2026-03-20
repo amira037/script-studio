@@ -1667,6 +1667,27 @@ function renderFullScript() {
     };
     acts.appendChild(focusBtn);
 
+    // 씬 추가 버튼 (이 씬 다음에 추가)
+    const addAfterBtn = document.createElement('button');
+    addAfterBtn.className = 'sb-focus-btn';
+    addAfterBtn.textContent = '+ 씬';
+    addAfterBtn.style.borderColor = 'rgba(200,169,110,.4)';
+    addAfterBtn.style.color = 'var(--accent)';
+    addAfterBtn.onclick = () => {
+      const title = prompt(S.lang === 'ko' ? '씬 제목:' : 'Scene title:', S.lang === 'ko' ? '새 씬' : 'New Scene');
+      if (!title) return;
+      const newSc = makeScene(title, S.lang === 'ko' ? 'INT. 장소 - 시간대' : 'INT. LOCATION - DAY', [
+        { type: 'action', text: S.lang === 'ko' ? '지문을 입력하세요.' : 'Enter action line.' },
+        { type: 'character', text: S.lang === 'ko' ? '캐릭터' : 'CHARACTER' },
+        { type: 'dialogue', text: S.lang === 'ko' ? '대사를 입력하세요.' : 'Enter dialogue.' },
+      ]);
+      const idx = S.cur.scenes.findIndex(s => s.id === sc.id);
+      S.cur.scenes.splice(idx + 1, 0, newSc);
+      save(); renderSceneList(); renderFullScript(); renderBoard();
+      setTimeout(() => scrollToScene(newSc.id), 100);
+    };
+    acts.appendChild(addAfterBtn);
+
     // 삭제 버튼
     const delBtn = document.createElement('button');
     delBtn.className = 'sb-del-btn';
@@ -1942,6 +1963,254 @@ function updateScTitle() {}
 function syncSceneToBoard() { syncAllToBoard(); }
 function setScriptView() {}
 function renderFullScriptLegacy() {}
+
+
+// ════════════════════════════════════════════
+// PLANNING
+// ════════════════════════════════════════════
+function renderPlan() {
+  if (!S.cur) return;
+  ['intent', 'theme', 'impact'].forEach(k => {
+    const el = document.getElementById('pi-' + k);
+    if (!el) return;
+    el.textContent = S.cur.planning[k] || (S.lang === 'ko' ? 'AI 대화 탭에서 생성하거나 직접 입력하세요.' : 'Generate from AI Chat or type directly.');
+    el.oninput = function() { S.cur.planning[k] = this.textContent; save(); };
+  });
+}
+
+async function regenField(field) {
+  if (!S.cur) return;
+  const labels = { intent: S.lang === 'ko' ? '기획 의도' : 'project intent', theme: S.lang === 'ko' ? '주제' : 'theme', impact: S.lang === 'ko' ? '기대 효과' : 'expected impact' };
+  const el = document.getElementById('pi-' + field);
+  if (!el) return;
+  el.textContent = '⏳...';
+  try {
+    const txt = await callClaude([{ role: 'user', content: S.lang === 'ko' ? '"' + S.cur.title + '" (' + S.cur.medium + ')의 ' + labels[field] + '를 2-3문단으로 작성하세요.' : 'Write the ' + labels[field] + ' for "' + S.cur.title + '" (' + S.cur.medium + ') in 2-3 paragraphs.' }]);
+    el.textContent = txt; S.cur.planning[field] = txt; save();
+  } catch(e) { el.textContent = ''; }
+}
+
+// ════════════════════════════════════════════
+// SYNOPSIS
+// ════════════════════════════════════════════
+function renderSynopsis() {
+  const el = document.getElementById('syn-body');
+  if (!el) return;
+  const syn = S.cur?.synopsis;
+  if (!syn) { el.innerHTML = '<div style="color:var(--text3);font-family:var(--fm);font-size:11px">' + (S.lang === 'ko' ? 'AI 재생성 버튼을 누르거나 아래에 직접 입력하세요.' : 'Click Regenerate or type below.') + '</div>'; return; }
+  const parts = syn.split(/(?=\n?(?:1막|2막|3막|Act [123]|1부|2부))/i);
+  el.innerHTML = parts.map(p => {
+    const t = p.trim(); const m = t.match(/^(1막|2막|3막|Act [123]|1부|2부)/i);
+    if (m) return '<div class="syn-act"><div class="syn-act-lbl">' + m[0] + '</div><div class="syn-act-txt">' + t.replace(m[0], '').trim() + '</div></div>';
+    return t ? '<div class="syn-act-txt" style="margin-bottom:10px">' + t + '</div>' : '';
+  }).join('');
+}
+
+function saveSynEdit() {
+  if (S.cur) { S.cur.synopsis = document.getElementById('syn-edit').value; save(); renderSynopsis(); }
+}
+
+async function regenSynopsis() {
+  if (!S.cur) return;
+  const chars = (S.cur.characters || []).map(c => c.name).join(', ');
+  document.getElementById('syn-body').innerHTML = '<div style="color:var(--text3);font-family:var(--fm);font-size:11px">⏳...</div>';
+  try {
+    const txt = await callClaude([{ role: 'user', content: S.lang === 'ko' ? '"' + S.cur.title + '" (' + S.cur.medium + ')의 3막 구조 시놉시스를 작성하세요. 인물: ' + (chars || '미정') + '.' : 'Write a 3-act synopsis for "' + S.cur.title + '" (' + S.cur.medium + '). Characters: ' + (chars || 'TBD') + '.' }]);
+    S.cur.synopsis = txt;
+    document.getElementById('syn-edit').value = txt;
+    save(); renderSynopsis();
+  } catch(e) {}
+}
+
+// ════════════════════════════════════════════
+// CHARACTERS
+// ════════════════════════════════════════════
+function renderChars() {
+  const grid = document.getElementById('chars-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  (S.cur?.characters || []).forEach(c => {
+    const card = document.createElement('div'); card.className = 'char-card';
+    card.innerHTML = '<div class="char-av">' + (c.name || '?').charAt(0) + '</div><div class="char-name">' + c.name + '</div><div class="char-role">' + (c.role || '') + '</div><div class="char-desc">' + (c.description || '') + '</div><div class="char-traits">' + (c.traits || []).map(t => '<span class="trait">' + t + '</span>').join('') + '</div>';
+    grid.appendChild(card);
+  });
+  const add = document.createElement('div'); add.className = 'add-char'; add.onclick = addChar;
+  add.innerHTML = '<div style="font-size:18px;color:var(--text3)">+</div><div style="font-size:10px;color:var(--text3)">' + (S.lang === 'ko' ? '인물 추가' : 'Add Character') + '</div>';
+  grid.appendChild(add);
+  renderRelGraph(); renderImageBible();
+}
+
+function addChar() {
+  const name = prompt(S.lang === 'ko' ? '인물 이름:' : 'Name:'); if (!name) return;
+  const role = prompt(S.lang === 'ko' ? '역할:' : 'Role:', '');
+  const desc = prompt(S.lang === 'ko' ? '성격/설명:' : 'Description:', '');
+  S.cur.characters.push({ name, role, description: desc, traits: [] }); save(); renderChars();
+}
+
+function renderRelGraph() {
+  const chars = S.cur?.characters || [];
+  const container = document.getElementById('rel-g');
+  if (!container) return;
+  container.querySelectorAll('.rel-node,.rel-lbl').forEach(e => e.remove());
+  const svg = document.getElementById('rsvg'); if (!svg) return;
+  svg.innerHTML = '';
+  if (!chars.length) return;
+  const W = container.offsetWidth || 440, H = 220;
+  const colors = [
+    { bg: 'rgba(200,169,110,.15)', bc: '#c8a96e', tc: '#c8a96e' },
+    { bg: 'rgba(110,168,200,.15)', bc: '#6ea8c8', tc: '#6ea8c8' },
+    { bg: 'rgba(160,136,200,.15)', bc: '#a088c8', tc: '#a088c8' },
+    { bg: 'rgba(200,136,168,.15)', bc: '#c888a8', tc: '#c888a8' },
+    { bg: 'rgba(110,200,154,.15)', bc: '#6ec89a', tc: '#6ec89a' },
+  ];
+  const pos = [];
+  chars.slice(0, 6).forEach((c, i) => {
+    const angle = (i / Math.min(chars.length, 6)) * Math.PI * 2 - Math.PI / 2;
+    const r = Math.min(W, H) / 2.9;
+    const cx = W / 2 + r * Math.cos(angle), cy = H / 2 + r * Math.sin(angle);
+    pos.push({ cx, cy });
+    const cl = colors[i % colors.length];
+    const node = document.createElement('div'); node.className = 'rel-node';
+    node.style.cssText = 'left:' + (cx-26) + 'px;top:' + (cy-26) + 'px;background:' + cl.bg + ';border-color:' + cl.bc + ';color:' + cl.tc;
+    node.textContent = c.name.slice(0, 4); container.appendChild(node);
+    const lbl = document.createElement('div'); lbl.className = 'rel-lbl';
+    lbl.style.cssText = 'left:' + (cx-6) + 'px;top:' + (cy+30) + 'px;position:absolute;color:var(--text3)';
+    lbl.textContent = c.role || ''; container.appendChild(lbl);
+  });
+  pos.forEach((a, i) => pos.forEach((b, j) => {
+    if (j <= i) return;
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', a.cx); line.setAttribute('y1', a.cy);
+    line.setAttribute('x2', b.cx); line.setAttribute('y2', b.cy);
+    line.setAttribute('stroke', 'rgba(255,255,255,.05)'); line.setAttribute('stroke-width', '1');
+    svg.appendChild(line);
+  }));
+}
+
+async function genImageBible() {
+  if (!S.cur?.characters?.length) { alert(S.lang === 'ko' ? '먼저 등장인물을 추가하세요.' : 'Add characters first.'); return; }
+  const charList = S.cur.characters.map(c => '이름: ' + c.name + '\n역할: ' + c.role + '\n성격: ' + c.description + '\n특성: ' + (c.traits||[]).join(', ')).join('\n\n');
+  const sec = document.getElementById('img-bible-sec');
+  const cards = document.getElementById('img-cards');
+  if (sec) sec.style.display = 'block';
+  if (cards) cards.innerHTML = '<div style="color:var(--text3);font-family:var(--fm);font-size:11px;padding:8px">⏳ ' + (S.lang === 'ko' ? '생성 중...' : 'Generating...') + '</div>';
+  try {
+    const raw = await callClaude([{ role: 'user', content: S.lang === 'ko' ? '다음 인물들의 AI 이미지 생성 프롬프트를 영어로 작성하세요. JSON만 출력: [{"name":"...","prompt":"...","style":"..."}]\n\n' + charList : 'Write AI image prompts for these characters. JSON only: [{"name":"...","prompt":"...","style":"..."}]\n\n' + charList }], 'Return ONLY valid JSON array.');
+    const data = JSON.parse(raw.replace(/```json?|```/g, '').trim());
+    S.cur.imageBible = data; save(); renderImageBible();
+  } catch(e) { if (cards) cards.innerHTML = '<div style="color:var(--red);font-size:11px">Error: ' + e.message + '</div>'; }
+}
+
+function renderImageBible() {
+  const sec = document.getElementById('img-bible-sec');
+  const ib = S.cur?.imageBible || [];
+  if (!sec) return;
+  if (!ib.length) { sec.style.display = 'none'; return; }
+  sec.style.display = 'block';
+  const cards = document.getElementById('img-cards'); if (!cards) return;
+  cards.innerHTML = '';
+  ib.forEach(item => {
+    const card = document.createElement('div'); card.className = 'img-card';
+    const sid = 'ip_' + item.name.replace(/[^a-zA-Z0-9]/g, '_');
+    const hdr2 = document.createElement('div'); hdr2.className = 'img-card-hdr';
+    const av2 = document.createElement('div'); av2.className = 'img-card-av'; av2.textContent = (item.name||'?').charAt(0);
+    const nm2 = document.createElement('div'); nm2.className = 'img-card-name'; nm2.textContent = item.name;
+    hdr2.appendChild(av2); hdr2.appendChild(nm2); card.appendChild(hdr2);
+    const pb = document.createElement('div'); pb.className = 'img-prompt-box';
+    const pt = document.createElement('div'); pt.className = 'img-prompt-txt'; pt.id = sid; pt.textContent = item.prompt;
+    const cpb = document.createElement('button'); cpb.className = 'img-copy'; cpb.textContent = '📋 복사';
+    cpb.addEventListener('click', (function(s){ return function(){ copyImgP(s); }; })(sid));
+    pb.appendChild(pt); pb.appendChild(cpb); card.appendChild(pb);
+    cards.appendChild(card);
+  });
+}
+
+function copyImgP(id) {
+  const el = document.getElementById(id); if (!el) return;
+  navigator.clipboard.writeText(el.textContent).then(() => {
+    const btn = el.nextElementSibling;
+    btn.textContent = '✓ 복사됨!'; btn.classList.add('ok');
+    setTimeout(() => { btn.textContent = '📋 복사'; btn.classList.remove('ok'); }, 2000);
+  });
+}
+
+async function checkConsistency() {
+  if (!S.cur?.characters?.length) { alert(S.lang === 'ko' ? '등장인물이 없습니다.' : 'No characters.'); return; }
+  const allDlg = (S.cur.scenes || []).flatMap(sc => sc.lines.filter(l => l.type === 'dialogue' || l.type === 'character').map(l => l.text)).join('\n');
+  if (!allDlg.trim()) { alert(S.lang === 'ko' ? '대본에 대사가 없습니다.' : 'No dialogue in script.'); return; }
+  switchTab('chars');
+  const grid = document.getElementById('chars-grid');
+  const res = document.createElement('div');
+  res.style.cssText = 'grid-column:1/-1;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:16px';
+  res.innerHTML = '<div style="font-family:var(--fm);font-size:11px;color:var(--accent);margin-bottom:10px">🔍 ' + (S.lang === 'ko' ? '분석 중...' : 'Analyzing...') + '</div>';
+  if (grid) grid.insertBefore(res, grid.lastChild);
+  try {
+    const raw = await callClaude([{ role: 'user', content: S.lang === 'ko' ? '등장인물 성격과 대사를 분석해 일관성 문제를 찾아주세요.\n인물: ' + JSON.stringify(S.cur.characters) + '\n대사:\n' + allDlg + '\nJSON만: [{"name":"...","issues":["..."],"score":0}]' : 'Analyze character consistency.\nCharacters: ' + JSON.stringify(S.cur.characters) + '\nDialogue:\n' + allDlg + '\nJSON only: [{"name":"...","issues":["..."],"score":0}]' }], 'Return ONLY valid JSON array.');
+    const results = JSON.parse(raw.replace(/```json?|```/g, '').trim());
+    res.innerHTML = '<div style="font-family:var(--fm);font-size:11px;color:var(--accent);margin-bottom:12px">🔍 ' + (S.lang === 'ko' ? '성격 일관성 검사 결과' : 'Consistency Check') + '</div>' +
+      results.map(r => {
+        const color = r.score >= 80 ? 'var(--green)' : r.score >= 50 ? 'var(--accent)' : 'var(--red)';
+        const issues = (r.issues || []).map(iss => '<div style="font-size:11px;color:var(--text2);padding:3px 0;border-bottom:1px solid var(--border)">• ' + iss + '</div>').join('');
+        return '<div style="margin-bottom:10px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:5px"><span style="font-size:12px">' + r.name + '</span><span style="font-size:11px;color:' + color + ';font-family:var(--fm)">' + r.score + '/100</span></div>' + (issues || '<div style="font-size:11px;color:var(--green)">✓ ' + (S.lang === 'ko' ? '일관성 이상 없음' : 'No issues') + '</div>') + '</div>';
+      }).join('');
+  } catch(e) { res.innerHTML = '<div style="color:var(--red);font-size:11px">Error: ' + e.message + '</div>'; }
+}
+
+// ════════════════════════════════════════════
+// STORYBOARD
+// ════════════════════════════════════════════
+function renderBoard() {
+  const el = document.getElementById('board-content');
+  if (!el) return;
+  el.innerHTML = '';
+  if (!S.cur?.scenes?.length) {
+    el.innerHTML = '<div style="color:var(--text3);font-family:var(--fm);font-size:11px">' + (S.lang === 'ko' ? '대본 탭에서 씬을 추가하면 여기에 표시됩니다.' : 'Add scenes in the Script tab.') + '</div>';
+    return;
+  }
+  const icons = { action: '🎬', character: '👤', dialogue: '💬', parenthetical: '📝' };
+  const stateColors = { locked: 'rgba(90,88,85,.3)', editable: 'rgba(200,169,110,.2)', requested: 'rgba(232,168,74,.2)' };
+  S.cur.scenes.forEach((sc, i) => {
+    const d = document.createElement('div'); d.className = 'board-sc';
+    const frames = sc.lines.slice(0, 4).map(l =>
+      '<div class="board-frame"><div class="board-frame-icon">' + (icons[l.type]||'📝') + '</div>' + (l.locked ? '<div class="lock-badge">🔒</div>' : '') + '<div class="board-frame-desc">' + l.text.slice(0,58) + (l.text.length>58?'...':'') + '</div></div>'
+    ).join('');
+    const lockedCount = sc.lines.filter(l => l.locked).length;
+    const lockInfo = lockedCount > 0 ? '<span style="font-size:9px;color:var(--text3);font-family:var(--fm)">줄🔒' + lockedCount + '</span>' : '';
+    d.innerHTML = '<div class="board-sc-hdr"><span class="board-sc-lbl">SC ' + (i+1) + ' — ' + sc.title + '</span><div style="display:flex;align-items:center;gap:6px"><span style="font-size:9px;padding:2px 7px;border-radius:3px;background:' + stateColors[sc.state] + ';color:' + (sc.state==='requested'?'var(--amber)':sc.state==='locked'?'var(--text3)':'var(--accent)') + ';font-family:var(--fm)">' + STATE_UI[S.lang][sc.state] + '</span>' + lockInfo + '</div></div><div class="board-frames">' + frames + '</div>';
+    el.appendChild(d);
+  });
+}
+
+// ════════════════════════════════════════════
+// EXPORT
+// ════════════════════════════════════════════
+function exportDoc(type) {
+  if (!S.cur) { toast(S.lang === 'ko' ? '프로젝트를 선택해주세요.' : 'Select a project first.'); return; }
+  const p = S.cur, ko = S.lang === 'ko';
+  let body = '<h1 style="font-family:Georgia,serif;color:#b8924a;text-align:center;font-size:24pt">' + p.title + '</h1><p style="text-align:center;color:#888;margin-bottom:36px">' + p.medium + '</p>';
+  if (type === 'script' || type === 'all') {
+    body += '<h2 style="font-family:Georgia,serif;border-bottom:1px solid #c8a96e;padding-bottom:5px">' + (ko?'대본':'Script') + '</h2>';
+    (p.scenes||[]).forEach((sc,i) => {
+      body += '<div style="margin:28px 0"><p style="color:#b8924a;font-weight:bold">SC '+(i+1)+' — '+sc.title+(sc.state==='locked'?' 🔒':'')+'</p><p style="color:#888;font-style:italic;font-size:10pt">'+(sc.slug||'')+'</p>';
+      (sc.lines||[]).forEach(l => {
+        const lk = l.locked ? '<span style="font-size:7pt;color:#aaa"> [🔒]</span>' : '';
+        if (l.type==='action') body += '<p style="color:#444;margin:3px 0">'+l.text+lk+'</p>';
+        else if (l.type==='character') body += '<p style="text-align:center;font-weight:bold;margin:10px 0 0">'+l.text+'</p>';
+        else if (l.type==='dialogue') body += '<p style="text-align:center;margin:0 70px;line-height:1.8">'+l.text+lk+'</p>';
+        else if (l.type==='parenthetical') body += '<p style="text-align:center;color:#888;font-style:italic">('+l.text+')</p>';
+      });
+      body += '</div>';
+    });
+  }
+  if (type==='planning') { [['기획 의도',p.planning.intent],['주제',p.planning.theme],['기대 효과',p.planning.impact]].forEach(([k,v])=>{ if(v) body+='<h3>'+k+'</h3><p style="line-height:1.8">'+v.replace(/\n/g,'<br>')+'</p>'; }); }
+  if (type==='synopsis') body += '<p style="line-height:1.9;border-left:3px solid #c8a96e;padding-left:12px">'+(p.synopsis||'').replace(/\n/g,'<br>')+'</p>';
+  if (type==='chars') { (p.characters||[]).forEach(c=>{ body+='<div style="margin:14px 0;padding:10px;border:1px solid #ddd;border-radius:4px"><p style="font-weight:bold">'+c.name+'</p><p style="color:#b8924a;font-size:10pt">'+(c.role||'')+'</p><p>'+(c.description||'')+'</p></div>'; }); }
+  if (type==='board') (p.scenes||[]).forEach((sc,i)=>{ body+='<p style="color:#b8924a;font-weight:bold;margin-top:16px">SC '+(i+1)+' — '+sc.title+'</p>'; (sc.lines||[]).slice(0,6).forEach(l=>{ body+='<p style="font-size:10pt;color:#666;margin:1px 0">['+l.type+(l.locked?'🔒':'')+'] '+l.text.slice(0,100)+'</p>'; }); });
+  const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:Malgun Gothic,sans-serif;max-width:750px;margin:36px auto;padding:28px;line-height:1.65;color:#333}</style></head><body>' + body + '</body></html>';
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([html], {type:'text/html;charset=utf-8'})), download: p.title+'_'+type+'.html' });
+  a.click(); URL.revokeObjectURL(a.href);
+  toast('✓ 파일 다운로드됨');
+}
 
 
 // ════════════════════════════════════════════
