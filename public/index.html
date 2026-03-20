@@ -337,8 +337,7 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 .svt-btn{background:transparent;border:none;border-radius:5px;color:var(--text3);font-size:10px;padding:4px 10px;cursor:pointer;transition:all .15s;font-family:var(--fm)}
 .svt-btn.on{background:var(--bg);color:var(--accent);border:1px solid var(--border2)}
 .svt-btn:hover:not(.on){color:var(--text2)}
-.full-script-pane{flex:1;overflow-y:auto;padding:28px 32px;display:none}
-.full-script-pane.show{display:block}
+.full-script-pane{flex:1;overflow-y:auto;padding:28px 32px;display:block}
 .full-script-divider{display:flex;align-items:center;gap:12px;margin:32px 0 16px}
 .full-script-divider-line{flex:1;height:1px;background:var(--border)}
 .full-script-divider-label{font-size:10px;color:var(--accent);font-family:var(--fm);letter-spacing:.08em;white-space:nowrap}
@@ -703,7 +702,7 @@ async function callClaude(messages, sys, onStream) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 1500,
+      max_tokens: maxTokens || 1500,
       system: sys || getSys(),
       messages,
     }),
@@ -1284,9 +1283,15 @@ function clearSceneEditor() {
   S.curSc = null;
   document.getElementById('sc-tbig').textContent = S.lang === 'ko' ? '씬을 선택하세요' : 'Select a scene';
   document.getElementById('slug-inp').value = '';
-  document.getElementById('sc-body').innerHTML = `<div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text3);font-family:var(--fm);font-size:11px">${S.lang === 'ko' ? '← 씬을 선택하거나 새로 추가하세요' : '← Select or add a scene'}</div>`;
+  document.getElementById('sc-body').innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text3);font-family:var(--fm);font-size:11px">' + (S.lang === 'ko' ? '← 씬을 선택하거나 새로 추가하세요' : '← Select or add a scene') + '</div>';
   document.getElementById('sc-ctrls').style.display = 'none';
   document.getElementById('req-bar').classList.remove('show');
+  // 전체 보기 패널 초기 숨김
+  const fp = document.getElementById('full-script-pane');
+  if (fp) fp.style.display = 'none';
+  scriptViewMode = 'single';
+  document.getElementById('svt-single').classList.add('on');
+  document.getElementById('svt-full').classList.remove('on');
 }
 
 function renderSceneEditor() {
@@ -1835,7 +1840,7 @@ async function loadMammoth() {
 // 1단계: 씬 목록 추출 (전체 텍스트 스캔, 저렴)
 // 2단계: 선택한 씬만 변환 (12,000글자 단위)
 // ════════════════════════════════════════════
-const CHUNK_SIZE = 12000; // 글자 수 기준
+const CHUNK_SIZE = 20000; // 글자 수 기준
 
 async function analyzeUploadedDoc() {
   if (!uploadedText) return;
@@ -1877,16 +1882,38 @@ async function analyzeUploadedDoc() {
     const scanReply = await callClaude(
       [{ role: 'user', content: scanPrompt }],
       S.lang === 'ko'
-        ? '당신은 대본 구조 분석 전문가입니다. JSON만 출력하세요.'
-        : 'You are a script structure analyst. Output ONLY JSON.',
-      1000
+        ? '당신은 대본 구조 분석 전문가입니다. 반드시 JSON 배열만 출력하세요. 설명이나 마크다운 없이 순수 JSON만.'
+        : 'You are a script structure analyst. Output ONLY a raw JSON array. No explanation, no markdown, pure JSON only.',
+      2000
     );
 
     let sceneList;
     try {
-      sceneList = JSON.parse(scanReply.replace(/```json?|```/g, '').trim());
+      // JSON 배열 추출 시도 — 여러 패턴 대응
+      let raw = scanReply;
+      // 마크다운 코드블록 제거
+      raw = raw.replace(/```json?[\s\S]*?```/g, m => m.replace(/```json?|```/g, ''));
+      // JSON 배열 부분만 추출
+      const arrMatch = raw.match(/\[[\s\S]*\]/);
+      if (arrMatch) {
+        sceneList = JSON.parse(arrMatch[0]);
+      } else {
+        sceneList = JSON.parse(raw.trim());
+      }
+      // 배열이 아니면 배열로 감싸기
+      if (!Array.isArray(sceneList)) {
+        sceneList = sceneList.scenes || sceneList.list || [sceneList];
+      }
+      // 유효한 항목만 필터
+      sceneList = sceneList.filter(s => s && (s.title || s.index !== undefined));
+      if (sceneList.length === 0) throw new Error('empty');
     } catch(e) {
-      throw new Error(S.lang === 'ko' ? '씬 목록 파싱 실패. 다시 시도해주세요.' : 'Failed to parse scene list.');
+      // 파싱 실패 시 — 텍스트 기반으로 씬 나누기 (폴백)
+      console.warn('Scene list parse failed, using text fallback:', e.message);
+      sceneList = buildSceneListFromText(uploadedText);
+      if (sceneList.length === 0) {
+        throw new Error(S.lang === 'ko' ? '씬 목록 파싱 실패. 다시 시도해주세요.' : 'Failed to parse scene list. Please try again.');
+      }
     }
 
     btn.textContent = '⏳ ' + (S.lang === 'ko' ? `${sceneList.length}개 씬 발견 — 선택 UI 준비 중...` : `Found ${sceneList.length} scenes...`);
@@ -1975,6 +2002,53 @@ function showSceneSelectUI(sceneList) {
   actionsEl.appendChild(cancelBtn);
 }
 
+// 텍스트 기반 씬 목록 생성 (폴백)
+function buildSceneListFromText(text) {
+  const lines = text.split('\n');
+  const scenes = [];
+  let charPos = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    // 슬러그라인 감지 (INT./EXT./S#/씬 번호 등)
+    const isSlug = /^(INT\.|EXT\.|S#|\d+[\.화장]|제\s*\d+|씬\s*\d+|SCENE\s*\d+)/i.test(line);
+    // 한국어 장 구분 감지
+    const isChapter = /^(제\s*\d+\s*(막|장|부|씬)|[1-9]막|[1-9]장|[1-9]부)/.test(line);
+
+    if ((isSlug || isChapter) && line.length < 80) {
+      // 다음 몇 줄을 미리보기로
+      const preview = lines.slice(i+1, i+3).map(l => l.trim()).filter(Boolean).join(' ');
+      scenes.push({
+        index: scenes.length,
+        title: line.replace(/^(INT\.|EXT\.)\s*/i, '').slice(0, 40) || ('씬 ' + (scenes.length + 1)),
+        slug: isSlug ? line : ('씬 ' + (scenes.length + 1)),
+        startChar: charPos,
+        preview: preview.slice(0, 60),
+      });
+    }
+    charPos += lines[i].length + 1;
+  }
+
+  // 씬을 못 찾았으면 일정 글자수로 나누기
+  if (scenes.length === 0) {
+    const chunkSize = Math.min(CHUNK_SIZE, Math.ceil(text.length / 5));
+    let pos = 0, idx = 0;
+    while (pos < text.length) {
+      const preview = text.slice(pos, pos + 60).replace(/\n/g, ' ');
+      scenes.push({
+        index: idx++,
+        title: (S.lang === 'ko' ? '씬 ' : 'Scene ') + (idx),
+        slug: '',
+        startChar: pos,
+        preview: preview,
+      });
+      pos += chunkSize;
+    }
+  }
+
+  return scenes;
+}
+
 // 선택한 씬 변환 — 12,000글자씩 청크
 async function convertSelectedScenes(sceneList) {
   if (!S.cur) return;
@@ -2015,7 +2089,7 @@ async function convertSelectedScenes(sceneList) {
         S.lang === 'ko'
           ? '당신은 전문 대본 작가입니다. JSON만 출력하세요.'
           : 'You are a professional screenwriter. Output ONLY JSON.',
-        2000
+        3000
       );
 
       const detected = detectScriptContent(reply);
@@ -2103,18 +2177,33 @@ function setScriptView(mode) {
   scriptViewMode = mode;
   document.getElementById('svt-single').classList.toggle('on', mode === 'single');
   document.getElementById('svt-full').classList.toggle('on', mode === 'full');
-  document.getElementById('sc-sb').style.display = mode === 'single' ? '' : 'none';
-  document.getElementById('sc-body').style.display = mode === 'single' ? '' : 'none';
-  document.getElementById('sc-prompt').style.display = mode === 'single' ? '' : 'none';
-  const fullPane = document.getElementById('full-script-pane');
+
+  const scSb    = document.getElementById('sc-sb');
+  const scBody  = document.getElementById('sc-body');
+  const scProm  = document.getElementById('sc-prompt');
+  const fullPane= document.getElementById('full-script-pane');
+  const ctrls   = document.getElementById('sc-ctrls');
+  const reqBar  = document.getElementById('req-bar');
+
   if (mode === 'full') {
-    fullPane.classList.add('show');
+    scSb.style.display    = 'none';
+    scBody.style.display  = 'none';
+    scProm.style.display  = 'none';
+    if (reqBar) reqBar.style.display = 'none';
+    fullPane.style.display = 'block';
+    ctrls.style.display    = 'none';
     renderFullScript();
-    // 씬 컨트롤 숨김
-    document.getElementById('sc-ctrls').style.display = 'none';
   } else {
-    fullPane.classList.remove('show');
-    if (S.curSc) document.getElementById('sc-ctrls').style.display = 'flex';
+    scSb.style.display    = '';
+    scBody.style.display  = '';
+    fullPane.style.display = 'none';
+    if (S.curSc) {
+      ctrls.style.display = 'flex';
+      if (S.curSc.state === 'requested') {
+        if (reqBar) reqBar.style.display = 'flex';
+        scProm.style.display = '';
+      }
+    }
   }
 }
 
