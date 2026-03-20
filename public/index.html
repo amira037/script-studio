@@ -644,22 +644,10 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
     <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
 
 <main class="main" id="main" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
-    <div class="empty" id="empty">
-      <div class="logo" style="font-size:24px;gap:10px"><span class="logo-dot" style="width:9px;height:9px"></span>Script Studio</div>
-      <div style="font-family:var(--fd);font-size:18px;color:var(--text2)">새 프로젝트를 시작하세요</div>
-      <div style="font-size:10px;color:var(--text3);font-family:var(--fm)">Claude AI · 씬/줄 단위 잠금 · Word 내보내기</div>
-      <button class="nbtn" style="margin-top:12px;padding:7px 18px;font-size:12px" onclick="openModal('proj-modal')">시작하기</button>
-    </div>
+    
 
-    <div id="ws" style="display:none;flex:1;flex-direction:column;overflow:hidden">
-      <nav class="tabs">
-        <button class="tab on" data-tab="chat" onclick="switchTab('chat')"><span class="ticon">💬</span>AI 대화</button>
-        <button class="tab" data-tab="script" onclick="switchTab('script')"><span class="ticon">📄</span>대본</button>
-        <button class="tab" data-tab="board" onclick="switchTab('board')"><span class="ticon">🎬</span>씬 콘티</button>
-        <button class="tab" data-tab="planning" onclick="switchTab('planning')"><span class="ticon">📋</span>기획서</button>
-        <button class="tab" data-tab="chars" onclick="switchTab('chars')"><span class="ticon">👥</span>등장인물</button>
-        <button class="tab" data-tab="synopsis" onclick="switchTab('synopsis')"><span class="ticon">📖</span>시놉시스</button>
-      </nav>
+    
+      
 
       <!-- AI 대화 탭 -->
       <div class="app-tc on" id="app-tc-chat">
@@ -846,7 +834,7 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
           </div>
         </div>
       </div>
-    </div>
+    
     </main>
     </div><!-- /탭컨텐츠 -->
   </div><!-- /app-layout -->
@@ -2443,24 +2431,42 @@ function enterProject(id) {
   S.cur = S.projects.find(p => p.id === id);
   if (!S.cur) return;
   S.curSc = null;
+
+  // 화면 전환
   document.getElementById('home-screen').classList.add('hidden');
   const appScreen = document.getElementById('app-screen');
   appScreen.style.display = 'flex';
+
+  // empty 숨기고 ws 표시
+  const emptyEl = document.getElementById('empty');
+  const wsEl = document.getElementById('ws');
+  if (emptyEl) emptyEl.style.display = 'none';
+  if (wsEl) { wsEl.style.display = 'flex'; wsEl.style.flex = '1'; wsEl.style.flexDirection = 'column'; wsEl.style.overflow = 'hidden'; }
+
   // 헤더 업데이트
-  document.getElementById('app-proj-title').textContent = S.cur.title;
-  document.getElementById('app-proj-medium').textContent = S.cur.medium;
-  // 첫 화면: AI 대화
-  switchTab('chat');
-  // 씬 네비 초기 숨김 (chat탭)
+  const titleEl = document.getElementById('app-proj-title');
+  const medEl = document.getElementById('app-proj-medium');
+  if (titleEl) titleEl.textContent = S.cur.title;
+  if (medEl) medEl.textContent = S.cur.medium;
+
+  // 씬 네비 초기 숨김
   const nav = document.getElementById('app-nav');
   if (nav) nav.classList.add('nav-hidden');
+
   // 렌더
   renderMsgs(); renderSceneList(); renderChars(); renderBoard();
   renderSynopsis(); renderPlan(); renderFullScript();
-  document.getElementById('syn-title').textContent = S.cur.title || '—';
-  document.getElementById('syn-edit').value = S.cur.synopsis || '';
+
+  const synTitle = document.getElementById('syn-title');
+  const synEdit = document.getElementById('syn-edit');
+  if (synTitle) synTitle.textContent = S.cur.title || '—';
+  if (synEdit) synEdit.value = S.cur.synopsis || '';
+
   clearSceneEditor();
   updateApiUI(!!S.apiKey);
+
+  // 첫 화면: AI 대화 탭
+  switchTab('chat');
 }
 
 function toggleMobileNav() {
