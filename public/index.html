@@ -373,6 +373,13 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 /* ── 전체 보기 강제 ── */
 #full-script-pane{display:none}
 #full-script-pane.fs-show{display:block!important;flex:1;overflow-y:auto;padding:28px 32px}
+
+/* ── 프로젝트 내보내기/불러오기 ── */
+.proj-io-bar{padding:8px 12px;border-top:1px solid var(--border);display:flex;gap:5px;flex-shrink:0}
+.io-btn{flex:1;background:transparent;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);font-size:10px;padding:5px 6px;cursor:pointer;transition:all .15s;font-family:var(--fm);text-align:center;display:flex;align-items:center;justify-content:center;gap:4px}
+.io-btn:hover{border-color:var(--accent2);color:var(--accent);background:rgba(200,169,110,.07)}
+.io-btn.import{border-color:rgba(110,168,200,.4);color:var(--blue)}
+.io-btn.import:hover{background:rgba(110,168,200,.08)}
 </style>
 </head>
 <body>
@@ -397,6 +404,13 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
     <div class="plist" id="plist"></div>
     <div class="sb-btm">
       <button class="sbadd" onclick="openModal('proj-modal')">+ 새 프로젝트</button>
+    </div>
+    <div class="proj-io-bar">
+      <button class="io-btn" onclick="exportProject()" title="현재 프로젝트를 JSON 파일로 저장">⬇ 내보내기</button>
+      <label class="io-btn import" title="JSON 파일에서 프로젝트 불러오기" style="cursor:pointer">
+        ⬆ 불러오기
+        <input type="file" accept=".json" onchange="importProject(event)" style="display:none">
+      </label>
     </div>
   </aside>
 
@@ -2388,6 +2402,87 @@ function renderFullScript() {
 
   html += `</div>`;
   pane.innerHTML = html;
+}
+
+
+// ════════════════════════════════════════════
+// 프로젝트 내보내기 / 불러오기
+// ════════════════════════════════════════════
+
+function exportProject() {
+  if (!S.cur) { toast(S.lang === 'ko' ? '내보낼 프로젝트를 선택하세요.' : 'Select a project to export.'); return; }
+
+  const data = {
+    _version: 1,
+    _exported: new Date().toISOString(),
+    _app: 'Script Studio',
+    ...S.cur,
+  };
+
+  const json = JSON.stringify(data, null, 2);
+  const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const filename = S.cur.title.replace(/[^a-zA-Z0-9가-힣_\-]/g, '_') + '_' + new Date().toISOString().slice(0, 10) + '.json';
+
+  const a = Object.assign(document.createElement('a'), { href: url, download: filename });
+  a.click();
+  URL.revokeObjectURL(url);
+  toast(S.lang === 'ko' ? '✓ "' + S.cur.title + '" 내보내기 완료' : '✓ Exported "' + S.cur.title + '"');
+}
+
+function importProject(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+
+      // 유효성 검사
+      if (!data.title || !data._app) {
+        throw new Error(S.lang === 'ko' ? 'Script Studio 프로젝트 파일이 아닙니다.' : 'Not a valid Script Studio project file.');
+      }
+
+      // 이미 같은 이름 프로젝트 있으면 확인
+      const existing = S.projects.find(p => p.title === data.title);
+      if (existing) {
+        const ok = confirm(S.lang === 'ko' ? data.title + ' 프로젝트가 이미 있습니다. 덮어쓸까요?' : data.title + ' already exists. Overwrite?');
+        if (ok) {
+          // 덮어쓰기
+          const idx = S.projects.indexOf(existing);
+          S.projects[idx] = { ...data, id: existing.id };
+          save(); renderPList(); selectProject(existing.id);
+          toast(S.lang === 'ko' ? '✓ "' + data.title + '" 업데이트됨' : '✓ "' + data.title + '" updated');
+          return;
+        } else {
+          // 복사본으로 추가
+          data.title = data.title + ' (복사본)';
+        }
+      }
+
+      // 새 프로젝트로 추가
+      const newProj = {
+        ...data,
+        id: Date.now(), // 새 ID 부여
+      };
+      // _메타 필드 제거
+      delete newProj._version;
+      delete newProj._exported;
+      delete newProj._app;
+
+      S.projects.push(newProj);
+      save(); renderPList(); selectProject(newProj.id);
+      toast(S.lang === 'ko' ? '✓ "' + newProj.title + '" 불러오기 완료' : '✓ "' + newProj.title + '" imported');
+
+    } catch(e) {
+      toast((S.lang === 'ko' ? '불러오기 실패: ' : 'Import failed: ') + e.message);
+    }
+
+    // 파일 인풋 초기화 (같은 파일 다시 선택 가능하도록)
+    event.target.value = '';
+  };
+  reader.readAsText(file, 'UTF-8');
 }
 
 // ════════════════════════════════════════════
