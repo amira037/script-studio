@@ -2213,27 +2213,21 @@ function renderLinesInto(container, sc, sceneLocked) {
   block.className = 'script-block';
 
   sc.lines.forEach((line, i) => {
+    // 외부 wrap (column: 내용행 + 추가버튼행)
     const wrap = document.createElement('div');
     wrap.className = 'lw' + (line.locked ? ' ll' : '');
+    wrap.style.flexDirection = 'column';
 
-    // 줄 잠금 버튼
-    if (!sceneLocked) {
-      const lb = document.createElement('button'); lb.className = 'llbtn';
-      lb.title = line.locked ? '줄 잠금 해제' : '이 줄 잠금';
-      lb.textContent = line.locked ? '🔒' : '○';
-      lb.onclick = e => {
-        e.stopPropagation();
-        line.locked = !line.locked;
-        wrap.classList.toggle('ll', line.locked);
-        lb.textContent = line.locked ? '🔒' : '○';
-        le.contentEditable = line.locked ? 'false' : 'true';
-        ind.style.display = line.locked ? 'block' : 'none';
-        save(); renderSceneList();
-        toast(line.locked ? '🔒 줄 잠금됨' : '🔓 줄 잠금 해제');
-      };
-      wrap.appendChild(lb);
-    }
+    // 내용 행 (잠금버튼 + 텍스트 + 잠금인디케이터)
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:flex-start;gap:5px;width:100%';
 
+    // 잠금 버튼
+    const lb = document.createElement('button'); lb.className = 'llbtn';
+    lb.title = line.locked ? '줄 잠금 해제' : '이 줄 잠금';
+    lb.textContent = line.locked ? '🔒' : '○';
+
+    // 텍스트 편집 요소
     const TYPE_CLASS = { action:'s-action', character:'s-char', dialogue:'s-dlg', parenthetical:'s-paren', slug:'s-slug' };
     const le = document.createElement('div');
     le.className = 'le ' + (TYPE_CLASS[line.type] || 's-action');
@@ -2241,14 +2235,25 @@ function renderLinesInto(container, sc, sceneLocked) {
     le.textContent = line.text;
     le.oninput = () => { line.text = le.textContent; save(); };
 
-    // 엔터키 — 배역명 아래 → 대사, 나머지 → 지문
+    // 잠금 버튼 이벤트
+    lb.onclick = e => {
+      e.stopPropagation();
+      line.locked = !line.locked;
+      wrap.classList.toggle('ll', line.locked);
+      lb.textContent = line.locked ? '🔒' : '○';
+      le.contentEditable = line.locked ? 'false' : 'true';
+      ind.style.display = line.locked ? 'block' : 'none';
+      save(); renderSceneList();
+      toast(line.locked ? '🔒 줄 잠금됨' : '🔓 줄 잠금 해제');
+    };
+
+    // 엔터키 — 배역명 → 대사, 나머지 → 지문
     if (!sceneLocked && !line.locked) {
       le.onkeydown = e => {
         if (e.key === 'Enter') {
           e.preventDefault();
           const nextType = line.type === 'character' ? 'dialogue' : 'action';
-          const newLine = { type: nextType, text: '', locked: false };
-          sc.lines.splice(i + 1, 0, newLine);
+          sc.lines.splice(i + 1, 0, { type: nextType, text: '', locked: false });
           save();
           renderLinesInto(container, sc, false);
           setTimeout(() => {
@@ -2258,15 +2263,19 @@ function renderLinesInto(container, sc, sceneLocked) {
         }
       };
     }
-    wrap.appendChild(le);
 
+    // 잠금 인디케이터
     const ind = document.createElement('div'); ind.className = 'll-ind';
     ind.textContent = '잠금';
     ind.style.display = line.locked ? 'block' : 'none';
-    contentRow.appendChild(ind);
-    wrap.appendChild(contentRow);
 
-    // 줄 추가/삭제 툴바
+    // sceneLocked 아닐 때만 잠금버튼 표시
+    if (!sceneLocked) row.appendChild(lb);
+    row.appendChild(le);
+    row.appendChild(ind);
+    wrap.appendChild(row);
+
+    // 줄 추가/삭제 툴바 (잠금 아닐 때)
     if (!sceneLocked && !line.locked) {
       const addBar = document.createElement('div'); addBar.className = 'line-add-bar';
       const types = [
@@ -2290,6 +2299,7 @@ function renderLinesInto(container, sc, sceneLocked) {
         };
         addBar.appendChild(btn);
       });
+      // 삭제 버튼
       const delBtn = document.createElement('button'); delBtn.className = 'add-line-btn';
       delBtn.style.color = 'var(--red)'; delBtn.style.borderColor = 'rgba(224,96,96,.3)';
       delBtn.textContent = '✕';
