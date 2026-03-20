@@ -487,6 +487,72 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 .pitem-menu-btn:hover{background:var(--bg4)}
 .pitem-menu-btn.del:hover{border-color:rgba(224,96,96,.4);color:var(--red);background:rgba(224,96,96,.08)}
 .pitem-menu-btn.ren:hover{border-color:var(--accent2);color:var(--accent);background:rgba(200,169,110,.08)}
+
+/* ══ 프로젝트 홈 화면 ══ */
+.home-screen{position:fixed;inset:0;background:var(--bg);z-index:50;display:flex;flex-direction:column;overflow-y:auto}
+.home-screen.hidden{display:none}
+.home-hdr{padding:20px 24px 0;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.home-logo{font-family:var(--fd);font-size:22px;color:var(--accent);display:flex;align-items:center;gap:8px}
+.home-logo-dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.home-hdr-r{display:flex;align-items:center;gap:8px}
+.home-body{flex:1;padding:28px 24px;max-width:900px;width:100%;margin:0 auto}
+.home-section-title{font-size:11px;color:var(--text3);font-family:var(--fm);letter-spacing:.1em;text-transform:uppercase;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between}
+.proj-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-bottom:32px}
+.proj-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);overflow:hidden;cursor:pointer;transition:all .2s;position:relative}
+.proj-card:hover{border-color:var(--border2);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.proj-card-thumb{height:110px;background:var(--bg3);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;border-bottom:1px solid var(--border)}
+.proj-card-thumb-bg{position:absolute;inset:0;opacity:.06;font-family:var(--fd);font-size:64px;color:var(--accent);display:flex;align-items:center;justify-content:center;pointer-events:none;user-select:none}
+.proj-card-thumb-info{position:relative;z-index:1;text-align:center;padding:8px}
+.proj-card-thumb-title{font-family:var(--fd);font-size:16px;color:var(--accent);font-style:italic;margin-bottom:4px}
+.proj-card-thumb-medium{font-size:9px;color:var(--text3);font-family:var(--fm);background:rgba(200,169,110,.1);padding:2px 8px;border-radius:3px;display:inline-block}
+.proj-card-body{padding:12px 14px}
+.proj-card-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.proj-card-scenes{font-size:10px;color:var(--text3);font-family:var(--fm)}
+.proj-card-tags{display:flex;gap:4px;flex-wrap:wrap}
+.proj-card-actions{display:flex;gap:5px;padding:0 14px 12px}
+.proj-card-btn{flex:1;background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);font-size:11px;font-weight:600;padding:7px;cursor:pointer;transition:all .15s}
+.proj-card-btn:hover{background:#d4b97e}
+.proj-card-icon-btn{width:32px;background:transparent;border:1px solid var(--border2);border-radius:var(--r);color:var(--text3);font-size:12px;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center}
+.proj-card-icon-btn:hover{border-color:var(--border2);color:var(--text2);background:var(--bg3)}
+.proj-card-icon-btn.del:hover{border-color:rgba(224,96,96,.4);color:var(--red);background:rgba(224,96,96,.08)}
+.proj-new-card{background:transparent;border:2px dashed var(--border2);border-radius:var(--r2);min-height:200px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer;transition:all .2s}
+.proj-new-card:hover{border-color:var(--accent2);background:rgba(200,169,110,.04)}
+.proj-new-icon{font-size:28px;color:var(--text3)}
+.proj-new-label{font-size:12px;color:var(--text3);font-family:var(--fm)}
+
+/* ══ 앱 내 헤더 (프로젝트 진입 후) ══ */
+.app-hdr{display:flex;align-items:center;height:48px;padding:0 14px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;gap:10px}
+.app-back-btn{background:transparent;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);font-size:11px;padding:4px 10px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:5px;font-family:var(--fm);flex-shrink:0}
+.app-back-btn:hover{border-color:var(--accent2);color:var(--accent)}
+.app-proj-title{font-family:var(--fd);font-size:16px;color:var(--accent);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app-proj-medium{font-size:9px;color:var(--text3);font-family:var(--fm);background:rgba(200,169,110,.1);padding:2px 7px;border-radius:3px;white-space:nowrap}
+
+/* ══ 앱 레이아웃 (진입 후) ══ */
+.app-layout{display:flex;flex:1;overflow:hidden}
+.app-nav{width:190px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;transition:all .25s}
+.app-nav.nav-hidden{width:0;overflow:hidden;border:none}
+.app-tabs{display:flex;gap:1px;padding:8px 12px 0;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+.app-tab{padding:7px 12px;border-radius:var(--r) var(--r) 0 0;font-size:11px;color:var(--text2);cursor:pointer;transition:all .15s;border:1px solid transparent;border-bottom:none;position:relative;top:1px;background:transparent;white-space:nowrap}
+.app-tab:hover{color:var(--text);background:var(--bg3)}
+.app-tab.on{color:var(--text);background:var(--bg);border-color:var(--border)}
+.app-tc{flex:1;overflow:hidden;display:none}
+.app-tc.on{display:flex}
+
+/* ══ 모바일 씬 네비 토글 ══ */
+.nav-toggle-btn{display:none;background:transparent;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);font-size:11px;padding:4px 9px;cursor:pointer;font-family:var(--fm)}
+.nav-toggle-btn:hover{color:var(--accent);border-color:var(--accent2)}
+
+@media(max-width:680px){
+  .app-nav{position:fixed;left:0;top:0;bottom:0;z-index:30;transform:translateX(-100%);width:220px!important;border-right:1px solid var(--border2)}
+  .app-nav.mobile-open{transform:translateX(0);box-shadow:4px 0 20px rgba(0,0,0,.5)}
+  .nav-toggle-btn{display:block}
+  .proj-grid{grid-template-columns:1fr 1fr}
+  .app-tabs{overflow-x:auto;padding-bottom:0}
+  .app-tab{font-size:10px;padding:6px 9px}
+}
+@media(max-width:400px){
+  .proj-grid{grid-template-columns:1fr}
+}
 </style>
 </head>
 <body>
@@ -505,23 +571,79 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
   </div>
 </header>
 
-<div class="body">
-  <aside class="sb">
-    <div class="sb-hd">프로젝트</div>
-    <div class="plist" id="plist"></div>
-    <div class="sb-btm">
-      <button class="sbadd" onclick="openModal('proj-modal')">+ 새 프로젝트</button>
+<!-- 홈 화면 -->
+<div class="home-screen" id="home-screen">
+  <div class="home-hdr">
+    <div class="home-logo"><span class="home-logo-dot"></span>Script Studio</div>
+    <div class="home-hdr-r">
+      <button class="lbtn on" onclick="setLang('ko')" id="btn-ko">한국어</button>
+      <button class="lbtn" onclick="setLang('en')" id="btn-en">EN</button>
     </div>
-    <div class="proj-io-bar">
-      <button class="io-btn" onclick="exportProject()" title="현재 프로젝트를 JSON 파일로 저장">⬇ 내보내기</button>
-      <label class="io-btn import" title="JSON 파일에서 프로젝트 불러오기" style="cursor:pointer">
-        ⬆ 불러오기
-        <input type="file" accept=".json" onchange="importProject(event)" style="display:none">
-      </label>
+  </div>
+  <div class="home-body">
+    <div class="home-section-title">
+      <span id="home-proj-count">프로젝트</span>
+      <div style="display:flex;gap:7px">
+        <button class="io-btn" style="font-size:10px;padding:3px 10px" onclick="exportProject()" title="내보내기">⬇ 내보내기</button>
+        <label class="io-btn import" style="font-size:10px;padding:3px 10px;cursor:pointer" title="불러오기">
+          ⬆ 불러오기<input type="file" accept=".json" onchange="importProject(event)" style="display:none">
+        </label>
+      </div>
     </div>
-  </aside>
+    <div class="proj-grid" id="proj-grid"></div>
+  </div>
+</div>
 
-  <main class="main" id="main">
+<!-- 앱 화면 (프로젝트 진입 후) -->
+<div id="app-screen" style="display:none;flex-direction:column;height:100vh;overflow:hidden">
+  <!-- 앱 헤더 -->
+  <div class="app-hdr">
+    <button class="app-back-btn" onclick="goHome()">← 홈</button>
+    <div class="app-proj-title" id="app-proj-title">—</div>
+    <span class="app-proj-medium" id="app-proj-medium"></span>
+    <button class="nav-toggle-btn" id="nav-toggle-btn" onclick="toggleMobileNav()">☰ 씬</button>
+    <span class="sdot" id="sdot" style="flex-shrink:0"></span>
+    <div class="api-pill" onclick="openModal('api-modal')" id="api-pill" style="cursor:pointer;padding:4px 10px;border-radius:var(--r);border:1px solid var(--border);display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text3)">
+      <span class="api-dot" id="api-dot" style="width:6px;height:6px;border-radius:50%;background:var(--text3)"></span>
+      <span id="api-txt">API</span>
+    </div>
+  </div>
+
+  <!-- 탭 -->
+  <div class="app-tabs">
+    <button class="app-tab on" data-tab="chat" onclick="switchTab('chat')">💬 AI 대화</button>
+    <button class="app-tab" data-tab="script" onclick="switchTab('script')">📄 대본</button>
+    <button class="app-tab" data-tab="board" onclick="switchTab('board')">🎬 콘티</button>
+    <button class="app-tab" data-tab="planning" onclick="switchTab('planning')">📋 기획서</button>
+    <button class="app-tab" data-tab="chars" onclick="switchTab('chars')">👥 인물</button>
+    <button class="app-tab" data-tab="synopsis" onclick="switchTab('synopsis')">📖 시놉시스</button>
+  </div>
+
+  <!-- 레이아웃: 씬 네비 + 탭 컨텐츠 -->
+  <div class="app-layout">
+    <!-- 씬 네비게이터 (대본 탭 전용, 항상 고정) -->
+    <div class="app-nav" id="app-nav">
+      <div class="sc-nav-top">
+        <div class="sc-nav-top-row">
+          <span class="sc-nav-title">SCENES</span>
+          <button class="sc-sel-all" id="sc-sel-all" onclick="toggleSelectAll()">전체 선택</button>
+        </div>
+        <div class="multi-req-bar" id="multi-req-bar">
+          <div class="multi-req-label" id="multi-req-label">선택된 씬에 AI 편집 요청</div>
+          <input class="multi-req-inp" id="multi-req-inp" placeholder="수정 지시...">
+          <button class="multi-req-btn" id="multi-req-btn" onclick="aiEditMultiple()">✦ 선택 씬 AI 수정</button>
+        </div>
+      </div>
+      <div class="sc-nav-list" id="scene-list"></div>
+      <div class="sc-nav-btm">
+        <button class="sc-nav-add" onclick="addScene()">+ 씬 추가</button>
+      </div>
+    </div>
+
+    <!-- 탭 컨텐츠 -->
+    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+
+<main class="main" id="main" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
     <div class="empty" id="empty">
       <div class="logo" style="font-size:24px;gap:10px"><span class="logo-dot" style="width:9px;height:9px"></span>Script Studio</div>
       <div style="font-family:var(--fd);font-size:18px;color:var(--text2)">새 프로젝트를 시작하세요</div>
@@ -540,7 +662,7 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
       </nav>
 
       <!-- AI 대화 탭 -->
-      <div class="tc on" id="tc-chat">
+      <div class="app-tc on" id="app-tc-chat">
         <div class="chat-pane">
           <div class="chat-meta">
             <select class="medium-sel" id="medium-sel" onchange="updateMedium()">
@@ -597,7 +719,7 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
       </div>
 
       <!-- 대본 탭 -->
-      <div class="tc" id="tc-script">
+      <div class="app-tc" id="app-tc-script">
         <div class="script-pane-v2">
 
           <!-- 네비게이터 -->
@@ -644,7 +766,7 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
       </div>
 
 <!-- 씬 콘티 탭 -->
-      <div class="tc" id="tc-board">
+      <div class="app-tc" id="app-tc-board">
         <div class="board-pane">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
             <div style="font-family:var(--fd);font-size:17px">씬 콘티</div>
@@ -655,7 +777,7 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
       </div>
 
       <!-- 기획서 탭 -->
-      <div class="tc" id="tc-planning">
+      <div class="app-tc" id="app-tc-planning">
         <div class="plan-pane">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
             <div style="font-family:var(--fd);font-size:19px">기획서</div>
@@ -680,7 +802,7 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
       </div>
 
       <!-- 등장인물 탭 -->
-      <div class="tc" id="tc-chars">
+      <div class="app-tc" id="app-tc-chars">
         <div class="chars-pane">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
             <div style="font-family:var(--fd);font-size:17px">등장인물</div>
@@ -705,7 +827,7 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
       </div>
 
       <!-- 시놉시스 탭 -->
-      <div class="tc" id="tc-synopsis">
+      <div class="app-tc" id="app-tc-synopsis">
         <div class="syn-pane">
           <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px">
             <div>
@@ -725,8 +847,10 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
         </div>
       </div>
     </div>
-  </main>
-</div>
+    </main>
+    </div><!-- /탭컨텐츠 -->
+  </div><!-- /app-layout -->
+</div><!-- /app-screen -->
 
 <!-- API 모달 -->
 <div class="moverlay" id="api-modal">
@@ -904,34 +1028,72 @@ function createProject() {
   S.projects.push(p);
   closeModal('proj-modal');
   document.getElementById('np-title').value = '';
-  save(); renderPList(); selectProject(p.id);
+  save(); renderHomeGrid(); enterProject(p.id);
 }
 
 function renderPList() {
-  const el = document.getElementById('plist'); el.innerHTML = '';
+  // 홈 그리드도 같이 갱신
+  renderHomeGrid();
+}
+
+function renderHomeGrid() {
+  const grid = document.getElementById('proj-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+
+  const countEl = document.getElementById('home-proj-count');
+  if (countEl) countEl.textContent = (S.lang === 'ko' ? '프로젝트' : 'Projects') + ' ' + S.projects.length + '개';
+
   S.projects.forEach(p => {
-    const wrap = document.createElement('div'); wrap.className = 'pitem-wrap';
+    const card = document.createElement('div'); card.className = 'proj-card';
 
-    const d = document.createElement('div');
-    d.className = 'pitem' + (S.cur?.id === p.id ? ' on' : '');
-    d.onclick = () => selectProject(p.id);
-    d.innerHTML = '<div class="pname">' + p.title + '</div><div class="pmeta"><span class="ptag ptag-m">' + p.medium + '</span>' + (p.genreTags || []).map(t => '<span class="ptag ptag-g">' + t + '</span>').join('') + '</div>';
-    wrap.appendChild(d);
+    // 썸네일
+    const thumb = document.createElement('div'); thumb.className = 'proj-card-thumb';
+    const bg = document.createElement('div'); bg.className = 'proj-card-thumb-bg';
+    bg.textContent = (p.title || '?').charAt(0);
+    const info = document.createElement('div'); info.className = 'proj-card-thumb-info';
+    const titleEl = document.createElement('div'); titleEl.className = 'proj-card-thumb-title';
+    titleEl.textContent = p.title;
+    const medEl = document.createElement('div'); medEl.className = 'proj-card-thumb-medium';
+    medEl.textContent = p.medium;
+    info.appendChild(titleEl); info.appendChild(medEl);
+    thumb.appendChild(bg); thumb.appendChild(info);
+    card.appendChild(thumb);
 
-    // 이름 변경 / 삭제 버튼
-    const menu = document.createElement('div'); menu.className = 'pitem-menu';
+    // 바디
+    const body2 = document.createElement('div'); body2.className = 'proj-card-body';
+    const meta = document.createElement('div'); meta.className = 'proj-card-meta';
+    const scCount = document.createElement('span'); scCount.className = 'proj-card-scenes';
+    scCount.textContent = (S.lang === 'ko' ? '씬 ' : 'SC ') + (p.scenes?.length || 0) + (S.lang === 'ko' ? '개' : '');
+    meta.appendChild(scCount);
+    const tags = document.createElement('div'); tags.className = 'proj-card-tags';
+    (p.genreTags || []).slice(0, 3).forEach(t => {
+      const tag = document.createElement('span'); tag.className = 'ptag ptag-g'; tag.textContent = t;
+      tags.appendChild(tag);
+    });
+    body2.appendChild(meta); body2.appendChild(tags);
+    card.appendChild(body2);
 
-    const renBtn = document.createElement('button'); renBtn.className = 'pitem-menu-btn ren'; renBtn.title = '이름 변경'; renBtn.textContent = '✎';
+    // 버튼
+    const actions = document.createElement('div'); actions.className = 'proj-card-actions';
+    const enterBtn = document.createElement('button'); enterBtn.className = 'proj-card-btn';
+    enterBtn.textContent = S.lang === 'ko' ? '열기' : 'Open';
+    enterBtn.onclick = () => enterProject(p.id);
+    const renBtn = document.createElement('button'); renBtn.className = 'proj-card-icon-btn'; renBtn.title = '이름 변경'; renBtn.textContent = '✎';
     renBtn.onclick = e => { e.stopPropagation(); renameProject(p.id); };
-    menu.appendChild(renBtn);
+    const delBtn2 = document.createElement('button'); delBtn2.className = 'proj-card-icon-btn del'; delBtn2.title = '삭제'; delBtn2.textContent = '🗑';
+    delBtn2.onclick = e => { e.stopPropagation(); deleteProject(p.id); };
+    actions.appendChild(enterBtn); actions.appendChild(renBtn); actions.appendChild(delBtn2);
+    card.appendChild(actions);
 
-    const delBtn = document.createElement('button'); delBtn.className = 'pitem-menu-btn del'; delBtn.title = '프로젝트 삭제'; delBtn.textContent = '✕';
-    delBtn.onclick = e => { e.stopPropagation(); deleteProject(p.id); };
-    menu.appendChild(delBtn);
-
-    wrap.appendChild(menu);
-    el.appendChild(wrap);
+    grid.appendChild(card);
   });
+
+  // 새 프로젝트 카드
+  const newCard = document.createElement('div'); newCard.className = 'proj-new-card';
+  newCard.onclick = () => openModal('proj-modal');
+  newCard.innerHTML = '<div class="proj-new-icon">+</div><div class="proj-new-label">' + (S.lang === 'ko' ? '새 프로젝트' : 'New Project') + '</div>';
+  grid.appendChild(newCard);
 }
 
 function renameProject(id) {
@@ -960,8 +1122,7 @@ function deleteProject(id) {
     if (S.projects.length > 0) {
       selectProject(S.projects[0].id);
     } else {
-      document.getElementById('ws').style.display = 'none';
-      document.getElementById('empty').style.display = 'flex';
+      goHome();
     }
   }
   save(); renderPList();
@@ -969,23 +1130,18 @@ function deleteProject(id) {
 }
 
 function selectProject(id) {
-  S.cur = S.projects.find(p => p.id === id); S.curSc = null;
-  renderPList();
-  document.getElementById('empty').style.display = 'none';
-  document.getElementById('ws').style.display = 'flex';
-  switchTab('chat');
-  renderMsgs(); renderSceneList(); renderChars(); renderBoard(); renderSynopsis(); renderPlan(); renderFullScript();
-  document.getElementById('syn-title').textContent = S.cur.title || '—';
-  document.getElementById('syn-edit').value = S.cur.synopsis || '';
-  clearSceneEditor();
+  enterProject(id);
 }
 
 // ════════════════════════════════════════════
 // TABS
 // ════════════════════════════════════════════
 function switchTab(n) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.tab === n));
-  document.querySelectorAll('.tc').forEach(c => c.classList.toggle('on', c.id === 'tc-' + n));
+  document.querySelectorAll('.app-tab').forEach(t => t.classList.toggle('on', t.dataset.tab === n));
+  document.querySelectorAll('.app-tc').forEach(c => c.classList.toggle('on', c.id === 'app-tc-' + n));
+  // 씬 네비 — 대본 탭일 때만 표시
+  const nav = document.getElementById('app-nav');
+  if (nav) nav.classList.toggle('nav-hidden', n !== 'script');
 }
 
 // ════════════════════════════════════════════
@@ -2272,6 +2428,56 @@ function exportDoc(type) {
 }
 
 
+
+// ════════════════════════════════════════════
+// 홈 ↔ 앱 전환
+// ════════════════════════════════════════════
+function goHome() {
+  document.getElementById('home-screen').classList.remove('hidden');
+  document.getElementById('app-screen').style.display = 'none';
+  S.cur = null; S.curSc = null;
+  renderHomeGrid();
+}
+
+function enterProject(id) {
+  S.cur = S.projects.find(p => p.id === id);
+  if (!S.cur) return;
+  S.curSc = null;
+  document.getElementById('home-screen').classList.add('hidden');
+  const appScreen = document.getElementById('app-screen');
+  appScreen.style.display = 'flex';
+  // 헤더 업데이트
+  document.getElementById('app-proj-title').textContent = S.cur.title;
+  document.getElementById('app-proj-medium').textContent = S.cur.medium;
+  // 첫 화면: AI 대화
+  switchTab('chat');
+  // 씬 네비 초기 숨김 (chat탭)
+  const nav = document.getElementById('app-nav');
+  if (nav) nav.classList.add('nav-hidden');
+  // 렌더
+  renderMsgs(); renderSceneList(); renderChars(); renderBoard();
+  renderSynopsis(); renderPlan(); renderFullScript();
+  document.getElementById('syn-title').textContent = S.cur.title || '—';
+  document.getElementById('syn-edit').value = S.cur.synopsis || '';
+  clearSceneEditor();
+  updateApiUI(!!S.apiKey);
+}
+
+function toggleMobileNav() {
+  const nav = document.getElementById('app-nav');
+  if (!nav) return;
+  nav.classList.toggle('mobile-open');
+}
+
+// 모바일 네비 외부 클릭 시 닫기
+document.addEventListener('click', e => {
+  const nav = document.getElementById('app-nav');
+  const btn = document.getElementById('nav-toggle-btn');
+  if (nav && nav.classList.contains('mobile-open') && !nav.contains(e.target) && e.target !== btn) {
+    nav.classList.remove('mobile-open');
+  }
+});
+
 // ════════════════════════════════════════════
 // 프로젝트 내보내기 / 불러오기
 // ════════════════════════════════════════════
@@ -2319,7 +2525,7 @@ function importProject(event) {
           // 덮어쓰기
           const idx = S.projects.indexOf(existing);
           S.projects[idx] = { ...data, id: existing.id };
-          save(); renderPList(); selectProject(existing.id);
+          save(); renderHomeGrid(); enterProject(existing.id);
           toast(S.lang === 'ko' ? '✓ "' + data.title + '" 업데이트됨' : '✓ "' + data.title + '" updated');
           return;
         } else {
@@ -2339,7 +2545,7 @@ function importProject(event) {
       delete newProj._app;
 
       S.projects.push(newProj);
-      save(); renderPList(); selectProject(newProj.id);
+      save(); renderHomeGrid(); enterProject(newProj.id);
       toast(S.lang === 'ko' ? '✓ "' + newProj.title + '" 불러오기 완료' : '✓ "' + newProj.title + '" imported');
 
     } catch(e) {
@@ -2408,7 +2614,10 @@ const demo = {
 };
 
 if (!S.projects.length) S.projects = [demo];
-save(); renderPList(); selectProject(S.projects[0].id);
+save();
+renderHomeGrid();
+// API UI 초기화
+updateApiUI(!!S.apiKey);
 updateApiUI(true); // proxy mode
 document.getElementById('np-title').addEventListener('keydown', e => { if (e.key === 'Enter') createProject(); });
 document.getElementById('api-inp').addEventListener('keydown', e => { if (e.key === 'Enter') saveApi(); });
