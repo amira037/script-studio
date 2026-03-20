@@ -695,8 +695,10 @@ document.getElementById('api-pill').onclick = () => {
 // ════════════════════════════════════════════
 // CLAUDE API
 // ════════════════════════════════════════════
-async function callClaude(messages, sys, onStream) {
-  // API key handled server-side
+const MODEL_SONNET = 'claude-sonnet-4-20250514';
+const MODEL_HAIKU  = 'claude-haiku-4-5-20251001';
+
+async function callClaude(messages, sys, maxTokens, model) {
   const res = await fetch('/api/claude', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -707,10 +709,14 @@ async function callClaude(messages, sys, onStream) {
       messages,
     }),
   });
-  if (!res.ok) throw new Error('API ' + res.status);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || 'API ' + res.status);
+  }
   const data = await res.json();
   return data.content.map(b => b.text || '').join('');
 }
+
 
 function getSys() {
   const p = S.cur, l = S.lang;
