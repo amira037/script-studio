@@ -1033,7 +1033,7 @@ function renderHomeGrid() {
   if (countEl) countEl.textContent = (S.lang === 'ko' ? '프로젝트' : 'Projects') + ' ' + S.projects.length + '개';
 
   S.projects.forEach(p => {
-    const card = document.createElement('div'); card.className = 'proj-card';
+    const card = document.createElement('div'); card.className = 'proj-card'; card.onclick = () => enterProject(p.id);
 
     // 썸네일
     const thumb = document.createElement('div'); thumb.className = 'proj-card-thumb';
@@ -1066,7 +1066,7 @@ function renderHomeGrid() {
     const actions = document.createElement('div'); actions.className = 'proj-card-actions';
     const enterBtn = document.createElement('button'); enterBtn.className = 'proj-card-btn';
     enterBtn.textContent = S.lang === 'ko' ? '열기' : 'Open';
-    enterBtn.onclick = () => enterProject(p.id);
+    enterBtn.onclick = e => { e.stopPropagation(); enterProject(p.id); };
     const renBtn = document.createElement('button'); renBtn.className = 'proj-card-icon-btn'; renBtn.title = '이름 변경'; renBtn.textContent = '✎';
     renBtn.onclick = e => { e.stopPropagation(); renameProject(p.id); };
     const delBtn2 = document.createElement('button'); delBtn2.className = 'proj-card-icon-btn del'; delBtn2.title = '삭제'; delBtn2.textContent = '🗑';
