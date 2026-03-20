@@ -170,7 +170,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--fb);height:100vh;o
 .script-block{font-family:var(--fm);font-size:12px;line-height:2.1;max-width:600px;margin:0 auto}
 
 /* 줄 래퍼 */
-.lw{display:flex;align-items:flex-start;gap:5px;border-radius:4px;transition:background .1s;position:relative}
+.lw{display:flex;align-items:flex-start;gap:5px;border-radius:4px;transition:background .1s;position:relative;flex-wrap:nowrap}
 .lw:hover .llbtn{opacity:1}
 .lw.ll{opacity:.65}       /* 줄 잠금 상태 */
 .lw.ll .le{pointer-events:none}
@@ -356,7 +356,7 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 .sc-tbig-edit:focus{border-bottom-color:var(--accent)}
 
 /* ── 줄 추가 툴바 ── */
-.line-add-bar{display:flex;align-items:center;gap:5px;padding:4px 6px;margin-top:4px;opacity:0;transition:opacity .15s}
+.line-add-bar{display:flex;align-items:center;gap:4px;padding:2px 0 2px 22px;opacity:0;transition:opacity .15s;width:100%;flex-shrink:0;position:relative;z-index:1}
 .lw:hover .line-add-bar,.line-add-bar:hover{opacity:1}
 .add-line-btn{background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text3);font-size:9px;padding:2px 7px;cursor:pointer;transition:all .15s;font-family:var(--fm)}
 .add-line-btn:hover{border-color:var(--accent2);color:var(--accent);background:rgba(200,169,110,.08)}
@@ -619,7 +619,7 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
 .nav-scene-body.closed{display:none}
 
 /* ④ 대본 하단 AI 지시창 */
-.script-ai-bar{padding:8px 14px;background:var(--bg2);border-top:1px solid var(--border);flex-shrink:0;display:flex;gap:7px;align-items:flex-end}
+.script-ai-bar{padding:8px 14px;background:var(--bg2);border-top:1px solid var(--border);flex-shrink:0;display:flex;gap:7px;align-items:flex-end;min-height:52px}
 .script-ai-inp{flex:1;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r2);color:var(--text);font-family:var(--fb);font-size:12px;padding:8px 12px;resize:none;min-height:36px;max-height:80px;outline:none;line-height:1.5;transition:border .15s}
 .script-ai-inp:focus{border-color:var(--accent2)}
 .script-ai-inp::placeholder{color:var(--text3);font-size:11px}
@@ -869,10 +869,8 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
                 <span style="font-size:10px;color:var(--text3);font-family:var(--fm)" id="sc-top-info"></span>
               </div>
               <div style="display:flex;gap:5px;flex-wrap:wrap">
-                <button class="sc-sync-btn" onclick="syncAllToChars()">👥 인물</button>
-                <button class="sc-sync-btn" onclick="syncAllToSynopsis()">📖 시놉시스</button>
-                <button class="sc-sync-btn" onclick="syncAllToPlan()">📋 기획서</button>
-                <button class="sc-sync-btn" onclick="syncAllToBoard()">🎬 콘티</button>
+                <button class="sc-sync-btn" onclick="deleteSelectedScenes()" style="border-color:rgba(224,96,96,.4);color:var(--red)">✕ 씬삭제</button>
+                <button class="sc-sync-btn" onclick="aiEditSelected()" style="border-color:rgba(232,168,74,.4);color:var(--amber)">✦ AI편집</button>
               </div>
             </div>
             <!-- 집중편집 배너 -->
@@ -894,7 +892,10 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
       <div class="app-tc" id="app-tc-board">
         <div class="board-pane">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-            <div style="font-family:var(--fd);font-size:17px">씬 콘티</div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="font-family:var(--fd);font-size:17px">씬 콘티</div>
+              <button class="abtn pri" style="font-size:10px;padding:3px 9px" onclick="syncAllToBoard()">📄 대본 반영</button>
+            </div>
             <button class="exp-btn" onclick="exportDoc('board')">⬇ 내보내기</button>
           </div>
           <div id="board-content"></div>
@@ -905,7 +906,10 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
       <div class="app-tc" id="app-tc-planning">
         <div class="plan-pane">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-            <div style="font-family:var(--fd);font-size:19px">기획서</div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="font-family:var(--fd);font-size:19px">기획서</div>
+              <button class="abtn pri" style="font-size:10px;padding:3px 9px" onclick="syncAllToPlan()">📄 대본 반영</button>
+            </div>
             <button class="exp-btn" onclick="exportDoc('planning')">⬇ 내보내기</button>
           </div>
           <div class="plan-sec">
@@ -931,8 +935,9 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
         <div class="chars-pane">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
             <div style="font-family:var(--fd);font-size:17px">등장인물</div>
-            <div style="display:flex;gap:6px">
-              <button class="abtn" onclick="checkConsistency()">🔍 성격 일관성 검사</button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button class="abtn pri" onclick="syncAllToChars()">📄 대본 반영</button>
+              <button class="abtn" onclick="checkConsistency()">🔍 일관성 검사</button>
               <button class="abtn" onclick="genImageBible()">🎨 이미지 바이블</button>
               <button class="exp-btn" onclick="exportDoc('chars')">⬇ 내보내기</button>
             </div>
@@ -960,6 +965,7 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
               <div style="font-size:10px;color:var(--text3);font-family:var(--fm)">시놉시스</div>
             </div>
             <div style="display:flex;gap:6px;flex-shrink:0;margin-top:4px">
+              <button class="abtn pri" onclick="syncAllToSynopsis()">📄 대본 반영</button>
               <button class="abtn" onclick="regenSynopsis()">↺ AI 재생성</button>
               <button class="exp-btn" onclick="exportDoc('synopsis')">⬇ 내보내기</button>
             </div>
@@ -978,7 +984,7 @@ svg.rsvg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:no
     </div><!-- /tabs-content -->
   </div><!-- /app-layout -->
   <!-- AI 지시창 — 대본 탭 활성 시 표시, 항상 하단 고정 -->
-  <div class="script-ai-bar" id="script-ai-bar-global" style="display:none">
+  <div class="script-ai-bar" id="script-ai-bar-global" style="display:flex">
     <textarea class="script-ai-inp" id="script-ai-inp" rows="1"
       placeholder="대본 지시: 씬2 용신 대사 더 장엄하게 / 씬3 제목 개울가로..."
       onkeydown="scriptAiKey(event)" oninput="autoH(this)"></textarea>
@@ -2257,7 +2263,8 @@ function renderLinesInto(container, sc, sceneLocked) {
     const ind = document.createElement('div'); ind.className = 'll-ind';
     ind.textContent = '잠금';
     ind.style.display = line.locked ? 'block' : 'none';
-    wrap.appendChild(ind);
+    contentRow.appendChild(ind);
+    wrap.appendChild(contentRow);
 
     // 줄 추가/삭제 툴바
     if (!sceneLocked && !line.locked) {
@@ -2266,7 +2273,7 @@ function renderLinesInto(container, sc, sceneLocked) {
         { type: 'action', label: '+ 지문' },
         { type: 'character', label: '+ 배역명' },
         { type: 'dialogue', label: '+ 대사' },
-        { type: 'parenthetical', label: '+ 지시' },
+        // { type: 'parenthetical', label: '+ 지시' },  // 필요 시 활성화
       ];
       types.forEach(t => {
         const btn = document.createElement('button'); btn.className = 'add-line-btn';
@@ -2503,6 +2510,42 @@ function flashSyncBtn(label) {
 }
 
 // 씬 일괄 잠금 토글 (선택된 씬들)
+
+function deleteSelectedScenes() {
+  if (!selectedSceneIds.size) { toast(S.lang==='ko'?'씬을 먼저 선택하세요':'Select scenes first'); return; }
+  if (!confirm(selectedSceneIds.size + (S.lang==='ko'?'개 씬을 삭제할까요?':' scenes - Delete?'))) return;
+  S.cur.scenes = S.cur.scenes.filter(s => !selectedSceneIds.has(s.id));
+  selectedSceneIds.clear();
+  save(); renderSceneList(); renderFullScript(); renderBoard();
+  toast(S.lang==='ko'?'✓ 씬 삭제됨':'✓ Scenes deleted');
+}
+
+async function aiEditSelected() {
+  if (!selectedSceneIds.size) { toast(S.lang==='ko'?'씬을 먼저 선택하세요':'Select scenes first'); return; }
+  const inst = prompt(S.lang==='ko'?'선택한 씬들에 적용할 수정 지시:':'Edit instruction for selected scenes:', '');
+  if (!inst) return;
+  const btn = document.querySelector('[onclick="aiEditSelected()"]');
+  if (btn) { btn.disabled=true; btn.textContent='✦ ⏳'; }
+  const scenes = S.cur.scenes.filter(s => selectedSceneIds.has(s.id) && s.state !== 'locked');
+  let done = 0;
+  for (const sc of scenes) {
+    sc.reqInst = inst;
+    try {
+      const lk = sc.lines.map((l,i) => ({index:i, type:l.type, text:l.text, locked:l.locked||false}));
+      const sys = '당신은 전문 대본 작가입니다. locked:true 줄은 절대 수정하지 마세요. JSON 배열만 출력하세요.';
+      const p = '수정 요청: "'+inst+'"\n\n씬 "'+sc.title+'" (locked:true 수정 금지):\n'+JSON.stringify(lk,null,2)+'\n\nJSON 배열만:';
+      const raw = await callClaude([{role:'user',content:p}], sys, 3000);
+      const nl = JSON.parse(raw.replace(/```json?|```/g,'').trim());
+      sc.lines = nl.map((n,i) => { const o=sc.lines[i]; if(o&&o.locked)return{...o}; return{type:n.type,text:n.text,locked:n.locked||false}; });
+      sc.state = 'editable'; done++;
+    } catch(e) { toast('오류('+sc.title+'): '+e.message); }
+  }
+  selectedSceneIds.clear();
+  save(); renderSceneList(); renderFullScript(); renderBoard();
+  toast('✓ '+done+'개 씬 수정 완료');
+  if (btn) { btn.disabled=false; btn.textContent='✦ AI편집'; }
+}
+
 function lockSelectedScenes() {
   if (!selectedSceneIds.size) { toast('씬을 먼저 선택하세요'); return; }
   const scenes = S.cur.scenes.filter(s => selectedSceneIds.has(s.id));
@@ -2857,6 +2900,9 @@ function enterProject(id) {
 
   // 첫 화면: 대본 탭
   switchTab('script');
+  // AI 지시창 확실히 표시
+  const aiBar = document.getElementById('script-ai-bar-global');
+  if (aiBar) aiBar.style.display = 'flex';
 }
 
 function toggleMobileNav() {
