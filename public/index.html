@@ -1306,7 +1306,10 @@ const UNDO_LIMIT = 50;
 
 function pushUndo() {
   if (!S.cur) return;
-  undoStack.push(JSON.stringify(S.cur));
+  const snap = JSON.stringify(S.cur);
+  // 직전 스냅샷과 동일하면 스킵 (oninput 연속 호출 방지)
+  if (undoStack.length > 0 && undoStack[undoStack.length-1] === snap) return;
+  undoStack.push(snap);
   if (undoStack.length > UNDO_LIMIT) undoStack.shift();
   redoStack = [];
   updateUndoUI();
@@ -1320,7 +1323,9 @@ function undo() {
   const idx = S.projects.findIndex(p => p.id === S.cur.id);
   if (idx !== -1) S.projects[idx] = restored;
   S.cur = restored;
-  save(); renderScriptBody(); renderNavSceneList(); renderChatMsgs();
+  // save(true) — skipUndo=true로 스택 꼬임 방지
+  storage.set('ss_projects', S.projects);
+  renderScriptBody(); renderNavSceneList(); renderChatMsgs();
   updateUndoUI(); toast('↩ 되돌리기');
 }
 
@@ -1332,7 +1337,9 @@ function redo() {
   const idx = S.projects.findIndex(p => p.id === S.cur.id);
   if (idx !== -1) S.projects[idx] = restored;
   S.cur = restored;
-  save(); renderScriptBody(); renderNavSceneList(); renderChatMsgs();
+  // save(true) — skipUndo=true로 스택 꼬임 방지
+  storage.set('ss_projects', S.projects);
+  renderScriptBody(); renderNavSceneList(); renderChatMsgs();
   updateUndoUI(); toast('↪ 다시 실행');
 }
 
@@ -2124,8 +2131,8 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
       </div>
     </div>
     <div id="nsi-panel-paste" style="display:none;padding:10px 14px;display:none;flex-direction:column;gap:7px;">
-      <textarea id="nsi-paste-area" maxlength="8000" style="width:100%;min-height:100px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-family:var(--fb);font-size:12px;padding:8px 10px;resize:vertical;outline:none;line-height:1.7;" placeholder="씬 텍스트를 여기에 붙여넣으세요.&#10;&#10;예)&#10;SCENE 12. 외부. 마을 길 – 밤&#10;유모가 어린 율랑을 데리고 은밀히 숨어든다.&#10;유모  쉿… 도련님. 소리 내면 안 돼요." oninput="document.getElementById('nsi-char-count').textContent=this.value.length+' / 8000'"></textarea>
-      <div style="font-size:10px;color:var(--text3);font-family:var(--fm);text-align:right;margin-top:-4px;" id="nsi-char-count">0 / 8000</div>
+      <textarea id="nsi-paste-area" maxlength="4000" style="width:100%;min-height:100px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-family:var(--fb);font-size:12px;padding:8px 10px;resize:vertical;outline:none;line-height:1.7;" placeholder="씬 텍스트를 여기에 붙여넣으세요.&#10;&#10;예)&#10;SCENE 12. 외부. 마을 길 – 밤&#10;유모가 어린 율랑을 데리고 은밀히 숨어든다.&#10;유모  쉿… 도련님. 소리 내면 안 돼요." oninput="document.getElementById('nsi-char-count').textContent=this.value.length+' / 4000'"></textarea>
+      <div style="font-size:10px;color:var(--text3);font-family:var(--fm);text-align:right;margin-top:-4px;" id="nsi-char-count">0 / 4000</div>
       <div style="display:flex;gap:6px;">
         <button id="nsi-parse-btn" style="font-size:11px;background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:6px 14px;font-weight:600;cursor:pointer;">✦ AI 파싱해서 씬 만들기</button>
         <button class="new-scene-cancel" onclick="document.getElementById('inline-scene-add')?.remove()" style="font-size:11px;background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);padding:6px 10px;">취소</button>
@@ -2759,7 +2766,7 @@ function openSceneTextEditor(sc, block) {
   const panel = document.createElement('div');
   panel.className = 'scene-text-editor-panel';
   panel.style.cssText = 'border-top:1px solid var(--border);background:var(--bg3);padding:12px 14px;display:flex;flex-direction:column;gap:8px;';
-  const MAX = 8000;
+  const MAX = 4000;
   const initText = linesToText(sc.lines);
   const hint = document.createElement('div');
   hint.style.cssText = 'font-size:10px;color:var(--text3);font-family:var(--fm);';
@@ -2800,17 +2807,18 @@ function openSceneTextEditor(sc, block) {
         '씬 JSON: [{"title":"씬제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용"}]}]\n' +
         '- 슬러그/씬 제목 → slug와 title\n' +
         '- 지문 → action, 인물명 → character, 대사 → dialogue, 괄호지문 → parenthetical';
-      const raw = await callClaude([{role:'user', content:rawText}], sys, 3000, 'claude-haiku-4-5-20251001');
+      const raw = await callClaude([{role:'user', content:rawText}], sys, 6000, 'claude-haiku-4-5-20251001');
       const scenesRaw = extractTag(raw, 'scenes');
       if (!scenesRaw) { toast('파싱 실패 — 다시 시도해주세요.'); return; }
       const parsed = JSON.parse(scenesRaw);
       if (!parsed?.length) { toast('씬을 찾을 수 없습니다.'); return; }
-      const s = parsed[0];
+
+      // 첫 번째 씬 → 현재 씬에 diff 적용
+      const s0 = parsed[0];
       const newLines = [
-        { type:'slug', text: s.slug || sc.lines[0]?.text || 'INT. 장소 - 시간대', locked:false },
-        ...(s.lines||[]).map(l => ({ type: l.type||'action', text:l.text||'', locked:false }))
+        { type:'slug', text: s0.slug || sc.lines[0]?.text || 'INT. 장소 - 시간대', locked:false },
+        ...(s0.lines||[]).map(l => ({ type: l.type||'action', text:l.text||'', locked:false }))
       ];
-      // diff 생성
       const oldLines = sc.lines;
       const diffLines = [];
       const maxLen = Math.max(oldLines.length, newLines.length);
@@ -2820,9 +2828,29 @@ function openSceneTextEditor(sc, block) {
         else { if (o) diffLines.push({type:'del', text:o.text}); if (n) diffLines.push({type:'add', text:n.text}); }
       }
       sc.diff = { prompt:'텍스트 편집', lines:diffLines, newLines, comment:'텍스트 편집 후 파싱' };
+
+      // 나머지 씬들 → 현재 씬 바로 뒤에 자동 삽입
+      if (parsed.length > 1) {
+        const scIdx = S.cur.scenes.findIndex(x => x.id === sc.id);
+        const extraScenes = parsed.slice(1).map(s => ({
+          id: Date.now() + Math.random(),
+          title: s.title || '새 씬',
+          locked: false,
+          lines: [
+            { type:'slug', text: s.slug || 'INT. 장소 - 시간대', locked:false },
+            ...(s.lines||[]).map(l => ({ type: l.type||'action', text:l.text||'', locked:false }))
+          ],
+          storyboard: [], diff: null,
+        }));
+        S.cur.scenes.splice(scIdx + 1, 0, ...extraScenes);
+      }
+
       panel.remove();
-      save(); renderScriptBody();
-      toast('✓ diff 생성됨 — 확인 후 적용하세요');
+      save(); renderScriptBody(); renderNavSceneList();
+      const msg = parsed.length > 1
+        ? '✓ ' + parsed.length + '개 씬으로 분리됨 — diff 확인 후 적용하세요'
+        : '✓ diff 생성됨 — 확인 후 적용하세요';
+      toast(msg, 3500);
     } catch(err) { toast('오류: ' + err.message); }
     finally { parseBtn.textContent = '✦ AI 파싱 적용'; parseBtn.disabled = false; }
   };
