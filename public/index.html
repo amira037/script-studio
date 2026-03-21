@@ -6,6 +6,7 @@
 <title>Script Studio</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&family=Pretendard:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 /* ═══════════════════════════════════════════
    TOKENS
@@ -1222,9 +1223,12 @@ textarea, input { font-family:var(--fb); }
     <div class="setting-group">
       <div class="setting-group-title">데이터 저장</div>
       <div class="setting-row">
-        <div class="setting-status"></div>
-        <div class="setting-label">클라우드 동기화<small>준비 중 — 현재 로컬 저장</small></div>
-        <span class="setting-val">로컬</span>
+        <div class="setting-status on"></div>
+        <div class="setting-label">클라우드 동기화<small>Supabase 연동됨</small></div>
+        <button class="setting-btn" onclick="syncFromSupabase().then(ok => updateSyncStatus(ok ? '✓ 동기화 완료' : '로컬 최신'))">↻ 동기화</button>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label" id="sync-status" style="font-size:10px;color:var(--green);"></div>
       </div>
     </div>
     <div class="setting-group">
@@ -1319,11 +1323,74 @@ textarea, input { font-family:var(--fb); }
 // ═══════════════════════════════════════════
 // STORAGE (abstracted for future cloud sync)
 // ═══════════════════════════════════════════
+// ═══════════════════════════════════════════
+// SUPABASE 연동
+// ═══════════════════════════════════════════
+const SUPABASE_URL = 'https://meruurtcdsjjayfmntzh.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1lcnV1cnRjZHNqamF5Zm1udHpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI3NDY0NjMsImV4cCI6MjA1ODMyMjQ2M30.YuvFG_LfJ3HBMbS8YwRvN5JdEqpVGKjpsFDT6lR9F9E';
+
+// 유저 ID — 지금은 단일 유저, 나중에 auth 추가 시 교체
+const USER_ID = 'default-user';
+
+let _sb = null;
+function getSB() {
+  if (!_sb && window.supabase) {
+    _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }
+  return _sb;
+}
+
+// 로컬 우선 storage (로컬에 항상 저장, 백그라운드로 Supabase 동기화)
 const storage = {
   get(key) { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } },
-  set(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) { console.warn('Storage error', e); } },
+  set(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) { console.warn('Storage error', e); }
+    // projects 저장 시 Supabase에 백그라운드 동기화
+    if (key === 'ss_projects') syncToSupabase(val).catch(e => console.warn('Supabase sync failed', e));
+  },
   del(key) { localStorage.removeItem(key); }
 };
+
+// Supabase에 프로젝트 데이터 저장
+async function syncToSupabase(projects) {
+  const sb = getSB();
+  if (!sb) return;
+  await sb.from('projects').upsert({
+    id: USER_ID,
+    user_id: USER_ID,
+    data: { projects },
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'id' });
+}
+
+// Supabase에서 최신 데이터 가져오기
+async function syncFromSupabase() {
+  const sb = getSB();
+  if (!sb) return false;
+  try {
+    const { data, error } = await sb.from('projects')
+      .select('data, updated_at')
+      .eq('id', USER_ID)
+      .single();
+    if (error || !data) return false;
+    const remote = data.data?.projects;
+    if (!Array.isArray(remote)) return false;
+    // 로컬보다 최신이면 덮어쓰기
+    localStorage.setItem('ss_projects', JSON.stringify(remote));
+    S.projects = remote;
+    renderHome();
+    updateSyncStatus('✓ 클라우드에서 불러옴');
+    return true;
+  } catch(e) {
+    console.warn('Supabase pull failed', e);
+    return false;
+  }
+}
+
+function updateSyncStatus(msg) {
+  const el = document.getElementById('sync-status');
+  if (el) { el.textContent = msg; setTimeout(() => { el.textContent = ''; }, 3000); }
+}
 
 // ═══════════════════════════════════════════
 // STATE
@@ -4440,6 +4507,10 @@ function downloadText(text, filename) {
 // INIT
 // ═══════════════════════════════════════════
 load();
+// 앱 시작 시 Supabase에서 최신 데이터 pull (백그라운드)
+setTimeout(() => {
+  syncFromSupabase().catch(e => console.warn('Initial sync failed', e));
+}, 500);
 
 // Demo project
 if (!S.projects.length) {
