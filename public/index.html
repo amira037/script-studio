@@ -1357,31 +1357,34 @@ const storage = {
   del(key) { localStorage.removeItem(key); }
 };
 
-// Supabase에 프로젝트 데이터 저장
+// Supabase에 프로젝트 데이터 저장 (Vercel 프록시 경유)
 async function syncToSupabase(projects) {
-  const sb = getSB();
-  if (!sb) return;
-  await sb.from('projects').upsert({
-    id: USER_ID,
-    user_id: USER_ID,
-    data: { projects },
-    updated_at: new Date().toISOString()
-  }, { onConflict: 'id' });
+  try {
+    await fetch('/api/supabase?path=projects', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify({
+        id: USER_ID,
+        user_id: USER_ID,
+        data: { projects },
+        updated_at: new Date().toISOString()
+      })
+    });
+  } catch(e) { console.warn('Supabase sync failed', e); }
 }
 
-// Supabase에서 최신 데이터 가져오기
+// Supabase에서 최신 데이터 가져오기 (Vercel 프록시 경유)
 async function syncFromSupabase() {
-  const sb = getSB();
-  if (!sb) return false;
   try {
-    const { data, error } = await sb.from('projects')
-      .select('data, updated_at')
-      .eq('id', USER_ID)
-      .single();
-    if (error || !data) return false;
-    const remote = data.data?.projects;
-    if (!Array.isArray(remote)) return false;
-    // 로컬보다 최신이면 덮어쓰기
+    const res = await fetch('/api/supabase?path=projects&select=data,updated_at&id=eq.' + USER_ID);
+    if (!res.ok) return false;
+    const rows = await res.json();
+    if (!rows || !rows.length) return false;
+    const remote = rows[0].data?.projects;
+    if (!Array.isArray(remote) || !remote.length) return false;
     localStorage.setItem('ss_projects', JSON.stringify(remote));
     S.projects = remote;
     renderHome();
