@@ -891,6 +891,34 @@ textarea, input { font-family:var(--fb); }
 .syn-sec-ta { background:transparent; border:none; outline:none; color:var(--text); font-size:12px; line-height:1.75; width:100%; resize:none; min-height:60px; font-family:var(--fb); }
 .syn-add-sec-btn { background:none; border:1px dashed var(--border2); border-radius:var(--r); color:var(--text3); font-size:11px; padding:6px 14px; transition:all .15s; }
 .syn-add-sec-btn:hover { border-color:var(--accent2); color:var(--accent); }
+/* Theme / Logline blocks */
+.syn-meta-block { margin-bottom:14px; }
+.syn-meta-label { font-size:9px; color:var(--accent); font-family:var(--fm); letter-spacing:.08em; margin-bottom:5px; display:flex; align-items:center; gap:6px; }
+.syn-meta-inp {
+  width:100%; background:var(--bg3); border:1px solid var(--border2);
+  border-radius:var(--r); color:var(--text); font-size:12px;
+  padding:7px 10px; outline:none; transition:border .15s; font-family:var(--fb);
+}
+.syn-meta-inp:focus { border-color:var(--accent2); }
+.syn-candidates { display:flex; flex-direction:column; gap:5px; margin-top:6px; }
+.syn-candidate {
+  background:var(--bg3); border:1px solid var(--border2);
+  border-radius:var(--r); padding:7px 10px; font-size:11px;
+  color:var(--text2); cursor:pointer; transition:all .15s;
+  display:flex; align-items:flex-start; gap:6px; line-height:1.6;
+  text-align:left;
+}
+.syn-candidate:hover { border-color:var(--accent2); background:var(--accent3); color:var(--text); }
+.syn-candidate.selected { border-color:var(--accent2); background:var(--accent3); color:var(--accent); }
+.syn-cand-key { font-size:9px; color:var(--text3); font-family:var(--fm); flex-shrink:0; margin-top:2px; }
+.syn-loglines-saved { display:flex; flex-direction:column; gap:4px; margin-top:6px; }
+.syn-logline-item {
+  background:var(--bg2); border:1px solid var(--border);
+  border-radius:var(--r); padding:6px 10px; font-size:11px;
+  color:var(--text2); display:flex; align-items:flex-start; gap:6px; line-height:1.6;
+}
+.syn-logline-del { background:none; border:none; color:var(--text3); font-size:11px; cursor:pointer; flex-shrink:0; margin-left:auto; }
+.syn-logline-del:hover { color:var(--red); }
 
 /* Settings drawer */
 .setting-group { display:flex; flex-direction:column; gap:3px; }
@@ -3884,23 +3912,105 @@ function renderSynopsisDrawer() {
   const body = document.getElementById('synopsis-body');
   if (!body || !S.cur) return;
   body.innerHTML = '';
-  // Free text area
+
+  // ── 주제 블록 ──────────────────────────────────────
+  const themeBlock = document.createElement('div');
+  themeBlock.className = 'syn-meta-block';
+  const themeLabel = document.createElement('div');
+  themeLabel.className = 'syn-meta-label';
+  themeLabel.textContent = '📌 주제';
+  themeBlock.appendChild(themeLabel);
+  const themeInp = document.createElement('input');
+  themeInp.className = 'syn-meta-inp';
+  themeInp.placeholder = '이 작품이 말하고자 하는 것...';
+  themeInp.value = S.cur.theme || '';
+  themeInp.oninput = () => { S.cur.theme = themeInp.value; save(true); };
+  themeBlock.appendChild(themeInp);
+  // 주제 후보
+  if ((S.cur.themeCandidates||[]).length > 0) {
+    const cands = document.createElement('div');
+    cands.className = 'syn-candidates';
+    S.cur.themeCandidates.forEach((t, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'syn-candidate' + (S.cur.theme === t ? ' selected' : '');
+      btn.innerHTML = '<span class="syn-cand-key">' + String.fromCharCode(65+i) + '</span>' + escH(t);
+      btn.onclick = () => { S.cur.theme = t; themeInp.value = t; save(true); renderSynopsisDrawer(); };
+      cands.appendChild(btn);
+    });
+    themeBlock.appendChild(cands);
+  }
+  body.appendChild(themeBlock);
+
+  // ── 로그라인 블록 ───────────────────────────────────
+  const llBlock = document.createElement('div');
+  llBlock.className = 'syn-meta-block';
+  const llLabel = document.createElement('div');
+  llLabel.className = 'syn-meta-label';
+  llLabel.textContent = '🎯 로그라인';
+  llBlock.appendChild(llLabel);
+  // 저장된 로그라인
+  if ((S.cur.loglines||[]).length > 0) {
+    const saved = document.createElement('div');
+    saved.className = 'syn-loglines-saved';
+    S.cur.loglines.forEach((ll, i) => {
+      const item = document.createElement('div');
+      item.className = 'syn-logline-item';
+      const txt = document.createElement('span');
+      txt.style.flex = '1';
+      txt.textContent = ll;
+      const del = document.createElement('button');
+      del.className = 'syn-logline-del';
+      del.textContent = '✕';
+      del.onclick = () => { S.cur.loglines.splice(i,1); save(true); renderSynopsisDrawer(); };
+      item.append(txt, del);
+      saved.appendChild(item);
+    });
+    llBlock.appendChild(saved);
+  }
+  // 후보
+  if ((S.cur.loglineCandidates||[]).length > 0) {
+    const cands2 = document.createElement('div');
+    cands2.className = 'syn-candidates';
+    S.cur.loglineCandidates.forEach((ll, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'syn-candidate';
+      btn.innerHTML = '<span class="syn-cand-key">' + String.fromCharCode(65+i) + '</span>' + escH(ll);
+      btn.title = '클릭하면 저장됩니다';
+      btn.onclick = () => {
+        if (!S.cur.loglines) S.cur.loglines = [];
+        if (!S.cur.loglines.includes(ll)) { S.cur.loglines.push(ll); save(true); renderSynopsisDrawer(); toast('✓ 로그라인 저장됨'); }
+      };
+      cands2.appendChild(btn);
+    });
+    llBlock.appendChild(cands2);
+  }
+  if ((S.cur.loglines||[]).length === 0 && (S.cur.loglineCandidates||[]).length === 0) {
+    const hint = document.createElement('div');
+    hint.style.cssText = 'font-size:11px;color:var(--text3);font-style:italic;padding:4px 0;';
+    hint.textContent = 'AI 재생성으로 후보를 생성하세요';
+    llBlock.appendChild(hint);
+  }
+  body.appendChild(llBlock);
+
+  // ── 줄거리(시놉시스) ────────────────────────────────
+  const synLabel = document.createElement('div');
+  synLabel.className = 'syn-meta-label';
+  synLabel.textContent = '📋 줄거리';
+  body.appendChild(synLabel);
   const ta = document.createElement('textarea');
   ta.className = 'syn-free-area';
-  ta.placeholder = '시놉시스를 자유롭게 입력하세요...';
+  ta.placeholder = '줄거리를 자유롭게 입력하세요...';
   ta.value = S.cur.synopsis || '';
   ta.oninput = () => {
-    S.cur.synopsis = ta.value; save();
+    S.cur.synopsis = ta.value; save(true);
     ta.style.height = 'auto';
     ta.style.height = Math.max(160, ta.scrollHeight) + 'px';
   };
-  // Initial height
   setTimeout(() => {
     ta.style.height = 'auto';
     ta.style.height = Math.max(160, ta.scrollHeight) + 'px';
   }, 30);
   body.appendChild(ta);
-  // Sections
   (S.cur.synopsisSections || []).forEach((sec, i) => {
     body.appendChild(buildSynSection(sec, i));
   });
@@ -3939,30 +4049,39 @@ function deleteSynSection(id) {
 }
 async function regenSynopsis() {
   const btn = document.querySelector('#drawer-synopsis .drawer-btn.ai-btn');
-  const origTxt = btn ? btn.textContent : '';
   if (btn) { btn.textContent = '⏳ 생성 중...'; btn.disabled = true; }
   try {
     const scenes = (S.cur.scenes||[]).map((s,i)=>{
       const nonSlug = s.lines.filter(l=>l.type!=='slug').map(l=>l.text).join(' ');
-      return `SC${i+1}. ${s.title}: ${nonSlug}`;
+      return 'SC' + (i+1) + '. ' + s.title + ': ' + nonSlug;
     }).join('\n');
     if (!scenes.trim()) { toast('씬이 없습니다. 먼저 대본을 작성해주세요.'); return; }
-    const sys = `대본을 바탕으로 시놉시스를 작성해주세요. <synopsis>내용</synopsis> 태그로 감싸주세요.`;
-    const raw = await callClaude([{role:'user',content:`대본:\n${scenes}`}], sys, 1000, 'claude-haiku-4-5-20251001');
+    const ctx = S.cur.title + ' (' + S.cur.medium + '), 장르: ' + (S.cur.genreTags||[]).join(', ');
+        const sys = '당신은 창작 드라마터지 전문가입니다. 대본을 분석해서 다음을 생성하세요.\n반드시 다음 태그들을 응답 끝에 붙이세요:\n<themes>["주제후보1","주제후보2","주제후보3"]</themes>\n<loglines>["로그라인1(1문장)","로그라인2","로그라인3"]</loglines>\n<synopsis>줄거리 3~5문장</synopsis>\n태그 외 본문은 쓰지 마세요. 한국어로 작성하세요.';
+    const raw = await callClaude([{role:'user', content:'작품: ' + ctx + '\n\n대본:\n' + scenes}], sys, 2000, 'claude-haiku-4-5-20251001');
+    const themesRaw = extractTag(raw, 'themes');
+    const loglinesRaw = extractTag(raw, 'loglines');
     const syn = extractTag(raw, 'synopsis');
-    if (syn && S.cur) {
-      S.cur.synopsis = syn; save(); renderSynopsisDrawer(); toast('✓ 시놉시스 생성됨');
+    if (themesRaw) { try { S.cur.themeCandidates = JSON.parse(themesRaw); } catch {} }
+    if (loglinesRaw) { try { S.cur.loglineCandidates = JSON.parse(loglinesRaw); } catch {} }
+    if (syn) S.cur.synopsis = syn;
+    if (syn || themesRaw || loglinesRaw) {
+      save(); renderSynopsisDrawer(); toast('✓ 주제 · 로그라인 · 줄거리 생성됨', 3000);
     } else {
       toast('생성 실패 — 다시 시도해주세요.');
     }
-  } catch(e) { toast('오류: '+e.message); }
+  } catch(e) { toast('오류: ' + e.message); }
   finally {
-    if (btn) { btn.textContent = origTxt; btn.disabled = false; }
+    if (btn) { btn.textContent = '✦ AI 재생성'; btn.disabled = false; }
   }
 }
 function exportSynopsis() {
-  const text = [S.cur?.synopsis || '', ...(S.cur?.synopsisSections||[]).map(s=>`[${s.title}]\n${s.body}`)].join('\n\n');
-  downloadText(text, (S.cur?.title||'synopsis')+'.txt');
+  const parts = [];
+  if (S.cur?.theme) parts.push('【주제】\n' + S.cur.theme);
+  if ((S.cur?.loglines||[]).length > 0) parts.push('【로그라인】\n' + S.cur.loglines.join('\n'));
+  if (S.cur?.synopsis) parts.push('【줄거리】\n' + S.cur.synopsis);
+  (S.cur?.synopsisSections||[]).forEach(s => parts.push('[' + s.title + ']\n' + s.body));
+  downloadText(parts.join('\n\n'), (S.cur?.title||'synopsis') + '.txt');
 }
 
 // ═══════════════════════════════════════════
@@ -4057,6 +4176,8 @@ function cleanDisplayText(raw) {
     .replace(/<chardata[\s\S]*?<\/chardata>/gi, '')
     .replace(/<charlist[\s\S]*?<\/charlist>/gi, '')
     .replace(/<lines[\s\S]*?<\/lines>/gi, '')
+    .replace(/<themes[\s\S]*?<\/themes>/gi, '')
+    .replace(/<loglines[\s\S]*?<\/loglines>/gi, '')
     .replace(/<suggestion[\s\S]*?<\/suggestion>/gi, '')
     .replace(/```[\s\S]*?```/g, '')
     .replace(/\[[\s\S]{200,}\]/g, '')
