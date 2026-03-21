@@ -1082,7 +1082,7 @@ textarea, input { font-family:var(--fb); }
           <textarea class="prompter-inp" id="prompter-inp" rows="1"
             placeholder="지시를 입력하세요..."
             onkeydown="onPromptKey(event)"
-            oninput="autoResize(this)"></textarea>
+            oninput="autoResize(this); if(this.value) detectSceneNumbers(this.value);"></textarea>
           <button class="prompter-send" id="prompter-send" onclick="sendPrompt()">↑</button>
         </div>
       </div>
@@ -2055,18 +2055,15 @@ function renderScriptBody() {
     body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);font-family:var(--fm);font-size:12px">씬이 없습니다. AI와 대화하거나 + 씬 추가를 눌러 시작하세요.</div>';
     return;
   }
-  scenes.forEach((sc, i) => {
-    // Add-between button
-    const addBetween = buildAddBetweenBtn(sc.id, i);
-    body.appendChild(addBetween);
+  // 맨 앞 (씬 목록 전체 앞에 추가 — afterId=null 이면 맨 앞 삽입)
+  body.appendChild(buildAddBetweenBtn('__first__', 0));
 
-    // Scene block
+  scenes.forEach((sc, i) => {
     const block = buildSceneBlock(sc, i);
     body.appendChild(block);
+    // 각 씬 블록 뒤에 add-between (afterId = 이 씬의 id → 이 씬 다음 삽입)
+    body.appendChild(buildAddBetweenBtn(sc.id, i + 1));
   });
-  // Final add-between
-  const last = buildAddBetweenBtn(null, scenes.length);
-  body.appendChild(last);
 }
 
 function buildAddBetweenBtn(afterId, idx) {
@@ -2082,21 +2079,110 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
   if (existing) existing.remove();
   const wrap = document.createElement('div');
   wrap.id = 'inline-scene-add'; wrap.className = 'new-scene-inline show';
+  // 탭 전환 UI
   wrap.innerHTML = `
-    <div style="display:flex;align-items:center;gap:6px;padding:10px 14px 4px;">
-      <input class="new-scene-inline-inp" id="nsi-title" placeholder="씬 제목..." style="flex:1">
-      <button id="nsi-ai-btn" style="font-size:10px;padding:3px 9px;border-radius:var(--r);border:1px solid rgba(168,158,221,.4);background:var(--purple2);color:var(--purple);white-space:nowrap;">✦ AI 제안</button>
+    <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin:0">
+      <button id="nsi-tab-manual" style="flex:1;font-size:10px;padding:7px;background:var(--accent3);border:none;border-right:1px solid var(--border);color:var(--accent);cursor:pointer;font-family:var(--fm);">✏ 직접 입력</button>
+      <button id="nsi-tab-paste" style="flex:1;font-size:10px;padding:7px;background:transparent;border:none;color:var(--text3);cursor:pointer;font-family:var(--fm);">📋 텍스트 붙여넣기</button>
     </div>
-    <div style="padding:0 14px 4px;">
-      <input class="new-scene-inline-inp" id="nsi-slug" placeholder="슬러그 (예: INT. 장소 - 시간)" style="font-size:11px;color:var(--accent);opacity:.8">
+    <div id="nsi-panel-manual">
+      <div style="display:flex;align-items:center;gap:6px;padding:10px 14px 4px;">
+        <input class="new-scene-inline-inp" id="nsi-title" placeholder="씬 제목..." style="flex:1">
+        <button id="nsi-ai-btn" style="font-size:10px;padding:3px 9px;border-radius:var(--r);border:1px solid rgba(168,158,221,.4);background:var(--purple2);color:var(--purple);white-space:nowrap;">✦ AI 제안</button>
+      </div>
+      <div style="padding:0 14px 4px;">
+        <input class="new-scene-inline-inp" id="nsi-slug" placeholder="슬러그 (예: INT. 장소 - 시간)" style="font-size:11px;color:var(--accent);opacity:.8">
+      </div>
+      <div class="new-scene-inline-acts">
+        <button class="new-scene-save">추가</button>
+        <button class="new-scene-cancel" onclick="document.getElementById('inline-scene-add')?.remove()">취소</button>
+      </div>
     </div>
-    <div class="new-scene-inline-acts">
-      <button class="new-scene-save">추가</button>
-      <button class="new-scene-cancel" onclick="document.getElementById('inline-scene-add')?.remove()">취소</button>
+    <div id="nsi-panel-paste" style="display:none;padding:10px 14px;display:none;flex-direction:column;gap:7px;">
+      <textarea id="nsi-paste-area" style="width:100%;min-height:100px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-family:var(--fb);font-size:12px;padding:8px 10px;resize:vertical;outline:none;line-height:1.7;" placeholder="씬 텍스트를 여기에 붙여넣으세요.&#10;&#10;예)&#10;SCENE 12. 외부. 마을 길 – 밤&#10;유모가 어린 율랑을 데리고 은밀히 숨어든다.&#10;유모  쉿… 도련님. 소리 내면 안 돼요."></textarea>
+      <div style="display:flex;gap:6px;">
+        <button id="nsi-parse-btn" style="font-size:11px;background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:6px 14px;font-weight:600;cursor:pointer;">✦ AI 파싱해서 씬 만들기</button>
+        <button class="new-scene-cancel" onclick="document.getElementById('inline-scene-add')?.remove()" style="font-size:11px;background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);padding:6px 10px;">취소</button>
+      </div>
     </div>`;
   const titleInp = wrap.querySelector('#nsi-title');
   const slugInp = wrap.querySelector('#nsi-slug');
   const aiBtn = wrap.querySelector('#nsi-ai-btn');
+
+  // 탭 전환
+  wrap.querySelector('#nsi-tab-manual').onclick = () => {
+    wrap.querySelector('#nsi-panel-manual').style.display = '';
+    wrap.querySelector('#nsi-panel-paste').style.display = 'none';
+    wrap.querySelector('#nsi-tab-manual').style.background = 'var(--accent3)';
+    wrap.querySelector('#nsi-tab-manual').style.color = 'var(--accent)';
+    wrap.querySelector('#nsi-tab-paste').style.background = 'transparent';
+    wrap.querySelector('#nsi-tab-paste').style.color = 'var(--text3)';
+  };
+  wrap.querySelector('#nsi-tab-paste').onclick = () => {
+    wrap.querySelector('#nsi-panel-manual').style.display = 'none';
+    wrap.querySelector('#nsi-panel-paste').style.display = 'flex';
+    wrap.querySelector('#nsi-tab-paste').style.background = 'var(--accent3)';
+    wrap.querySelector('#nsi-tab-paste').style.color = 'var(--accent)';
+    wrap.querySelector('#nsi-tab-manual').style.background = 'transparent';
+    wrap.querySelector('#nsi-tab-manual').style.color = 'var(--text3)';
+    setTimeout(() => wrap.querySelector('#nsi-paste-area')?.focus(), 50);
+  };
+
+  // AI 파싱 버튼
+  wrap.querySelector('#nsi-parse-btn').onclick = async () => {
+    const pasteArea = wrap.querySelector('#nsi-paste-area');
+    const rawText = pasteArea?.value.trim();
+    if (!rawText) { toast('텍스트를 먼저 입력해주세요.'); return; }
+    const parseBtn = wrap.querySelector('#nsi-parse-btn');
+    parseBtn.textContent = '⏳ AI 분석 중...'; parseBtn.disabled = true;
+    try {
+      const sys = `당신은 대본 파서입니다. 주어진 텍스트를 씬 데이터로 변환하세요.
+반드시 <scenes>[JSON]</scenes> 형식으로만 응답하세요. 다른 텍스트 없이 태그만.
+씬 JSON: [{"title":"씬제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]
+- 씬 제목/번호 줄 → title과 slug 추출
+- 지문/설명 → action
+- 인물명만 있는 줄 → character
+- 대사 → dialogue
+- 인물명 + 대사가 한 줄이면 character 줄과 dialogue 줄로 분리`;
+      const raw = await callClaude([{role:'user', content:rawText}], sys, 2000, 'claude-haiku-4-5-20251001');
+      const scenesRaw = extractTag(raw, 'scenes');
+      if (!scenesRaw) { toast('파싱 실패 — 텍스트 형식을 확인해주세요.'); return; }
+      const scenesData = JSON.parse(scenesRaw);
+      if (!Array.isArray(scenesData) || !scenesData.length) { toast('씬을 찾을 수 없습니다.'); return; }
+      wrap.remove();
+      // afterId 위치에 씬들 삽입
+      let insertAfter = afterId;
+      scenesData.forEach(s => {
+        const newSc = {
+          id: Date.now() + Math.random(),
+          title: s.title || '새 씬',
+          locked: false,
+          lines: [
+            { type:'slug', text: s.slug || 'INT. 장소 - 시간대', locked:false },
+            ...(s.lines||[]).map(l => ({ type: l.type||'action', text:l.text||'', locked:false }))
+          ],
+          storyboard: [], diff: null,
+        };
+        if (!S.cur.scenes) S.cur.scenes = [];
+        if (!insertAfter || insertAfter === 'null') {
+          S.cur.scenes.push(newSc);
+        } else if (insertAfter === '__first__') {
+          S.cur.scenes.unshift(newSc);
+          insertAfter = newSc.id; // 다음 씬은 이 씬 뒤에
+        } else {
+          const idx = S.cur.scenes.findIndex(s => s.id == insertAfter);
+          S.cur.scenes.splice(idx + 1, 0, newSc);
+          insertAfter = newSc.id;
+        }
+      });
+      save(); renderScriptBody(); renderNavSceneList();
+      toast(`✓ 씬 ${scenesData.length}개 추가됨`);
+    } catch(err) {
+      toast('오류: ' + err.message);
+    } finally {
+      parseBtn.textContent = '✦ AI 파싱해서 씬 만들기'; parseBtn.disabled = false;
+    }
+  };
 
   aiBtn.onclick = async () => {
     aiBtn.textContent = '...';
@@ -2157,6 +2243,8 @@ function addSceneAt(title, afterId, slug) {
   if (!S.cur.scenes) S.cur.scenes = [];
   if (!afterId || afterId === 'null') {
     S.cur.scenes.push(sc);
+  } else if (afterId === '__first__') {
+    S.cur.scenes.unshift(sc);
   } else {
     const idx = S.cur.scenes.findIndex(s => s.id == afterId);
     S.cur.scenes.splice(idx + 1, 0, sc);
@@ -2643,6 +2731,48 @@ function onPromptKey(e) {
 function autoResize(el) {
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+}
+
+// 프롬프터 입력에서 씬 번호 자동 감지
+function detectSceneNumbers(text) {
+  if (!S.cur?.scenes?.length) return;
+  // "씬6", "씬 6", "장면6", "sc6", "scene6", "6번씬", "6번 씬", "6~10", "6부터10" 패턴 인식
+  const patterns = [
+    // 범위: 씬6~10, 씬6-10, 씬6부터10, 6~10씬
+    /(?:씬|장면|scene|sc)\s*(\d+)\s*[~\-부터]+\s*(\d+)/gi,
+    /(\d+)\s*[~\-]\s*(\d+)\s*(?:씬|장면)/gi,
+    // 단일: 씬6, 장면6, scene6, sc6, 6번씬, 6번 씬
+    /(?:씬|장면|scene|sc)\s*(\d+)번?/gi,
+    /(\d+)\s*번\s*(?:씬|장면)/gi,
+  ];
+  const found = new Set();
+  for (const pat of patterns) {
+    let m;
+    const re = new RegExp(pat.source, pat.flags);
+    while ((m = re.exec(text)) !== null) {
+      if (m[2]) {
+        // 범위
+        const from = parseInt(m[1]), to = parseInt(m[2]);
+        for (let n = Math.min(from,to); n <= Math.max(from,to); n++) found.add(n);
+      } else {
+        found.add(parseInt(m[1]));
+      }
+    }
+  }
+  if (!found.size) return;
+  // 씬 번호(1-based)를 id로 변환 후 선택
+  const scenes = S.cur.scenes;
+  let changed = false;
+  found.forEach(n => {
+    if (n >= 1 && n <= scenes.length) {
+      const sc = scenes[n-1];
+      if (!sc.locked && !S.selectedIds.has(sc.id)) {
+        S.selectedIds.add(sc.id);
+        changed = true;
+      }
+    }
+  });
+  if (changed) syncSelection();
 }
 
 async function sendPrompt() {
