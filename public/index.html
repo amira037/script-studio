@@ -2736,31 +2736,39 @@ function autoResize(el) {
 // 프롬프터 입력에서 씬 번호 자동 감지
 function detectSceneNumbers(text) {
   if (!S.cur?.scenes?.length) return;
-  // "씬6", "씬 6", "장면6", "sc6", "scene6", "6번씬", "6번 씬", "6~10", "6부터10" 패턴 인식
-  const patterns = [
-    // 범위: 씬6~10, 씬6-10, 씬6부터10, 6~10씬
-    /(?:씬|장면|scene|sc)\s*(\d+)\s*[~\-부터]+\s*(\d+)/gi,
-    /(\d+)\s*[~\-]\s*(\d+)\s*(?:씬|장면)/gi,
-    // 단일: 씬6, 장면6, scene6, sc6, 6번씬, 6번 씬
-    /(?:씬|장면|scene|sc)\s*(\d+)번?/gi,
-    /(\d+)\s*번\s*(?:씬|장면)/gi,
-  ];
   const found = new Set();
-  for (const pat of patterns) {
-    let m;
-    const re = new RegExp(pat.source, pat.flags);
+
+  // 숫자 전체 매칭 헬퍼: 앞뒤로 다른 숫자가 없어야 함
+  const addNum = (s) => { const n = parseInt(s); if (!isNaN(n)) found.add(n); };
+
+  // 범위 패턴 먼저 (더 구체적인 것 우선)
+  const rangePatterns = [
+    /(?:씬|장면|scene|sc)\s*(\d+)\s*(?:~|부터|-)\s*(\d+)/gi,
+    /(\d+)\s*(?:~|-)\s*(\d+)\s*(?:씬|장면)/gi,
+  ];
+  // 단일 패턴 — (?!\d) 로 뒤에 숫자 없음 보장
+  const singlePatterns = [
+    /(?:씬|장면|scene|sc)\s*(\d+)(?!\d)/gi,
+    /(\d+)(?!\d)\s*번\s*(?:씬|장면)/gi,
+  ];
+
+  for (const pat of rangePatterns) {
+    let m; const re = new RegExp(pat.source, pat.flags);
     while ((m = re.exec(text)) !== null) {
-      if (m[2]) {
-        // 범위
-        const from = parseInt(m[1]), to = parseInt(m[2]);
-        for (let n = Math.min(from,to); n <= Math.max(from,to); n++) found.add(n);
-      } else {
-        found.add(parseInt(m[1]));
-      }
+      const from = parseInt(m[1]), to = parseInt(m[2]);
+      for (let n = Math.min(from,to); n <= Math.max(from,to); n++) found.add(n);
     }
   }
+  // 범위로 이미 잡힌 숫자가 있으면 단일 패턴 스킵 (범위 중복 방지)
+  const hadRange = found.size > 0;
+  if (!hadRange) {
+    for (const pat of singlePatterns) {
+      let m; const re = new RegExp(pat.source, pat.flags);
+      while ((m = re.exec(text)) !== null) addNum(m[1]);
+    }
+  }
+
   if (!found.size) return;
-  // 씬 번호(1-based)를 id로 변환 후 선택
   const scenes = S.cur.scenes;
   let changed = false;
   found.forEach(n => {
@@ -2957,10 +2965,26 @@ async function handleScriptPrompt(text) {
     const raw = await callClaude([{role:'user', content:`지시: ${text}\n\n씬 데이터:\n${sceneSummary}`}], sys, 3000);
     const resultRaw = extractTag(raw, 'result');
     const choicesRaw = extractTag(raw, 'choices');
+    const newscenesRaw = extractTag(raw, 'newscenes');
     let updates = null;
     if (resultRaw) { try { updates = JSON.parse(resultRaw); } catch {} }
     let choices = null;
     if (choicesRaw) { try { choices = JSON.parse(choicesRaw); } catch {} }
+    let newScenesData = null;
+    if (newscenesRaw) { try { newScenesData = JSON.parse(newscenesRaw); } catch {} }
+
+    // 새 씬 삽입 요청 — 삽입 방식 선택 패널 표시
+    if (newScenesData && Array.isArray(newScenesData) && newScenesData.length > 0) {
+      const comment = cleanDisplayText(raw) || `새 씬 ${newScenesData.length}개 삽입 준비됨`;
+      // insertRef 힌트에서 씬 인덱스 추출
+      const ref = newScenesData[0].insertRef || '';
+      const refMatch = ref.match(/SC(\d+)/i);
+      const refIdx = refMatch ? parseInt(refMatch[1]) - 1 : -1;
+      const refSc = refIdx >= 0 ? S.cur.scenes[refIdx] : null;
+      const refLabel = refSc ? `씬${refIdx+1} "${refSc.title}"` : '마지막';
+      showNewSceneInsertPanel(newScenesData, comment, refSc, refLabel);
+      return;
+    }
 
     if (updates && Array.isArray(updates)) {
       let applied = 0;
@@ -3072,6 +3096,64 @@ function showChoicesPanel(prompt, choices) {
     </div>`;
   showResponsePanel('choice', '방향 선택', bodyHTML,
     `<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>`);
+}
+
+function showNewSceneInsertPanel(scenesData, comment, refSc, refLabel) {
+  const makeSceneObjs = () => scenesData.map(s => ({
+    id: Date.now() + Math.random(),
+    title: s.title || '새 씬',
+    locked: false,
+    lines: [
+      { type:'slug', text: s.slug || 'INT. 장소 - 시간대', locked:false },
+      ...(s.lines||[]).map(l => ({ type: l.type||'action', text:l.text||'', locked:false }))
+    ],
+    storyboard: [], diff: null,
+  }));
+
+  const doInsert = (mode) => {
+    closeResponsePanel();
+    const newScs = makeSceneObjs();
+    if (!S.cur.scenes) S.cur.scenes = [];
+
+    if (mode === 'end' || !refSc) {
+      S.cur.scenes.push(...newScs);
+    } else {
+      const idx = S.cur.scenes.findIndex(s => s.id === refSc.id);
+      if (mode === 'before') {
+        S.cur.scenes.splice(idx, 0, ...newScs);
+      } else if (mode === 'replace') {
+        // diff 방식으로 교체 — 첫 번째 새 씬으로 기존 씬 대체
+        const firstNew = newScs[0];
+        const oldLines = refSc.lines;
+        const diffLines = [];
+        const maxLen = Math.max(oldLines.length, firstNew.lines.length);
+        for (let i = 0; i < maxLen; i++) {
+          const o = oldLines[i], n = firstNew.lines[i];
+          if (o && n && o.text === n.text) { diffLines.push({type:'ctx', text:o.text}); }
+          else { if (o) diffLines.push({type:'del', text:o.text}); if (n) diffLines.push({type:'add', text:n.text}); }
+        }
+        refSc.diff = { prompt:'새 씬으로 대체', lines:diffLines, newLines:firstNew.lines, comment:'씬 대체' };
+        // 나머지 씬들은 뒤에 삽입
+        if (newScs.length > 1) S.cur.scenes.splice(idx + 1, 0, ...newScs.slice(1));
+      } else { // after
+        S.cur.scenes.splice(idx + 1, 0, ...newScs);
+      }
+    }
+    save(); renderScriptBody(); renderNavSceneList();
+    toast(`✓ 씬 ${newScs.length}개 ${mode === 'replace' ? '교체됨' : '삽입됨'}`);
+  };
+
+  const refBtns = refSc ? `
+    <button class="rp-btn" style="background:var(--red2);color:var(--red);border-color:rgba(224,96,96,.3)" onclick="(${doInsert.toString()})('replace')">↔ ${refLabel} 대체</button>
+    <button class="rp-btn" onclick="(${doInsert.toString()})('before')">↑ ${refLabel} 앞에 삽입</button>
+    <button class="rp-btn" onclick="(${doInsert.toString()})('after')">↓ ${refLabel} 뒤에 삽입</button>` : '';
+
+  showResponsePanel('choice', `새 씬 ${scenesData.length}개 — 삽입 방식 선택`,
+    `<div class="ai-comment-txt">${escH(comment)}</div>`,
+    `${refBtns}
+     <button class="rp-btn" onclick="(${doInsert.toString()})('end')">⬇ 맨 뒤에 추가</button>
+     <button class="rp-btn" onclick="closeResponsePanel()">✕ 취소</button>`
+  );
 }
 
 function showCommentPanel(rawText) {
@@ -3421,6 +3503,7 @@ function cleanDisplayText(raw) {
     .replace(/<synopsis[\s\S]*?<\/synopsis>/gi, '')
     .replace(/<scenes[\s\S]*?<\/scenes>/gi, '')
     .replace(/<characters[\s\S]*?<\/characters>/gi, '')
+    .replace(/<newscenes[\s\S]*?<\/newscenes>/gi, '')
     .replace(/<newproject[\s\S]*?<\/newproject>/gi, '')
     .replace(/<r>[\s\S]*?<\/r>/gi, '')
     .replace(/<issues[\s\S]*?<\/issues>/gi, '')
