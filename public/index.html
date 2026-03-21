@@ -2028,6 +2028,16 @@ function renderChips() {
     chip.innerHTML = `SC ${idx} <span class="chip-x" onclick="toggleSceneSelect(${id},false)">×</span>`;
     row.appendChild(chip);
   });
+  // 전체 해제 버튼 (칩이 있을 때만)
+  if (sel.length > 0) {
+    const clearBtn = document.createElement('button');
+    clearBtn.style.cssText = 'font-size:10px;padding:2px 9px;border-radius:10px;border:1px solid var(--border2);background:none;color:var(--text3);cursor:pointer;margin-left:2px;font-family:var(--fm);transition:all .15s;';
+    clearBtn.textContent = '전체해제';
+    clearBtn.onmouseenter = () => { clearBtn.style.borderColor='var(--red)'; clearBtn.style.color='var(--red)'; };
+    clearBtn.onmouseleave = () => { clearBtn.style.borderColor='var(--border2)'; clearBtn.style.color='var(--text3)'; };
+    clearBtn.onclick = () => { S.selectedIds.clear(); syncSelection(); };
+    row.appendChild(clearBtn);
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -2099,7 +2109,8 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
       </div>
     </div>
     <div id="nsi-panel-paste" style="display:none;padding:10px 14px;display:none;flex-direction:column;gap:7px;">
-      <textarea id="nsi-paste-area" style="width:100%;min-height:100px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-family:var(--fb);font-size:12px;padding:8px 10px;resize:vertical;outline:none;line-height:1.7;" placeholder="씬 텍스트를 여기에 붙여넣으세요.&#10;&#10;예)&#10;SCENE 12. 외부. 마을 길 – 밤&#10;유모가 어린 율랑을 데리고 은밀히 숨어든다.&#10;유모  쉿… 도련님. 소리 내면 안 돼요."></textarea>
+      <textarea id="nsi-paste-area" maxlength="8000" style="width:100%;min-height:100px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-family:var(--fb);font-size:12px;padding:8px 10px;resize:vertical;outline:none;line-height:1.7;" placeholder="씬 텍스트를 여기에 붙여넣으세요.&#10;&#10;예)&#10;SCENE 12. 외부. 마을 길 – 밤&#10;유모가 어린 율랑을 데리고 은밀히 숨어든다.&#10;유모  쉿… 도련님. 소리 내면 안 돼요." oninput="document.getElementById('nsi-char-count').textContent=this.value.length+' / 8000'"></textarea>
+      <div style="font-size:10px;color:var(--text3);font-family:var(--fm);text-align:right;margin-top:-4px;" id="nsi-char-count">0 / 8000</div>
       <div style="display:flex;gap:6px;">
         <button id="nsi-parse-btn" style="font-size:11px;background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:6px 14px;font-weight:600;cursor:pointer;">✦ AI 파싱해서 씬 만들기</button>
         <button class="new-scene-cancel" onclick="document.getElementById('inline-scene-add')?.remove()" style="font-size:11px;background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);padding:6px 10px;">취소</button>
@@ -2144,7 +2155,7 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
 - 인물명만 있는 줄 → character
 - 대사 → dialogue
 - 인물명 + 대사가 한 줄이면 character 줄과 dialogue 줄로 분리`;
-      const raw = await callClaude([{role:'user', content:rawText}], sys, 2000, 'claude-haiku-4-5-20251001');
+      const raw = await callClaude([{role:'user', content:rawText}], sys, 6000, 'claude-haiku-4-5-20251001');
       const scenesRaw = extractTag(raw, 'scenes');
       if (!scenesRaw) { toast('파싱 실패 — 텍스트 형식을 확인해주세요.'); return; }
       const scenesData = JSON.parse(scenesRaw);
@@ -2738,34 +2749,35 @@ function detectSceneNumbers(text) {
   if (!S.cur?.scenes?.length) return;
   const found = new Set();
 
-  // 숫자 전체 매칭 헬퍼: 앞뒤로 다른 숫자가 없어야 함
-  const addNum = (s) => { const n = parseInt(s); if (!isNaN(n)) found.add(n); };
+  // 핵심 전략: 씬 키워드 바로 뒤의 완전한 숫자만 추출
+  // "씬12" → 12, "씬1" → 1, "씬20" → 20 (씬1·씬2 오매칭 방지)
+  // 방법: 키워드+공백+숫자 전체를 한 패턴으로 잡고, 숫자 그룹 전체를 parseInt
 
-  // 범위 패턴 먼저 (더 구체적인 것 우선)
-  const rangePatterns = [
-    /(?:씬|장면|scene|sc)\s*(\d+)\s*(?:~|부터|-)\s*(\d+)/gi,
-    /(\d+)\s*(?:~|-)\s*(\d+)\s*(?:씬|장면)/gi,
-  ];
-  // 단일 패턴 — (?!\d) 로 뒤에 숫자 없음 보장
-  const singlePatterns = [
-    /(?:씬|장면|scene|sc)\s*(\d+)(?!\d)/gi,
-    /(\d+)(?!\d)\s*번\s*(?:씬|장면)/gi,
-  ];
-
-  for (const pat of rangePatterns) {
-    let m; const re = new RegExp(pat.source, pat.flags);
-    while ((m = re.exec(text)) !== null) {
-      const from = parseInt(m[1]), to = parseInt(m[2]);
-      for (let n = Math.min(from,to); n <= Math.max(from,to); n++) found.add(n);
-    }
+  // 1단계: 범위 패턴 (씬6~10, 씬6-10, 6~10씬)
+  const rangeRe = /(?:씬|장면|scene|sc)\s*(\d+)\s*(?:~|부터|-)\s*(\d+)|(\d+)\s*(?:~|-)\s*(\d+)\s*(?:씬|장면)/gi;
+  let m;
+  while ((m = rangeRe.exec(text)) !== null) {
+    const a = parseInt(m[1] || m[3]);
+    const b = parseInt(m[2] || m[4]);
+    for (let n = Math.min(a,b); n <= Math.max(a,b); n++) found.add(n);
   }
-  // 범위로 이미 잡힌 숫자가 있으면 단일 패턴 스킵 (범위 중복 방지)
-  const hadRange = found.size > 0;
-  if (!hadRange) {
-    for (const pat of singlePatterns) {
-      let m; const re = new RegExp(pat.source, pat.flags);
-      while ((m = re.exec(text)) !== null) addNum(m[1]);
+
+  // 2단계: 단일 패턴 — 범위가 없을 때만
+  // 키워드 뒤 숫자를 통째로 캡처 후 뒤에 숫자가 오지 않는 위치만
+  if (found.size === 0) {
+    // 키워드 + 숫자 전체를 한 덩어리로 캡처
+    const singleRe = /(?:씬|장면|scene|sc)\s*(\d+)|(\d+)\s*번\s*(?:씬|장면)/gi;
+    const candidates = [];
+    while ((m = singleRe.exec(text)) !== null) {
+      const numStr = m[1] || m[2];
+      const endPos = m.index + m[0].length;
+      // 매칭 직후에 숫자가 오면 이 매칭은 더 긴 숫자의 일부 → 스킵
+      const nextChar = text[endPos];
+      if (nextChar && /\d/.test(nextChar)) continue;
+      candidates.push(parseInt(numStr));
     }
+    // 중복 제거 후 추가
+    candidates.forEach(n => found.add(n));
   }
 
   if (!found.size) return;
