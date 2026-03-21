@@ -1231,7 +1231,7 @@ textarea, input { font-family:var(--fb); }
       <div class="setting-row">
         <div class="setting-status on"></div>
         <div class="setting-label">클라우드 동기화<small>Supabase 연동됨</small></div>
-        <button class="setting-btn" onclick="syncFromSupabase().then(ok => updateSyncStatus(ok ? '✓ 동기화 완료' : '로컬 최신'))">↻ 동기화</button>
+        <button class="setting-btn" onclick="syncFromSupabase(true).then(ok => {})">↻ 동기화</button>
       </div>
       <div class="setting-row">
         <div class="setting-label" id="sync-status" style="font-size:10px;color:var(--green);"></div>
@@ -1335,8 +1335,13 @@ textarea, input { font-family:var(--fb); }
 const SUPABASE_URL = 'https://meruurtcdsjjayfmntzh.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1lcnV1cnRjZHNqamF5Zm1udHpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMTQxODgsImV4cCI6MjA4OTY5MDE4OH0.iusElSl0KRlJC7wjNgpgguspQ4KxLoZx_ggNtxsFNr0';
 
-// 유저 ID — 지금은 단일 유저, 나중에 auth 추가 시 교체
-const USER_ID = 'default-user';
+// 유저 ID — URL ?user=xxx 파라미터에서 읽기
+// 예: ?user=director (대표님), ?user=me (나), ?user=admin (전체 관리)
+const _urlUser = new URLSearchParams(window.location.search).get('user');
+const USER_ID = _urlUser || 'default-user';
+
+// 관리자 여부 (admin 계정은 모든 유저 프로젝트 볼 수 있음)
+const IS_ADMIN = USER_ID === 'admin';
 
 let _sb = null;
 function getSB() {
@@ -1380,30 +1385,42 @@ async function syncToSupabase(projects) {
 }
 
 // Supabase에서 최신 데이터 가져오기 (Vercel 프록시 경유)
-async function syncFromSupabase() {
+async function syncFromSupabase(force = false) {
   try {
-    const res = await fetch('/api/supabase?path=projects&select=data,updated_at&id=eq.' + USER_ID);
+    const query = IS_ADMIN
+      ? '/api/supabase?path=projects&select=id,user_id,data,updated_at&order=updated_at.desc'
+      : '/api/supabase?path=projects&select=data,updated_at&id=eq.' + USER_ID;
+    const res = await fetch(query);
     if (!res.ok) return false;
     const rows = await res.json();
     if (!rows || !rows.length) return false;
-    const remote = rows[0].data?.projects;
-    const remoteTime = new Date(rows[0].updated_at || 0).getTime();
+    // admin이면 모든 유저 프로젝트 병합
+    let remote, remoteTime;
+    if (IS_ADMIN) {
+      remote = rows.flatMap(r => (r.data?.projects || []).map(p => ({
+        ...p, _owner: r.user_id  // 프로젝트에 소유자 표시
+      })));
+      remoteTime = Math.max(...rows.map(r => new Date(r.updated_at || 0).getTime()));
+    } else {
+      remote = rows[0].data?.projects;
+      remoteTime = new Date(rows[0].updated_at || 0).getTime();
+    }
     if (!Array.isArray(remote) || !remote.length) return false;
-    // 로컬 마지막 저장 시각과 비교
     const localTime = parseInt(localStorage.getItem('ss_last_saved') || '0');
-    if (remoteTime > localTime) {
+    if (force || remoteTime > localTime) {
       localStorage.setItem('ss_projects', JSON.stringify(remote));
+      localStorage.setItem('ss_last_saved', remoteTime.toString());
       S.projects = remote;
       S.cur = null;
       S.selectedIds.clear();
-      // 어떤 화면에 있든 홈으로 이동 후 렌더
       document.getElementById('app-screen')?.classList.remove('show');
       document.getElementById('home-screen').style.display = 'flex';
       renderHome();
       updateSyncStatus('✓ 클라우드에서 불러옴 (' + remote.length + '개)');
       toast('✓ ' + remote.length + '개 프로젝트 동기화됨', 3000);
     } else {
-      updateSyncStatus('로컬이 최신 — 업로드하려면 저장 후 동기화');
+      updateSyncStatus('로컬이 최신');
+      toast('로컬이 최신입니다', 2000);
     }
     return true;
   } catch(e) {
@@ -1647,6 +1664,15 @@ function renderHome() {
   nc.onclick = openNewProjectModal;
   grid.appendChild(nc);
   updateApiDot();
+  // 유저 표시
+  const logoEl = document.querySelector('.home-logo');
+  if (logoEl) {
+    if (IS_ADMIN) {
+      logoEl.innerHTML = '<span class="home-logo-dot"></span>Script Studio <span style="font-size:10px;color:var(--red);font-family:var(--fm);vertical-align:middle;">ADMIN</span>';
+    } else if (USER_ID !== 'default-user') {
+      logoEl.innerHTML = '<span class="home-logo-dot"></span>Script Studio <span style="font-size:10px;color:var(--text3);font-family:var(--fm);vertical-align:middle;">@' + USER_ID + '</span>';
+    }
+  }
 }
 
 let deletingProjId = null;
@@ -1757,6 +1783,10 @@ function openProject(id) {
   document.getElementById('app-screen').classList.add('show');
   document.getElementById('app-title').textContent = p.title;
   document.getElementById('app-medium').textContent = p.medium || '';
+  // admin 모드면 소유자 표시
+  if (IS_ADMIN && p._owner && p._owner !== USER_ID) {
+    document.getElementById('app-medium').textContent = (p.medium || '') + ' · ' + p._owner;
+  }
 
   // Default nav state
   S.navOpen = window.innerWidth >= 680;
