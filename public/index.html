@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Script Studio</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&family=Pretendard:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <style>
 /* ═══════════════════════════════════════════
    TOKENS
@@ -701,6 +702,27 @@ textarea, input { font-family:var(--fb); }
 .chip-x:hover { opacity:1; }
 .chip-hint { font-size:10px; color:var(--text3); font-style:italic; }
 .prompter-row { display:flex; gap:7px; align-items:flex-end; }
+.attach-btn {
+  width:38px; height:38px; border-radius:var(--r);
+  background:transparent; border:1px solid var(--border2);
+  color:var(--text3); font-size:16px; flex-shrink:0;
+  transition:all .15s; display:flex; align-items:center; justify-content:center;
+  cursor:pointer;
+}
+.attach-btn:hover { border-color:var(--accent2); color:var(--accent); background:var(--accent3); }
+.file-analyze-banner {
+  background:var(--bg3); border:1px solid var(--border2); border-radius:var(--r2);
+  padding:10px 12px; margin-bottom:8px; display:none; flex-direction:column; gap:6px;
+}
+.file-analyze-banner.show { display:flex; }
+.fab-filename { font-size:11px; color:var(--text2); font-family:var(--fm); }
+.fab-status { font-size:11px; color:var(--text3); }
+.fab-actions { display:flex; gap:6px; flex-wrap:wrap; }
+.fab-btn { font-size:11px; padding:4px 11px; border-radius:var(--r); border:1px solid var(--border2); background:none; color:var(--text2); cursor:pointer; transition:all .15s; }
+.fab-btn:hover { border-color:var(--accent2); color:var(--accent); }
+.fab-btn.green { background:var(--green2); color:var(--green); border-color:rgba(110,200,154,.4); }
+.fab-btn.purple { background:var(--purple2); color:var(--purple); border-color:rgba(168,158,221,.4); }
+.fab-btn.dismiss { color:var(--text3); }
 .prompter-inp {
   flex:1; background:var(--bg3); border:1px solid var(--border2);
   border-radius:var(--r2); color:var(--text); font-size:14px;
@@ -976,10 +998,18 @@ textarea, input { font-family:var(--fb); }
 
       <!-- Prompter -->
       <div class="prompter" id="prompter">
+        <div class="file-analyze-banner" id="file-analyze-banner">
+          <div class="fab-filename" id="fab-filename"></div>
+          <div class="fab-status" id="fab-status">분석 중...</div>
+          <div class="fab-actions" id="fab-actions"></div>
+        </div>
         <div class="chip-row" id="chip-row">
           <span class="chip-hint" id="chip-hint">씬을 선택하거나 자유롭게 대화하세요</span>
         </div>
         <div class="prompter-row">
+          <label class="attach-btn" title="파일 첨부 (txt/md/docx)">
+            📎<input type="file" accept=".txt,.md,.docx" onchange="handleFileAttach(event)" style="display:none">
+          </label>
           <textarea class="prompter-inp" id="prompter-inp" rows="1"
             placeholder="지시를 입력하세요..."
             onkeydown="onPromptKey(event)"
@@ -1059,6 +1089,10 @@ textarea, input { font-family:var(--fb); }
       <div class="setting-row">
         <div class="setting-label">프로젝트 불러오기</div>
         <label class="setting-btn" style="cursor:pointer">⬆ 가져오기<input type="file" accept=".json" onchange="importProject(event)" style="display:none"></label>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">파일에서 읽기<small>txt / md / docx → 시놉시스·대본 자동 인식</small></div>
+        <label class="setting-btn" style="cursor:pointer">📎 파일 읽기<input type="file" accept=".txt,.md,.docx" onchange="handleFileAttach(event)" style="display:none"></label>
       </div>
       <div class="setting-row">
         <div class="setting-label">전체 백업 내보내기</div>
@@ -2745,10 +2779,7 @@ async function aiCharFromScript(id) {
   try {
     const sys = `대본에 등장하는 인물의 대사와 행동을 분석해서 캐릭터 설명과 특성을 추출하세요.
 반드시 <chardata>{"description":"설명 2-3문장","traits":["특성1","특성2","특성3"]}</chardata> 형식으로만 응답하세요.`;
-    const raw = await callClaude([{role:'user',content:`인물: ${name}
-대사/행동:
-${charLines.join('
-')}`}], sys, 400, 'claude-haiku-4-5-20251001');
+    const raw = await callClaude([{role:'user',content:`인물: ${name}\n대사/행동:\n${charLines.join('\n')}`}], sys, 400, 'claude-haiku-4-5-20251001');
     const dataRaw = extractTag(raw, 'chardata');
     if (dataRaw) {
       const data = JSON.parse(dataRaw);
@@ -2920,6 +2951,149 @@ function importProject(e) {
   };
   reader.readAsText(file);
 }
+// ═══════════════════════════════════════════
+// FILE IMPORT (txt / md / docx)
+// ═══════════════════════════════════════════
+
+async function handleFileAttach(e) {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  if (!S.cur) { toast('먼저 프로젝트를 열어주세요.'); return; }
+
+  const banner = document.getElementById('file-analyze-banner');
+  const fabName = document.getElementById('fab-filename');
+  const fabStatus = document.getElementById('fab-status');
+  const fabActions = document.getElementById('fab-actions');
+
+  banner.classList.add('show');
+  fabName.textContent = '📎 ' + file.name;
+  fabStatus.textContent = '파일 읽는 중...';
+  fabActions.innerHTML = '';
+
+  try {
+    const text = await readFileAsText(file);
+    if (!text.trim()) { fabStatus.textContent = '빈 파일입니다.'; return; }
+
+    fabStatus.textContent = 'AI가 분석 중... (Haiku)';
+
+    const sys = `당신은 창작 대본 분석 전문가입니다. 주어진 텍스트를 분석해서 다음 중 하나로 분류하세요:
+1. 시놉시스/줄거리 (synopsis)
+2. 대본/씬 텍스트 (script)  
+3. 둘 다 포함 (both)
+4. 기타 메모나 아이디어 (memo)
+
+분류 결과와 함께:
+- 시놉시스가 있으면: <synopsis>시놉시스 내용</synopsis> 태그로 감싸주세요
+- 대본/씬이 있으면: <scenes>[{"title":"씬제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 태그로 감싸주세요
+- 응답 본문은 반드시 자연어로만 작성하고, JSON이나 XML 태그를 본문에 직접 쓰지 마세요
+- 태그는 응답 맨 끝에만 붙이세요
+- 한국어로 답변하세요
+- 텍스트가 대본 형식이면 씬을 최대한 충실히 파싱하되, 각 줄의 type을 정확히 구분하세요`;
+
+    // 텍스트가 너무 길면 앞부분만 전달 (Haiku 토큰 절약)
+    const trimmed = text.length > 6000 ? text.slice(0, 6000) + '\n...(이하 생략)' : text;
+    const raw = await callClaude(
+      [{role:'user', content:'다음 텍스트를 분석해주세요:\n\n' + trimmed}],
+      sys, 3000, 'claude-haiku-4-5-20251001'
+    );
+
+    // 태그 파싱
+    const synopsisData = extractTag(raw, 'synopsis');
+    const scenesRaw = extractTag(raw, 'scenes');
+    let scenesData = null;
+    if (scenesRaw) {
+      try { scenesData = JSON.parse(scenesRaw); } catch(pe) {
+        // JSON 파싱 실패 시 씬 데이터 무시, 텍스트만 사용
+        console.warn('Scene JSON parse error:', pe);
+      }
+    }
+
+    // 자연어 응답만 추출 (태그 제거)
+    const displayText = raw
+      .replace(/<synopsis[\s\S]*?<\/synopsis>/gi, '')
+      .replace(/<scenes[\s\S]*?<\/scenes>/gi, '')
+      .replace(/```[\s\S]*?```/g, '')
+      .trim();
+
+    fabStatus.textContent = displayText || '분석 완료';
+
+    // 액션 버튼 생성
+    const actions = [];
+    if (synopsisData) {
+      actions.push({ label:'📋 시놉시스로 저장', cls:'green', fn: () => {
+        S.cur.synopsis = synopsisData; save();
+        renderSynopsisDrawer();
+        toast('✓ 시놉시스 저장됨');
+        addMsg('assistant', `파일에서 시놉시스를 저장했습니다.
+
+${synopsisData.slice(0,200)}${synopsisData.length>200?'...':''}`);
+        hideBanner();
+      }});
+    }
+    if (scenesData && Array.isArray(scenesData) && scenesData.length > 0) {
+      actions.push({ label:`🎬 씬 ${scenesData.length}개 대본에 추가`, cls:'purple', fn: () => {
+        addScenesFromAI(scenesData);
+        addMsg('assistant', `파일에서 씬 ${scenesData.length}개를 대본에 추가했습니다.`);
+        hideBanner();
+      }});
+    }
+    // 둘 다 없으면 메모로 브레인스토밍에 추가
+    if (!synopsisData && !scenesData) {
+      actions.push({ label:'💬 브레인스토밍에 붙여넣기', cls:'', fn: () => {
+        const inp = document.getElementById('prompter-inp');
+        if (inp) { inp.value = text.slice(0,500); autoResize(inp); inp.focus(); }
+        hideBanner();
+      }});
+    }
+    actions.push({ label:'✕ 닫기', cls:'dismiss', fn: hideBanner });
+
+    fabActions.innerHTML = '';
+    actions.forEach(a => {
+      const btn = document.createElement('button');
+      btn.className = 'fab-btn ' + (a.cls||'');
+      btn.textContent = a.label;
+      btn.onclick = a.fn;
+      fabActions.appendChild(btn);
+    });
+
+    // 채팅창에도 분석 결과 메시지로 표시
+    switchTab('chat');
+    addMsg('assistant', `📎 **${file.name}** 분석 완료
+
+${displayText}`, []);
+
+  } catch(err) {
+    if (err.name === 'AbortError') { hideBanner(); return; }
+    fabStatus.textContent = '오류: ' + err.message;
+    fabActions.innerHTML = '<button class="fab-btn dismiss" onclick="hideBanner()">닫기</button>';
+  }
+}
+
+function hideBanner() {
+  const banner = document.getElementById('file-analyze-banner');
+  if (banner) banner.classList.remove('show');
+}
+
+async function readFileAsText(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (ext === 'docx') {
+    // mammoth.js로 docx 파싱
+    if (typeof mammoth === 'undefined') throw new Error('mammoth.js 라이브러리 로딩 실패');
+    const arrayBuffer = await file.arrayBuffer();
+    const result = await mammoth.extractRawText({ arrayBuffer });
+    return result.value || '';
+  } else {
+    // txt / md — 직접 읽기
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = e => resolve(e.target.result);
+      reader.onerror = () => reject(new Error('파일 읽기 실패'));
+      reader.readAsText(file, 'UTF-8');
+    });
+  }
+}
+
 function downloadJSON(data, filename) {
   const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
