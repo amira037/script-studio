@@ -1170,6 +1170,15 @@ textarea, input { font-family:var(--fb); }
     <button class="char-sort-btn" id="csort-name" onclick="sortChars('name')">이름순</button>
     <button class="char-sort-btn" id="csort-drag" onclick="sortChars('drag')">⠿ 수동</button>
   </div>
+  <!-- 대본 없는 인물 확인 바 -->
+  <div id="char-orphan-bar" style="display:none;flex-direction:column;gap:6px;padding:10px 14px;background:var(--red2);border-bottom:1px solid rgba(224,96,96,.3);flex-shrink:0;">
+    <div style="font-size:11px;color:var(--red);line-height:1.5;" id="char-orphan-msg"></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      <button onclick="confirmOrphanDelete(true)" style="font-size:11px;background:var(--red);color:#fff;border:none;border-radius:var(--r);padding:5px 12px;cursor:pointer;">삭제하고 추출</button>
+      <button onclick="confirmOrphanDelete(false)" style="font-size:11px;background:none;border:1px solid rgba(224,96,96,.4);color:var(--red);border-radius:var(--r);padding:5px 12px;cursor:pointer;">유지하고 추출</button>
+      <button onclick="cancelOrphanBar()" style="font-size:11px;background:none;border:1px solid var(--border2);color:var(--text3);border-radius:var(--r);padding:5px 12px;cursor:pointer;">취소</button>
+    </div>
+  </div>
   <div class="drawer-body" id="chars-body"></div>
   <div class="drawer-acts">
     <button class="drawer-btn pri" onclick="addCharacter()">+ 인물 추가</button>
@@ -1479,7 +1488,7 @@ function extractJSON(text) {
 // TOAST
 // ═══════════════════════════════════════════
 let toastTimer;
-function toast(msg, duration = 2500, undoFn = null) {
+function toast(msg, duration = 2500, undoFn = null, undoLabel = '↩ 취소') {
   const el = document.getElementById('toast');
   el.innerHTML = '';
   const txt = document.createElement('span');
@@ -1488,7 +1497,7 @@ function toast(msg, duration = 2500, undoFn = null) {
   if (undoFn) {
     const btn = document.createElement('button');
     btn.className = 'toast-undo-btn';
-    btn.textContent = '↩ 취소';
+    btn.textContent = undoLabel;
     btn.onclick = () => { undoFn(); el.classList.remove('show'); clearTimeout(toastTimer); };
     el.appendChild(btn);
   }
@@ -3305,19 +3314,6 @@ ${charList}`}],
     if (!Array.isArray(parsed) || !parsed.length) { toast('포함할 인물이 없습니다.'); return; }
 
     if (!S.cur.characters) S.cur.characters = [];
-    let added = 0;
-    parsed.forEach(c => {
-      if (!c.name) return;
-      S.cur.characters.push({
-        id: Date.now() + Math.random(),
-        name: c.name,
-        role: c.role || '',
-        description: c.description || '',
-        traits: Array.isArray(c.traits) ? c.traits : [],
-        importance: c.importance ?? 999,
-      });
-      added++;
-    });
 
     // 대본에 없는 기존 인물 감지
     const scriptNames = Object.keys(charStats).map(n => n.toLowerCase());
@@ -3325,15 +3321,16 @@ ${charList}`}],
       !scriptNames.includes(c.name.toLowerCase())
     );
 
-    const doFinish = (deleteOrphans) => {
-      if (deleteOrphans && missingFromScript.length > 0) {
-        const keepIds = missingFromScript.map(c => c.id);
-        S.cur.characters = (S.cur.characters || []).filter(c => !keepIds.includes(c.id));
-      }
+    if (missingFromScript.length > 0) {
+      // 드로어 안 인라인 바로 확인 — 전역에 저장
+      showOrphanBar(missingFromScript, parsed, newChars.length);
+      renderCharsDrawer(); // 현재 상태 렌더
+    } else {
+      // 바로 추가
       parsed.forEach(c => {
         if (!c.name) return;
-        const alreadyExists = (S.cur.characters || []).find(x => x.name.toLowerCase() === c.name.toLowerCase());
-        if (alreadyExists) return;
+        const exists = (S.cur.characters || []).find(x => x.name.toLowerCase() === c.name.toLowerCase());
+        if (exists) return;
         S.cur.characters.push({
           id: Date.now() + Math.random(),
           name: c.name, role: c.role || '',
@@ -3342,27 +3339,13 @@ ${charList}`}],
           importance: c.importance ?? 999,
         });
       });
-      const excluded2 = newChars.length - parsed.length;
+      const excluded = newChars.length - parsed.length;
       save();
       charSortMode = 'importance';
       document.querySelectorAll('.char-sort-btn').forEach(b => b.classList.remove('active'));
       document.getElementById('csort-importance')?.classList.add('active');
       renderCharsDrawer();
-      const delMsg = deleteOrphans && missingFromScript.length > 0 ? `, 대본 없는 ${missingFromScript.length}명 삭제` : '';
-      toast(`✓ ${parsed.length}명 추가됨${excluded2 > 0 ? ` (단역 ${excluded2}명 제외)` : ''}${delMsg}`, 4000);
-    };
-
-    if (missingFromScript.length > 0) {
-      // 토스트 대신 응답 패널로 선택지 표시
-      const names = missingFromScript.map(c => c.name).join(', ');
-      showResponsePanel('choice', '대본에 없는 인물 발견',
-        `<div class="ai-comment-txt">등록된 인물 중 대본에 등장하지 않는 인물이 있습니다:<br><b>${escH(names)}</b><br><br>어떻게 할까요?</div>`,
-        `<button class="rp-btn" style="background:var(--red2);color:var(--red);border-color:rgba(224,96,96,.3)" onclick="closeResponsePanel();(${doFinish.toString()})(true)">삭제하고 추출</button>
-         <button class="rp-btn" onclick="closeResponsePanel();(${doFinish.toString()})(false)">그냥 유지하고 추출</button>
-         <button class="rp-btn" onclick="closeResponsePanel()">취소</button>`
-      );
-    } else {
-      doFinish(false);
+      toast('✓ ' + parsed.length + '명 추가됨' + (excluded > 0 ? ' (단역 ' + excluded + '명 제외)' : '') + ' — 중요도순 정렬', 4000);
     }
 
   } catch(err) {
@@ -3634,6 +3617,59 @@ function gotoSceneByLabel(label) {
 // CHARACTERS DRAWER
 // ═══════════════════════════════════════════
 let charSortMode = 'importance';
+let _orphanPending = null; // { missingFromScript, parsed, newCharsLen }
+
+function showOrphanBar(missingFromScript, parsed, newCharsLen) {
+  _orphanPending = { missingFromScript, parsed, newCharsLen };
+  const bar = document.getElementById('char-orphan-bar');
+  const msg = document.getElementById('char-orphan-msg');
+  if (!bar || !msg) return;
+  const names = missingFromScript.map(c => c.name).join(', ');
+  msg.textContent = '대본에 등장하지 않는 인물: ' + names;
+  bar.style.display = 'flex';
+}
+
+function cancelOrphanBar() {
+  _orphanPending = null;
+  const bar = document.getElementById('char-orphan-bar');
+  if (bar) bar.style.display = 'none';
+  // 추가했던 인물 롤백
+  renderCharsDrawer();
+}
+
+function confirmOrphanDelete(deleteOrphans) {
+  const bar = document.getElementById('char-orphan-bar');
+  if (bar) bar.style.display = 'none';
+  if (!_orphanPending || !S.cur) return;
+  const { missingFromScript, parsed, newCharsLen } = _orphanPending;
+  _orphanPending = null;
+
+  if (deleteOrphans && missingFromScript.length > 0) {
+    const delIds = missingFromScript.map(c => c.id);
+    S.cur.characters = (S.cur.characters || []).filter(c => !delIds.includes(c.id));
+  }
+  // 새 인물 추가 (중복 제외)
+  parsed.forEach(c => {
+    if (!c.name) return;
+    const exists = (S.cur.characters || []).find(x => x.name.toLowerCase() === c.name.toLowerCase());
+    if (exists) return;
+    S.cur.characters.push({
+      id: Date.now() + Math.random(),
+      name: c.name, role: c.role || '',
+      description: c.description || '',
+      traits: Array.isArray(c.traits) ? c.traits : [],
+      importance: c.importance ?? 999,
+    });
+  });
+  const excluded = newCharsLen - parsed.length;
+  const delMsg = deleteOrphans && missingFromScript.length > 0 ? ', 대본 없는 ' + missingFromScript.length + '명 삭제' : '';
+  save();
+  charSortMode = 'importance';
+  document.querySelectorAll('.char-sort-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('csort-importance')?.classList.add('active');
+  renderCharsDrawer();
+  toast('✓ ' + parsed.length + '명 추가됨' + (excluded > 0 ? ' (단역 ' + excluded + '명 제외)' : '') + delMsg, 4000);
+}
 
 function sortChars(mode) {
   charSortMode = mode;
@@ -3737,7 +3773,7 @@ function saveChar(id) {
     if (hasInScript) {
       toast(`저장됨 — 대본의 "${oldName}" 도 바꿀까요?`, 5000, () => {
         replaceCharNameInScript(oldName, newName);
-      });
+      }, '✓ 바꾸기');
     } else {
       toast('저장됨');
     }
