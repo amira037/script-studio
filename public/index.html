@@ -3180,6 +3180,27 @@ function importProject(e) {
 // FILE IMPORT (txt / md / docx)
 // ═══════════════════════════════════════════
 
+// ═══════════════════════════════════════════
+// FILE IMPORT (txt / md / docx)
+// ═══════════════════════════════════════════
+
+// 태그와 JSON을 제거해서 자연어만 추출하는 헬퍼
+function cleanDisplayText(raw) {
+  return (raw || '')
+    .replace(/<synopsis[\s\S]*?<\/synopsis>/gi, '')
+    .replace(/<scenes[\s\S]*?<\/scenes>/gi, '')
+    .replace(/<newproject[\s\S]*?<\/newproject>/gi, '')
+    .replace(/<r>[\s\S]*?<\/r>/gi, '')
+    .replace(/<issues[\s\S]*?<\/issues>/gi, '')
+    .replace(/<choices[\s\S]*?<\/choices>/gi, '')
+    .replace(/<chardata[\s\S]*?<\/chardata>/gi, '')
+    .replace(/<suggestion[\s\S]*?<\/suggestion>/gi, '')
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/\[[\s\S]{200,}\]/g, '')
+    .replace(/\{[\s\S]{200,}\}/g, '')
+    .trim();
+}
+
 async function handleFileAttach(e) {
   const file = e.target.files[0];
   e.target.value = '';
