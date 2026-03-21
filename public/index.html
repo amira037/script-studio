@@ -1387,16 +1387,17 @@ async function syncFromSupabase() {
     const rows = await res.json();
     if (!rows || !rows.length) return false;
     const remote = rows[0].data?.projects;
+    const remoteTime = new Date(rows[0].updated_at || 0).getTime();
     if (!Array.isArray(remote) || !remote.length) return false;
-    // 원격 데이터가 로컬보다 많거나 같을 때만 덮어쓰기
-    const local = S.projects || [];
-    if (remote.length >= local.length) {
+    // 로컬 마지막 저장 시각과 비교
+    const localTime = parseInt(localStorage.getItem('ss_last_saved') || '0');
+    if (remoteTime > localTime) {
       localStorage.setItem('ss_projects', JSON.stringify(remote));
       S.projects = remote;
       renderHome();
-      updateSyncStatus('✓ 클라우드에서 불러옴 (' + remote.length + '개 프로젝트)');
+      updateSyncStatus('✓ 클라우드에서 불러옴 (' + remote.length + '개)');
     } else {
-      updateSyncStatus('로컬이 최신 (' + local.length + '개 > 원격 ' + remote.length + '개)');
+      updateSyncStatus('로컬이 최신 — 업로드하려면 저장 후 동기화');
     }
     return true;
   } catch(e) {
@@ -1511,6 +1512,7 @@ function updateUndoUI() {
 
 function save(skipUndo = false) {
   if (!skipUndo && S.cur) pushUndo();
+  localStorage.setItem('ss_last_saved', Date.now().toString());
   storage.set('ss_projects', S.projects);
   storage.set('ss_api', { key: S.apiKey, proxy: S.useProxy });
 }
