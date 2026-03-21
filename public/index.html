@@ -541,7 +541,7 @@ textarea, input { font-family:var(--fb); }
 .line-el[data-locked="true"] { pointer-events:none; opacity:.6; }
 .line-action { color:var(--text2); font-style:italic; }
 .line-character { text-align:center; font-weight:500; color:var(--text); }
-/* parenthetical removed */
+.line-parenthetical { text-align:center; color:var(--text3); font-style:italic; }
 .line-dialogue { max-width:320px; margin:0 auto; text-align:center; color:var(--text2); }
 .line-slug { color:var(--accent); font-weight:600; letter-spacing:.08em; font-size:13px; text-transform:uppercase; border-bottom:1px solid rgba(200,169,110,.2); padding-bottom:6px; margin-bottom:4px; display:block; }
 .line-slug:empty:before { content:attr(data-placeholder); color:var(--text3); font-weight:400; letter-spacing:0; text-transform:none; font-style:italic; pointer-events:none; }
@@ -943,9 +943,14 @@ textarea, input { font-family:var(--fb); }
   border-radius:var(--r2); padding:8px 16px;
   font-size:12px; color:var(--text); font-family:var(--fm);
   z-index:200; opacity:0; transition:all .2s; pointer-events:none;
-  white-space:nowrap;
+  white-space:nowrap; display:flex; align-items:center; gap:10px;
 }
-.toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+.toast.show { opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto; }
+.toast-undo-btn {
+  font-size:11px; background:var(--accent); color:#0e0e10;
+  border:none; border-radius:var(--r); padding:2px 9px;
+  font-weight:600; cursor:pointer; white-space:nowrap;
+}
 
 /* Spinner */
 .spinner { display:inline-block; width:12px; height:12px; border:1.5px solid var(--border2); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; }
@@ -1257,6 +1262,7 @@ let S = {
   apiKey: '',
   useProxy: true,
   selectedIds: new Set(),
+  autoSelectedIds: new Set(), // detectSceneNumbers로 자동 선택된 것만
   activeTab: 'chat',
   navOpen: true,
   editingCharId: null,
@@ -1403,9 +1409,19 @@ function extractJSON(text) {
 // TOAST
 // ═══════════════════════════════════════════
 let toastTimer;
-function toast(msg, duration = 2500) {
+function toast(msg, duration = 2500, undoFn = null) {
   const el = document.getElementById('toast');
-  el.textContent = msg;
+  el.innerHTML = '';
+  const txt = document.createElement('span');
+  txt.textContent = msg;
+  el.appendChild(txt);
+  if (undoFn) {
+    const btn = document.createElement('button');
+    btn.className = 'toast-undo-btn';
+    btn.textContent = '↩ 취소';
+    btn.onclick = () => { undoFn(); el.classList.remove('show'); clearTimeout(toastTimer); };
+    el.appendChild(btn);
+  }
   el.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('show'), duration);
@@ -1947,7 +1963,8 @@ function renderNavSceneList() {
 }
 
 function toggleSceneSelect(id, checked) {
-  if (checked) S.selectedIds.add(id); else S.selectedIds.delete(id);
+  if (checked) { S.selectedIds.add(id); S.autoSelectedIds.delete(id); }
+  else { S.selectedIds.delete(id); S.autoSelectedIds.delete(id); }
   syncSelection();
 }
 function syncSelection() {
@@ -2321,6 +2338,13 @@ function buildSceneBlock(sc, i) {
   lockBtn.className = 'sc-hdr-btn locked-btn';
   lockBtn.textContent = sc.locked ? '🔒 잠김' : '🔓 잠금';
   lockBtn.onclick = () => { sc.locked = !sc.locked; save(); renderScriptBody(); renderNavSceneList(); toast(sc.locked ? '씬 잠금됨' : '씬 잠금 해제'); };
+  // 텍스트 입력 버튼
+  const txtEditBtn = document.createElement('button');
+  txtEditBtn.className = 'sc-hdr-btn';
+  txtEditBtn.textContent = '📝 텍스트 편집';
+  txtEditBtn.style.cssText = 'font-size:9px;';
+  txtEditBtn.onclick = () => openSceneTextEditor(sc, block);
+  acts.appendChild(txtEditBtn);
   acts.appendChild(lockBtn);
   hdr.append(cb, num, titleInp, acts);
   block.appendChild(hdr);
@@ -2347,7 +2371,32 @@ function buildSceneBlock(sc, i) {
       el.dataset.locked = sc.locked || line.locked;
       el.textContent = line.text;
       el.style.flex = '1';
-      el.oninput = () => { line.text = el.textContent; save(true); };
+      let charDetectTimer;
+      el.oninput = () => {
+        line.text = el.textContent;
+        save(true);
+        // 배역명 자동 감지 (action 타입 줄에서만)
+        if (line.type === 'action' && !sc.locked) {
+          clearTimeout(charDetectTimer);
+          charDetectTimer = setTimeout(() => {
+            const txt = el.textContent.trim();
+            if (!txt || txt.length > 20) return; // 너무 길면 대사로 판단
+            const chars = S.cur?.characters || [];
+            const matched = chars.find(c => c.name && c.name.trim().toLowerCase() === txt.toLowerCase());
+            if (matched) {
+              const prevType = line.type;
+              line.type = 'character';
+              el.className = 'line-el line-character';
+              save(true);
+              toast(`"${matched.name}" — 배역명으로 변경됨`, 3500, () => {
+                line.type = prevType;
+                el.className = 'line-el line-' + prevType;
+                save(true);
+              });
+            }
+          }, 600);
+        }
+      };
 
       // 붙여넣기: 여러 줄이면 각 줄을 별도 라인으로 분리
       el.addEventListener('paste', (e) => {
@@ -2377,11 +2426,11 @@ function buildSceneBlock(sc, i) {
       el.onkeydown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
-          // Insert new action line after this one
-          const newLine = { type:'action', text:'', locked:false };
+          // 배역명 다음은 자동으로 dialogue, 그 외는 action
+          const nextType = line.type === 'character' ? 'dialogue' : 'action';
+          const newLine = { type:nextType, text:'', locked:false };
           sc.lines.splice(li + 1, 0, newLine);
           save(); renderAllLines();
-          // Focus new line
           setTimeout(() => {
             const els = linesWrap.querySelectorAll('.line-el');
             if (els[li+1]) { els[li+1].focus(); }
@@ -2442,7 +2491,7 @@ function buildSceneBlock(sc, i) {
         const menu = document.createElement('div');
         menu.id = 'line-type-menu';
         menu.style.cssText = 'position:fixed;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);padding:6px;z-index:200;display:flex;flex-direction:column;gap:2px;min-width:120px;box-shadow:0 8px 24px rgba(0,0,0,.5);';
-        const types = [['action','지문'],['character','배역명'],['dialogue','대사']];
+        const types = [['action','지문'],['character','배역명'],['dialogue','대사'],['parenthetical','괄호 지문']];
         types.forEach(([t, label]) => {
           const btn = document.createElement('button');
           btn.style.cssText = 'font-size:12px;padding:8px 12px;background:none;border:none;color:var(--text2);text-align:left;border-radius:var(--r);cursor:pointer;display:block;width:100%;';
@@ -2500,7 +2549,7 @@ function buildSceneBlock(sc, i) {
     if (!sc.locked) {
       const addRow = document.createElement('div');
       addRow.style.cssText = 'display:flex;gap:4px;padding:6px 0 2px;flex-wrap:wrap;';
-      const lineTypes = [['action','지문'],['character','배역명'],['dialogue','대사']];
+      const lineTypes = [['action','지문'],['character','배역명'],['dialogue','대사'],['parenthetical','괄호 지문']];
       lineTypes.forEach(([t, label]) => {
         const btn = document.createElement('button');
         btn.style.cssText = 'font-size:9px;padding:2px 8px;border-radius:3px;border:1px dashed var(--border2);background:none;color:var(--text3);cursor:pointer;';
@@ -2656,6 +2705,93 @@ function cancelDiff(id) {
   save(); renderScriptBody();
 }
 
+function openSceneTextEditor(sc, block) {
+  // 기존 패널 있으면 제거
+  block.querySelector('.scene-text-editor-panel')?.remove();
+  // 씬 내용을 텍스트로 변환
+  const linesToText = (lines) => lines.map(l => {
+    if (l.type === 'slug') return l.text;
+    if (l.type === 'character') return '\n' + l.text;
+    if (l.type === 'dialogue') return l.text;
+    if (l.type === 'parenthetical') return '(' + l.text + ')';
+    return l.text; // action
+  }).join('\n').trim();
+
+  const panel = document.createElement('div');
+  panel.className = 'scene-text-editor-panel';
+  panel.style.cssText = 'border-top:1px solid var(--border);background:var(--bg3);padding:12px 14px;display:flex;flex-direction:column;gap:8px;';
+  const MAX = 8000;
+  const initText = linesToText(sc.lines);
+  const hint = document.createElement('div');
+  hint.style.cssText = 'font-size:10px;color:var(--text3);font-family:var(--fm);';
+  hint.textContent = '📝 씬 내용을 자유롭게 편집하세요 — AI가 파싱합니다';
+  const ta = document.createElement('textarea');
+  ta.id = 'ste-area-' + sc.id;
+  ta.maxLength = MAX;
+  ta.value = initText;
+  ta.style.cssText = 'width:100%;min-height:120px;max-height:300px;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-family:var(--fb);font-size:12px;padding:9px 11px;resize:vertical;outline:none;line-height:1.75;box-sizing:border-box;';
+  const counter = document.createElement('span');
+  counter.id = 'ste-count-' + sc.id;
+  counter.style.cssText = 'font-size:10px;color:var(--text3);font-family:var(--fm);';
+  counter.textContent = initText.length + ' / ' + MAX;
+  ta.oninput = () => { counter.textContent = ta.value.length + ' / ' + MAX; };
+  const cancelBtn = document.createElement('button');
+  cancelBtn.style.cssText = 'font-size:11px;background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);padding:5px 10px;cursor:pointer;';
+  cancelBtn.textContent = '취소';
+  cancelBtn.onclick = () => panel.remove();
+  const parseBtn = document.createElement('button');
+  parseBtn.id = 'ste-parse-' + sc.id;
+  parseBtn.style.cssText = 'font-size:11px;background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:5px 14px;font-weight:600;cursor:pointer;';
+  parseBtn.textContent = '✦ AI 파싱 적용';
+  const btns = document.createElement('div');
+  btns.style.cssText = 'display:flex;gap:6px;';
+  btns.append(cancelBtn, parseBtn);
+  const footer = document.createElement('div');
+  footer.style.cssText = 'display:flex;justify-content:space-between;align-items:center;';
+  footer.append(counter, btns);
+  panel.append(hint, ta, footer);
+  block.appendChild(panel);
+  parseBtn.onclick = async () => {
+    const rawText = ta.value.trim();
+    if (!rawText) return;
+    parseBtn.textContent = '⏳ 분석 중...'; parseBtn.disabled = true;
+    try {
+      const sys = '대본 파서입니다. 주어진 텍스트를 씬 데이터로 변환하세요.\n' +
+        '반드시 <scenes>[JSON]</scenes> 형식으로만 응답하세요.\n' +
+        '씬 JSON: [{"title":"씬제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용"}]}]\n' +
+        '- 슬러그/씬 제목 → slug와 title\n' +
+        '- 지문 → action, 인물명 → character, 대사 → dialogue, 괄호지문 → parenthetical';
+      const raw = await callClaude([{role:'user', content:rawText}], sys, 3000, 'claude-haiku-4-5-20251001');
+      const scenesRaw = extractTag(raw, 'scenes');
+      if (!scenesRaw) { toast('파싱 실패 — 다시 시도해주세요.'); return; }
+      const parsed = JSON.parse(scenesRaw);
+      if (!parsed?.length) { toast('씬을 찾을 수 없습니다.'); return; }
+      const s = parsed[0];
+      const newLines = [
+        { type:'slug', text: s.slug || sc.lines[0]?.text || 'INT. 장소 - 시간대', locked:false },
+        ...(s.lines||[]).map(l => ({ type: l.type||'action', text:l.text||'', locked:false }))
+      ];
+      // diff 생성
+      const oldLines = sc.lines;
+      const diffLines = [];
+      const maxLen = Math.max(oldLines.length, newLines.length);
+      for (let i = 0; i < maxLen; i++) {
+        const o = oldLines[i], n = newLines[i];
+        if (o && n && o.text === n.text) diffLines.push({type:'ctx', text:o.text});
+        else { if (o) diffLines.push({type:'del', text:o.text}); if (n) diffLines.push({type:'add', text:n.text}); }
+      }
+      sc.diff = { prompt:'텍스트 편집', lines:diffLines, newLines, comment:'텍스트 편집 후 파싱' };
+      panel.remove();
+      save(); renderScriptBody();
+      toast('✓ diff 생성됨 — 확인 후 적용하세요');
+    } catch(err) { toast('오류: ' + err.message); }
+    finally { parseBtn.textContent = '✦ AI 파싱 적용'; parseBtn.disabled = false; }
+  };
+
+  // textarea 포커스
+  setTimeout(() => panel.querySelector('textarea')?.focus(), 50);
+}
+
 function escH(str) { return (str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 // ═══════════════════════════════════════════
@@ -2780,19 +2916,23 @@ function detectSceneNumbers(text) {
     candidates.forEach(n => found.add(n));
   }
 
-  if (!found.size) return;
+  // 이전 자동 선택 제거 (수동 선택은 유지)
+  S.autoSelectedIds.forEach(id => S.selectedIds.delete(id));
+  S.autoSelectedIds.clear();
+
+  if (!found.size) { if (S.selectedIds.size >= 0) syncSelection(); return; }
+
   const scenes = S.cur.scenes;
-  let changed = false;
   found.forEach(n => {
     if (n >= 1 && n <= scenes.length) {
       const sc = scenes[n-1];
-      if (!sc.locked && !S.selectedIds.has(sc.id)) {
+      if (!sc.locked) {
         S.selectedIds.add(sc.id);
-        changed = true;
+        S.autoSelectedIds.add(sc.id);
       }
     }
   });
-  if (changed) syncSelection();
+  syncSelection();
 }
 
 async function sendPrompt() {
@@ -2801,6 +2941,7 @@ async function sendPrompt() {
   const text = inp.value.trim();
   if (!text) return;
   inp.value = ''; inp.style.height = 'auto';
+  S.autoSelectedIds.clear(); // 전송 후 자동선택 초기화
   setWaiting(true);
   try {
     if (S.activeTab === 'chat') {
@@ -2876,7 +3017,7 @@ function addScenesFromAI(scenesData) {
     title: s.title || '새 씬',
     slug: s.slug || 'INT. 장소 - 시간대',
     locked: false,
-    lines: (s.lines || []).map(l => ({ type: l.type==='parenthetical'?'action': (l.type||'action'), text:l.text||'', locked:false })),
+    lines: (s.lines || []).map(l => ({ type: l.type||'action', text:l.text||'', locked:false })),
     storyboard: [],
     diff: null,
   }));
@@ -3662,7 +3803,7 @@ ${chunkInfo ? '[청크 처리 ' + chunkInfo + ']' : ''}
             locked: false,
             lines: [
               { type:'slug', text: s.slug || 'INT. 장소 - 시간대', locked:false },
-              ...(s.lines||[]).map(l => ({ type: l.type==='parenthetical'?'action':(l.type||'action'), text:l.text||'', locked:false }))
+              ...(s.lines||[]).map(l => ({ type: l.type||'action', text:l.text||'', locked:false }))
             ],
             storyboard: [], diff: null,
           }));
