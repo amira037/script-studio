@@ -783,7 +783,7 @@ textarea, input { font-family:var(--fb); }
   border-radius:var(--r); color:var(--text2); padding:4px 10px;
 }
 .drawer-close:hover { border-color:var(--border3); color:var(--text); }
-.drawer-body { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; }
+.drawer-body { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; min-height:0; }
 .drawer-acts { padding:10px 14px; border-top:1px solid var(--border); display:flex; gap:7px; flex-shrink:0; }
 .drawer-btn {
   font-size:11px; padding:6px 13px; border-radius:var(--r);
@@ -798,6 +798,7 @@ textarea, input { font-family:var(--fb); }
 .char-card {
   background:var(--bg3); border:1px solid var(--border);
   border-radius:var(--r2); overflow:hidden; transition:border-color .15s;
+  flex-shrink:0;
 }
 .char-card-view {
   display:flex; align-items:flex-start; gap:10px;
@@ -833,6 +834,38 @@ textarea, input { font-family:var(--fb); }
 .char-cancel-btn { font-size:10px; background:none; border:1px solid var(--border2); border-radius:var(--r); color:var(--text2); padding:5px 10px; }
 .char-del-btn { font-size:10px; background:none; border:none; color:var(--red); padding:5px; margin-left:auto; }
 .char-ai-fill-btn { font-size:10px; background:var(--purple2); color:var(--purple); border:1px solid rgba(168,158,221,.3); border-radius:var(--r); padding:4px 10px; margin-left:auto; display:flex; align-items:center; gap:4px; }
+.char-quick-del {
+  background:none; border:none; color:var(--text3); font-size:10px;
+  padding:1px 3px; cursor:pointer; opacity:0; transition:opacity .15s, color .15s;
+  line-height:1;
+}
+.char-card-view:hover .char-quick-del { opacity:1; }
+.char-quick-del:hover { color:var(--red) !important; }
+.char-quick-del {
+  background:none; border:none; color:var(--text3); font-size:10px;
+  padding:1px 3px; cursor:pointer; opacity:0; transition:opacity .15s, color .15s;
+  line-height:1;
+}
+.char-card-view:hover .char-quick-del { opacity:1; }
+.char-quick-del:hover { color:var(--red) !important; }
+.char-drag-handle {
+  color:var(--text3); font-size:14px; cursor:grab; padding:0 4px;
+  flex-shrink:0; opacity:.4; transition:opacity .15s; align-self:center;
+  touch-action:none;
+}
+.char-card:hover .char-drag-handle { opacity:.8; }
+.char-sort-bar {
+  display:flex; gap:5px; padding:0 14px 8px; flex-shrink:0;
+}
+.char-sort-btn {
+  font-size:10px; padding:3px 9px; border-radius:var(--r);
+  border:1px solid var(--border2); background:none; color:var(--text3);
+  cursor:pointer; transition:all .15s; font-family:var(--fm);
+}
+.char-sort-btn:hover { border-color:var(--accent2); color:var(--accent); }
+.char-sort-btn.active { background:var(--accent3); color:var(--accent); border-color:var(--accent2); }
+.char-card.drag-over-top { border-top:2px solid var(--accent); }
+.char-card.drag-over-bottom { border-bottom:2px solid var(--accent); }
 .char-add-btn {
   width:100%; background:transparent; border:1px dashed var(--border2);
   border-radius:var(--r2); color:var(--text3); font-size:11px;
@@ -1104,10 +1137,15 @@ textarea, input { font-family:var(--fb); }
     <span class="drawer-title">👥 등장인물</span>
     <button class="drawer-close" onclick="closeDrawer()">✕ 닫기</button>
   </div>
+  <div class="char-sort-bar">
+    <button class="char-sort-btn active" id="csort-importance" onclick="sortChars('importance')">✦ 중요도순</button>
+    <button class="char-sort-btn" id="csort-name" onclick="sortChars('name')">이름순</button>
+    <button class="char-sort-btn" id="csort-drag" onclick="sortChars('drag')">⠿ 수동</button>
+  </div>
   <div class="drawer-body" id="chars-body"></div>
   <div class="drawer-acts">
     <button class="drawer-btn pri" onclick="addCharacter()">+ 인물 추가</button>
-    <button class="drawer-btn" onclick="extractCharsFromScript()" title="대본의 배역명 줄을 분석해 인물 목록 자동 생성">📄 대본에서 추출</button>
+    <button class="drawer-btn" id="extract-chars-btn" onclick="extractCharsFromScript()" title="대본 분석 → 중요도 순 정렬, 단역 제외, 기본정보 자동 채우기">📄 대본에서 추출</button>
   </div>
 </div>
 
@@ -1119,7 +1157,6 @@ textarea, input { font-family:var(--fb); }
   </div>
   <div class="drawer-body" id="synopsis-body"></div>
   <div class="drawer-acts">
-    <button class="drawer-btn" onclick="addSynopsisSection()">+ 막 추가</button>
     <button class="drawer-btn ai-btn" onclick="regenSynopsis()">✦ AI 재생성</button>
     <button class="drawer-btn" onclick="exportSynopsis()">⬇ 내보내기</button>
   </div>
@@ -2349,6 +2386,30 @@ function buildSceneBlock(sc, i) {
   txtEditBtn.textContent = '📝 텍스트 편집';
   txtEditBtn.style.cssText = 'font-size:9px;';
   txtEditBtn.onclick = () => openSceneTextEditor(sc, block);
+  // 씬 제목 AI 채우기 버튼 (제목이 없거나 '새 씬'일 때만 표시)
+  const titleAiBtn = document.createElement('button');
+  titleAiBtn.className = 'sc-hdr-btn';
+  titleAiBtn.style.cssText = 'font-size:9px;color:var(--purple);border-color:rgba(168,158,221,.4);background:var(--purple2);';
+  titleAiBtn.textContent = '✦ 제목';
+  titleAiBtn.title = 'AI가 씬 내용을 읽고 제목을 제안합니다';
+  titleAiBtn.onclick = async () => {
+    titleAiBtn.textContent = '...'; titleAiBtn.disabled = true;
+    try {
+      const sceneText = sc.lines.map(l => l.text).join(' ').slice(0, 300);
+      const ctx = buildProjectContext();
+      const sys = '대본 씬의 내용을 보고 적절한 씬 제목을 한국어로 5~15자 이내로 제안해주세요. 제목만 출력하고 다른 말은 하지 마세요.';
+      const raw = await callClaude([{role:'user', content:'작품: ' + ctx + '\n씬 내용: ' + sceneText}], sys, 50, 'claude-haiku-4-5-20251001');
+      const suggested = raw.trim().replace(/^["']|["']$/g, '').replace(/^제목[:：]?\s*/i, '');
+      if (suggested) {
+        sc.title = suggested;
+        titleInp.value = suggested;
+        save(); renderNavSceneList();
+        toast('✓ 제목 생성됨: ' + suggested);
+      }
+    } catch(e) { toast('오류: ' + e.message); }
+    finally { titleAiBtn.textContent = '✦ 제목'; titleAiBtn.disabled = false; }
+  };
+  acts.appendChild(titleAiBtn);
   acts.appendChild(txtEditBtn);
   acts.appendChild(lockBtn);
   hdr.append(cb, num, titleInp, acts);
@@ -2957,7 +3018,7 @@ function detectSceneNumbers(text) {
   // 방법: 키워드+공백+숫자 전체를 한 패턴으로 잡고, 숫자 그룹 전체를 parseInt
 
   // 1단계: 범위 패턴 (씬6~10, 씬6-10, 6~10씬)
-  const rangeRe = /(?:씬|장면|scene|sc)\s*(\d+)\s*(?:~|부터|-)\s*(\d+)|(\d+)\s*(?:~|-)\s*(\d+)\s*(?:씬|장면)/gi;
+  const rangeRe = /(?:씬|장면|scene|sc)\s*(\d+)\s*(?:~|부터|-|에서)\s*(?:씬|장면|scene|sc)?\s*(\d+)|(\d+)\s*(?:~|-)\s*(?:씬|장면|scene|sc)?\s*(\d+)\s*(?:씬|장면)/gi;
   let m;
   while ((m = rangeRe.exec(text)) !== null) {
     const a = parseInt(m[1] || m[3]);
@@ -3121,40 +3182,166 @@ function addCharsFromAI(charsData) {
   }
 }
 
-function extractCharsFromScript() {
+// 캐릭터 드래그 정렬
+function setupCharDrag(card, c, body) {
+  let dragOver = null;
+  card.setAttribute('draggable', 'true');
+  card.addEventListener('dragstart', (e) => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(c.id));
+    setTimeout(() => card.style.opacity = '0.4', 0);
+  });
+  card.addEventListener('dragend', () => { card.style.opacity = ''; body.querySelectorAll('.char-card').forEach(x => x.classList.remove('drag-over-top','drag-over-bottom')); });
+  card.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    body.querySelectorAll('.char-card').forEach(x => x.classList.remove('drag-over-top','drag-over-bottom'));
+    const rect = card.getBoundingClientRect();
+    card.classList.add(e.clientY < rect.top + rect.height/2 ? 'drag-over-top' : 'drag-over-bottom');
+    dragOver = e.clientY < rect.top + rect.height/2 ? 'top' : 'bottom';
+  });
+  card.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const fromId = parseFloat(e.dataTransfer.getData('text/plain'));
+    const chars = S.cur.characters;
+    const fromIdx = chars.findIndex(x => x.id === fromId);
+    const toIdx = chars.findIndex(x => x.id === c.id);
+    if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
+    const [moved] = chars.splice(fromIdx, 1);
+    const newTo = chars.findIndex(x => x.id === c.id);
+    chars.splice(dragOver === 'bottom' ? newTo + 1 : newTo, 0, moved);
+    save(true); renderCharsDrawer();
+  });
+}
+
+async function extractCharsFromScript() {
   if (!S.cur) return;
-  // 대본의 character 타입 줄에서 이름 수집
-  const nameSet = new Set();
-  (S.cur.scenes || []).forEach(sc => {
-    (sc.lines || []).forEach(l => {
-      if (l.type === 'character' && l.text.trim()) {
-        // 괄호 안 지시어 제거 후 이름만 추출 (예: "청이 (내레이션)" → "청이")
-        const name = l.text.trim().replace(/\s*[\(（].*[\)）]/, '').trim();
-        if (name) nameSet.add(name);
+  const btn = document.getElementById('extract-chars-btn');
+  if (btn) { btn.textContent = '⏳ AI 분석 중...'; btn.disabled = true; }
+
+  try {
+    // 각 인물별 통계 수집
+    const charStats = {};
+    (S.cur.scenes || []).forEach((sc, si) => {
+      let lastChar = null;
+      (sc.lines || []).forEach(l => {
+        if (l.type === 'character' && l.text.trim()) {
+          const name = l.text.trim().replace(/\s*[\(（].*[\)）]/, '').trim();
+          if (!name) return;
+          if (!charStats[name]) charStats[name] = { scenes: new Set(), dialogues: 0, samples: [] };
+          charStats[name].scenes.add(si);
+          lastChar = name;
+        } else if (l.type === 'dialogue' && lastChar) {
+          charStats[lastChar].dialogues++;
+          if (charStats[lastChar].samples.length < 2) charStats[lastChar].samples.push(l.text.slice(0, 40));
+          lastChar = null;
+        } else { lastChar = null; }
+      });
+    });
+
+    if (Object.keys(charStats).length === 0) { toast('대본에 배역명 줄이 없습니다.'); return; }
+
+    const existing = (S.cur.characters || []).map(c => c.name.toLowerCase());
+    const newChars = Object.entries(charStats)
+      .filter(([name]) => !existing.includes(name.toLowerCase()))
+      .map(([name, s]) => ({
+        name,
+        sceneCount: s.scenes.size,
+        dialogueCount: s.dialogues,
+        sample: s.samples.join(' / ')
+      }));
+
+    if (newChars.length === 0) { toast('모두 이미 등록된 인물입니다.'); return; }
+
+    const ctx = `작품: ${S.cur.title} (${S.cur.medium}), 장르: ${(S.cur.genreTags||[]).join(', ')}`;
+    const charList = newChars.map(c =>
+      `${c.name}: 등장 ${c.sceneCount}씬, 대사 ${c.dialogueCount}줄${c.sample ? ', 샘플: "' + c.sample + '"' : ''}`
+    ).join('\n');
+
+    const sys = `당신은 대본 캐릭터 분석 전문가입니다.
+등장인물 목록을 분석해서 주인공/주연/조연은 포함하고, 단역/엑스트라(등장 2씬 이하 또는 대사 3줄 미만이고 스토리상 비중이 낮은 인물)는 제외하세요.
+반드시 <charlist>[JSON]</charlist> 형식으로만 응답하세요:
+[{"name":"이름","role":"주인공|주연|조연","importance":1,"description":"설명 1~2문장","traits":["특성1","특성2"]}]
+importance는 1부터 시작하는 정수로 중요도 순서입니다.`;
+
+    const raw = await callClaude(
+      [{role:'user', content:`${ctx}
+
+등장인물 통계:
+${charList}`}],
+      sys, 3000, 'claude-haiku-4-5-20251001'
+    );
+
+    const listRaw = extractTag(raw, 'charlist');
+    if (!listRaw) { toast('AI 분석 실패 — 다시 시도해주세요.'); return; }
+    const parsed = JSON.parse(listRaw);
+    if (!Array.isArray(parsed) || !parsed.length) { toast('포함할 인물이 없습니다.'); return; }
+
+    if (!S.cur.characters) S.cur.characters = [];
+    let added = 0;
+    parsed.forEach(c => {
+      if (!c.name) return;
+      S.cur.characters.push({
+        id: Date.now() + Math.random(),
+        name: c.name,
+        role: c.role || '',
+        description: c.description || '',
+        traits: Array.isArray(c.traits) ? c.traits : [],
+        importance: c.importance ?? 999,
+      });
+      added++;
+    });
+
+    // 대본에 없는 기존 인물 감지
+    const scriptNames = Object.keys(charStats).map(n => n.toLowerCase());
+    const missingFromScript = (S.cur.characters || []).filter(c =>
+      !scriptNames.includes(c.name.toLowerCase())
+    );
+
+    const doFinish = (deleteOrphans) => {
+      if (deleteOrphans && missingFromScript.length > 0) {
+        const keepIds = missingFromScript.map(c => c.id);
+        S.cur.characters = (S.cur.characters || []).filter(c => !keepIds.includes(c.id));
       }
-    });
-  });
+      parsed.forEach(c => {
+        if (!c.name) return;
+        const alreadyExists = (S.cur.characters || []).find(x => x.name.toLowerCase() === c.name.toLowerCase());
+        if (alreadyExists) return;
+        S.cur.characters.push({
+          id: Date.now() + Math.random(),
+          name: c.name, role: c.role || '',
+          description: c.description || '',
+          traits: Array.isArray(c.traits) ? c.traits : [],
+          importance: c.importance ?? 999,
+        });
+      });
+      const excluded2 = newChars.length - parsed.length;
+      save();
+      charSortMode = 'importance';
+      document.querySelectorAll('.char-sort-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('csort-importance')?.classList.add('active');
+      renderCharsDrawer();
+      const delMsg = deleteOrphans && missingFromScript.length > 0 ? `, 대본 없는 ${missingFromScript.length}명 삭제` : '';
+      toast(`✓ ${parsed.length}명 추가됨${excluded2 > 0 ? ` (단역 ${excluded2}명 제외)` : ''}${delMsg}`, 4000);
+    };
 
-  if (nameSet.size === 0) { toast('대본에 배역명 줄이 없습니다.'); return; }
+    if (missingFromScript.length > 0) {
+      // 토스트 대신 응답 패널로 선택지 표시
+      const names = missingFromScript.map(c => c.name).join(', ');
+      showResponsePanel('choice', '대본에 없는 인물 발견',
+        `<div class="ai-comment-txt">등록된 인물 중 대본에 등장하지 않는 인물이 있습니다:<br><b>${escH(names)}</b><br><br>어떻게 할까요?</div>`,
+        `<button class="rp-btn" style="background:var(--red2);color:var(--red);border-color:rgba(224,96,96,.3)" onclick="closeResponsePanel();(${doFinish.toString()})(true)">삭제하고 추출</button>
+         <button class="rp-btn" onclick="closeResponsePanel();(${doFinish.toString()})(false)">그냥 유지하고 추출</button>
+         <button class="rp-btn" onclick="closeResponsePanel()">취소</button>`
+      );
+    } else {
+      doFinish(false);
+    }
 
-  const existing = (S.cur.characters || []).map(c => c.name.toLowerCase());
-  const newNames = [...nameSet].filter(n => !existing.includes(n.toLowerCase()));
-
-  if (newNames.length === 0) { toast('모두 이미 등록된 인물입니다.'); return; }
-
-  if (!S.cur.characters) S.cur.characters = [];
-  newNames.forEach(name => {
-    S.cur.characters.push({
-      id: Date.now() + Math.random(),
-      name,
-      role: '',
-      description: '',
-      traits: [],
-    });
-  });
-  save();
-  renderCharsDrawer();
-  toast(`✓ ${newNames.length}명 추출됨 — 역할과 설명을 채워주세요`);
+  } catch(err) {
+    toast('오류: ' + err.message);
+  } finally {
+    if (btn) { btn.textContent = '📄 대본에서 추출'; btn.disabled = false; }
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -3178,7 +3365,7 @@ async function handleScriptPrompt(text) {
   const sys = `당신은 대본 편집 AI입니다. 다음 씬들을 사용자 지시에 따라 수정하세요.
 잠금(locked:true)된 줄은 절대 수정하지 마세요.
 반드시 다음 JSON 형식으로만 응답하세요 (설명 불필요):
-<result>[{"sceneId":숫자,"title":"씬제목","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용","locked":false}],"comment":"변경사항 한 줄 설명"}]</result>
+<result>[{"sceneId":숫자,"title":"씬제목(내용 변경 시 적절히 수정, 변경 없으면 원래 제목 유지)","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용","locked":false}],"comment":"변경사항 한 줄 설명"}]</result>
 만약 방향을 선택해야 한다면 <choices>["선택지1","선택지2","선택지3"]</choices> 태그도 추가하세요.`;
 
   try {
@@ -3211,6 +3398,10 @@ async function handleScriptPrompt(text) {
       updates.forEach(u => {
         const sc = S.cur.scenes.find(s => s.id === u.sceneId);
         if (!sc) return;
+        // 제목 즉시 반영 (diff 없이)
+        if (u.title && u.title !== sc.title) {
+          sc.title = u.title;
+        }
         const comment = u.comment || '';
         const newLines = u.lines || [];
         // Build diff
@@ -3414,12 +3605,33 @@ function gotoSceneByLabel(label) {
 // ═══════════════════════════════════════════
 // CHARACTERS DRAWER
 // ═══════════════════════════════════════════
+let charSortMode = 'importance';
+
+function sortChars(mode) {
+  charSortMode = mode;
+  document.querySelectorAll('.char-sort-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('csort-' + mode);
+  if (btn) btn.classList.add('active');
+  renderCharsDrawer();
+}
+
 function renderCharsDrawer() {
   const body = document.getElementById('chars-body');
   if (!body || !S.cur) return;
   body.innerHTML = '';
-  (S.cur.characters || []).forEach(c => {
-    body.appendChild(buildCharCard(c));
+  let chars = [...(S.cur.characters || [])];
+  if (charSortMode === 'importance') {
+    chars.sort((a, b) => (a.importance ?? 999) - (b.importance ?? 999));
+  } else if (charSortMode === 'name') {
+    chars.sort((a, b) => (a.name||'').localeCompare(b.name||'', 'ko'));
+  }
+  // drag 모드는 저장 순서 그대로
+  chars.forEach(c => {
+    const card = buildCharCard(c);
+    // 드래그 핸들 이벤트
+    const handle = card.querySelector('.char-drag-handle');
+    if (handle) setupCharDrag(card, c, body);
+    body.appendChild(card);
   });
   const addBtn = document.createElement('button');
   addBtn.className = 'char-add-btn';
@@ -3434,6 +3646,7 @@ function buildCharCard(c) {
   const traitsHTML = (c.traits||[]).map(t=>`<span class="char-trait">${escH(t)}</span>`).join('');
   const viewDiv = document.createElement('div'); viewDiv.className = 'char-card-view';
   viewDiv.innerHTML = `
+    <div class="char-drag-handle" title="드래그로 순서 변경">⠿</div>
     <div class="char-av">${initial}</div>
     <div class="char-info">
       <div class="char-role">${escH(c.role||'')}</div>
@@ -3441,8 +3654,12 @@ function buildCharCard(c) {
       <div class="char-desc">${escH(c.description||'')}</div>
       <div class="char-traits">${traitsHTML}</div>
     </div>
-    <span class="char-edit-hint">편집 →</span>`;
-  viewDiv.onclick = () => openCharEdit(c.id);
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">
+      <span class="char-edit-hint">편집 →</span>
+      <button class="char-quick-del" onclick="event.stopPropagation();deleteChar(${c.id})" title="삭제">✕</button>
+    </div>`;
+  // 핸들 클릭은 편집 안 열리게, 카드 본문 클릭만 편집
+  viewDiv.onclick = (e) => { if (!e.target.closest('.char-drag-handle') && !e.target.closest('.char-quick-del')) openCharEdit(c.id); };
   card.appendChild(viewDiv);
 
   const editDiv = document.createElement('div'); editDiv.className = 'char-card-editing'; editDiv.id = 'char-edit-'+c.id; editDiv.style.display='none';
@@ -3475,15 +3692,124 @@ function closeCharEdit(id) {
 function saveChar(id) {
   const c = S.cur.characters.find(x=>x.id===id);
   if (!c) return;
-  c.name = document.getElementById(`ce-name-${id}`)?.value || '';
-  c.role = document.getElementById(`ce-role-${id}`)?.value || '';
-  c.description = document.getElementById(`ce-desc-${id}`)?.value || '';
-  c.traits = (document.getElementById(`ce-traits-${id}`)?.value||'').split(',').map(s=>s.trim()).filter(Boolean);
-  save(); closeCharEdit(id); renderCharsDrawer(); toast('저장됨');
+  const oldName = c.name;
+  const newName = document.getElementById('ce-name-'+id)?.value || '';
+  c.name = newName;
+  c.role = document.getElementById('ce-role-'+id)?.value || '';
+  c.description = document.getElementById('ce-desc-'+id)?.value || '';
+  c.traits = (document.getElementById('ce-traits-'+id)?.value||'').split(',').map(s=>s.trim()).filter(Boolean);
+  save(); closeCharEdit(id); renderCharsDrawer();
+
+  // 이름이 바뀐 경우 대본 치환 제안
+  if (newName && oldName && newName !== oldName) {
+    // 대본에 구 이름이 있는지 확인
+    const hasInScript = (S.cur.scenes||[]).some(sc =>
+      (sc.lines||[]).some(l => l.text.includes(oldName))
+    );
+    if (hasInScript) {
+      toast(`저장됨 — 대본의 "${oldName}" 도 바꿀까요?`, 5000, () => {
+        replaceCharNameInScript(oldName, newName);
+      });
+    } else {
+      toast('저장됨');
+    }
+  } else {
+    toast('저장됨');
+  }
 }
 function deleteChar(id) {
   S.cur.characters = S.cur.characters.filter(c=>c.id!==id);
   save(); renderCharsDrawer(); toast('삭제됨');
+}
+
+// 한국어 받침 여부 판별
+function hasBatchim(char) {
+  const code = char.charCodeAt(char.length - 1);
+  if (code < 0xAC00 || code > 0xD7A3) return false;
+  return (code - 0xAC00) % 28 !== 0;
+}
+
+// 조사 변환 규칙
+function convertJosa(josa, newName) {
+  const batchim = hasBatchim(newName);
+  const map = {
+    '이': batchim ? '이' : '',      // 청이 → 하린 (이 삭제)
+    '가': batchim ? '이' : '가',
+    '은': batchim ? '은' : '는',
+    '는': batchim ? '은' : '는',
+    '을': batchim ? '을' : '를',
+    '를': batchim ? '을' : '를',
+    '아': batchim ? '아' : '야',
+    '야': batchim ? '아' : '야',
+    '과': batchim ? '과' : '와',
+    '와': batchim ? '과' : '와',
+    '으로': batchim ? '으로' : '로',
+    '로': batchim ? '으로' : '로',
+  };
+  return map[josa] !== undefined ? map[josa] : josa;
+}
+
+async function replaceCharNameInScript(oldName, newName) {
+  if (!S.cur || !oldName || !newName) return;
+  const btn_toast_msg = `"${oldName}" → "${newName}" 치환 중...`;
+  toast(btn_toast_msg);
+
+  // 1단계: character 줄은 JS로 즉시 치환
+  let charLineCount = 0;
+  (S.cur.scenes||[]).forEach(sc => {
+    (sc.lines||[]).forEach(l => {
+      if (l.type === 'character' && l.text.includes(oldName)) {
+        l.text = l.text.split(oldName).join(newName);
+        charLineCount++;
+      }
+    });
+  });
+
+  // 2단계: action/dialogue에서 구 이름 포함 줄 수집 → Haiku 처리
+  const toProcess = [];
+  (S.cur.scenes||[]).forEach((sc, si) => {
+    (sc.lines||[]).forEach((l, li) => {
+      if ((l.type === 'action' || l.type === 'dialogue' || l.type === 'parenthetical')
+          && l.text.includes(oldName) && !l.locked) {
+        toProcess.push({ si, li, text: l.text });
+      }
+    });
+  });
+
+  let aiCount = 0;
+  if (toProcess.length > 0) {
+    try {
+      const sys = '대본 텍스트에서 인물 이름을 변경해주세요. 조사도 자연스럽게 바꿔주세요 (예: 청이가→하린이가, 청이를→하린을, 청아→하린아). ' +
+        '반드시 <lines>[{"idx":숫자,"text":"변환된텍스트"}]</lines> 형식으로만 응답하세요.';
+      const lineList = toProcess.map((x, i) => i + ': "' + x.text + '"').join('\n');
+      const raw = await callClaude(
+        [{role:'user', content:'"' + oldName + '"을 "' + newName + '"으로 변경:\n' + lineList}],
+        sys, 2000, 'claude-haiku-4-5-20251001'
+      );
+      const linesRaw = extractTag(raw, 'lines');
+      if (linesRaw) {
+        const results = JSON.parse(linesRaw);
+        results.forEach(r => {
+          const item = toProcess[r.idx];
+          if (item && r.text) {
+            S.cur.scenes[item.si].lines[item.li].text = r.text;
+            aiCount++;
+          }
+        });
+      }
+    } catch(e) {
+      // AI 실패 시 단순 replace로 폴백
+      toProcess.forEach(item => {
+        S.cur.scenes[item.si].lines[item.li].text =
+          item.text.split(oldName).join(newName);
+        aiCount++;
+      });
+    }
+  }
+
+  save(); renderScriptBody();
+  const total = charLineCount + aiCount;
+  toast(`✓ 대본 ${total}곳 변경됨 (배역명 ${charLineCount} + 언급 ${aiCount})`, 3500);
 }
 function addCharacter() {
   const c = { id:Date.now(), name:'새 인물', role:'', description:'', traits:[] };
@@ -3729,6 +4055,8 @@ function cleanDisplayText(raw) {
     .replace(/<issues[\s\S]*?<\/issues>/gi, '')
     .replace(/<choices[\s\S]*?<\/choices>/gi, '')
     .replace(/<chardata[\s\S]*?<\/chardata>/gi, '')
+    .replace(/<charlist[\s\S]*?<\/charlist>/gi, '')
+    .replace(/<lines[\s\S]*?<\/lines>/gi, '')
     .replace(/<suggestion[\s\S]*?<\/suggestion>/gi, '')
     .replace(/```[\s\S]*?```/g, '')
     .replace(/\[[\s\S]{200,}\]/g, '')
