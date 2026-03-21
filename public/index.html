@@ -1359,6 +1359,8 @@ const storage = {
 
 // Supabase에 프로젝트 데이터 저장 (Vercel 프록시 경유)
 async function syncToSupabase(projects) {
+  // 빈 데이터는 절대 업로드하지 않음
+  if (!projects || !projects.length) return;
   try {
     await fetch('/api/supabase?path=projects', {
       method: 'POST',
@@ -1373,6 +1375,7 @@ async function syncToSupabase(projects) {
         updated_at: new Date().toISOString()
       })
     });
+    updateSyncStatus('✓ 저장됨');
   } catch(e) { console.warn('Supabase sync failed', e); }
 }
 
@@ -1385,10 +1388,16 @@ async function syncFromSupabase() {
     if (!rows || !rows.length) return false;
     const remote = rows[0].data?.projects;
     if (!Array.isArray(remote) || !remote.length) return false;
-    localStorage.setItem('ss_projects', JSON.stringify(remote));
-    S.projects = remote;
-    renderHome();
-    updateSyncStatus('✓ 클라우드에서 불러옴');
+    // 원격 데이터가 로컬보다 많거나 같을 때만 덮어쓰기
+    const local = S.projects || [];
+    if (remote.length >= local.length) {
+      localStorage.setItem('ss_projects', JSON.stringify(remote));
+      S.projects = remote;
+      renderHome();
+      updateSyncStatus('✓ 클라우드에서 불러옴 (' + remote.length + '개 프로젝트)');
+    } else {
+      updateSyncStatus('로컬이 최신 (' + local.length + '개 > 원격 ' + remote.length + '개)');
+    }
     return true;
   } catch(e) {
     console.warn('Supabase pull failed', e);
