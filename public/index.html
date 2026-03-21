@@ -1394,8 +1394,14 @@ async function syncFromSupabase() {
     if (remoteTime > localTime) {
       localStorage.setItem('ss_projects', JSON.stringify(remote));
       S.projects = remote;
+      S.cur = null;
+      S.selectedIds.clear();
+      // 어떤 화면에 있든 홈으로 이동 후 렌더
+      document.getElementById('app-screen')?.classList.remove('show');
+      document.getElementById('home-screen').style.display = 'flex';
       renderHome();
       updateSyncStatus('✓ 클라우드에서 불러옴 (' + remote.length + '개)');
+      toast('✓ ' + remote.length + '개 프로젝트 동기화됨', 3000);
     } else {
       updateSyncStatus('로컬이 최신 — 업로드하려면 저장 후 동기화');
     }
