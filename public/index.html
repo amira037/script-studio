@@ -712,17 +712,21 @@ textarea, input { font-family:var(--fb); }
 .attach-btn:hover { border-color:var(--accent2); color:var(--accent); background:var(--accent3); }
 .file-analyze-banner {
   background:var(--bg3); border:1px solid var(--border2); border-radius:var(--r2);
-  padding:10px 12px; margin-bottom:8px; display:none; flex-direction:column; gap:6px;
+  margin-bottom:8px; display:none; flex-direction:column;
+  max-height:180px; overflow:hidden;
 }
 .file-analyze-banner.show { display:flex; }
+.fab-top { padding:8px 12px 6px; display:flex; flex-direction:column; gap:4px; flex:1; overflow-y:auto; min-height:0; }
 .fab-filename { font-size:11px; color:var(--text2); font-family:var(--fm); }
-.fab-status { font-size:11px; color:var(--text3); }
-.fab-actions { display:flex; gap:6px; flex-wrap:wrap; }
+.fab-status { font-size:11px; color:var(--text3); line-height:1.5; }
+.fab-actions { display:flex; gap:6px; flex-wrap:wrap; padding:7px 12px; border-top:1px solid var(--border); flex-shrink:0; background:var(--bg3); }
 .fab-btn { font-size:11px; padding:4px 11px; border-radius:var(--r); border:1px solid var(--border2); background:none; color:var(--text2); cursor:pointer; transition:all .15s; }
 .fab-btn:hover { border-color:var(--accent2); color:var(--accent); }
 .fab-btn.green { background:var(--green2); color:var(--green); border-color:rgba(110,200,154,.4); }
 .fab-btn.purple { background:var(--purple2); color:var(--purple); border-color:rgba(168,158,221,.4); }
 .fab-btn.dismiss { color:var(--text3); }
+.fab-btn.amber { background:var(--amber2); color:var(--amber); border-color:rgba(232,168,74,.4); }
+.fab-btn.amber { background:var(--amber2); color:var(--amber); border-color:rgba(232,168,74,.4); }
 .prompter-inp {
   flex:1; background:var(--bg3); border:1px solid var(--border2);
   border-radius:var(--r2); color:var(--text); font-size:14px;
@@ -868,6 +872,69 @@ textarea, input { font-family:var(--fb); }
 .setting-status { width:7px; height:7px; border-radius:50%; background:var(--text3); flex-shrink:0; }
 .setting-status.on { background:var(--green); }
 
+/* Project edit modal */
+.proj-edit-overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,.6);
+  z-index:50; display:none; align-items:flex-start; justify-content:center;
+  padding-top:60px;
+}
+.proj-edit-overlay.show { display:flex; }
+.proj-edit-panel {
+  background:var(--bg2); border:1px solid var(--border2);
+  border-radius:var(--r2); padding:18px 20px;
+  width:min(420px, 92vw); display:flex; flex-direction:column; gap:12px;
+  box-shadow:0 16px 48px rgba(0,0,0,.6);
+}
+.proj-edit-title { font-family:var(--fd); font-size:16px; color:var(--accent); margin-bottom:2px; }
+.proj-edit-row { display:flex; flex-direction:column; gap:4px; }
+.proj-edit-label { font-size:10px; color:var(--text3); font-family:var(--fm); letter-spacing:.06em; }
+.proj-edit-inp {
+  background:var(--bg3); border:1px solid var(--border2);
+  border-radius:var(--r); color:var(--text); font-size:13px;
+  padding:7px 10px; outline:none; transition:border .15s; font-family:var(--fb);
+}
+.proj-edit-inp:focus { border-color:var(--accent2); }
+.proj-edit-select {
+  background:var(--bg3); border:1px solid var(--border2);
+  border-radius:var(--r); color:var(--text); font-size:13px;
+  padding:7px 10px; outline:none; appearance:none; -webkit-appearance:none;
+  font-family:var(--fb);
+}
+.genre-tags-wrap { display:flex; flex-wrap:wrap; gap:5px; align-items:center; }
+.genre-tag-pill {
+  display:inline-flex; align-items:center; gap:4px;
+  font-size:11px; background:var(--accent3); color:var(--accent);
+  border:1px solid var(--accent2); border-radius:10px; padding:3px 9px;
+  font-family:var(--fm);
+}
+.genre-tag-del { cursor:pointer; opacity:.6; font-size:12px; }
+.genre-tag-del:hover { opacity:1; }
+.genre-tag-add-inp {
+  background:var(--bg3); border:1px dashed var(--border2);
+  border-radius:10px; color:var(--text); font-size:11px;
+  padding:3px 9px; outline:none; width:90px; font-family:var(--fb);
+  transition:border .15s;
+}
+.genre-tag-add-inp:focus { border-color:var(--accent2); border-style:solid; }
+.proj-edit-acts { display:flex; gap:8px; margin-top:4px; }
+.proj-edit-save {
+  flex:1; background:var(--accent); color:#0e0e10; border:none;
+  border-radius:var(--r); font-size:12px; font-weight:600; padding:8px;
+  transition:all .15s;
+}
+.proj-edit-save:hover { background:#d4b97e; }
+.proj-edit-cancel {
+  background:transparent; border:1px solid var(--border2);
+  border-radius:var(--r); color:var(--text2); font-size:12px;
+  padding:8px 14px; transition:all .15s;
+}
+.proj-edit-cancel:hover { border-color:var(--border3); color:var(--text); }
+/* app-title clickable */
+.app-proj-title { cursor:pointer; }
+.app-proj-title:hover { color:#d4b97e; }
+.app-proj-medium { cursor:pointer; }
+.app-proj-medium:hover { opacity:.8; }
+
 /* Toast */
 .toast {
   position:fixed; bottom:calc(80px + env(safe-area-inset-bottom));
@@ -919,8 +986,8 @@ textarea, input { font-family:var(--fb); }
     <button class="ham-btn" id="ham-btn" onclick="toggleNav()">
       <div class="ham-line"></div><div class="ham-line"></div><div class="ham-line"></div>
     </button>
-    <div class="app-proj-title" id="app-title">—</div>
-    <span class="app-proj-medium" id="app-medium"></span>
+    <div class="app-proj-title" id="app-title" onclick="openProjEdit()" title="클릭하여 속성 편집">—</div>
+    <span class="app-proj-medium" id="app-medium" onclick="openProjEdit()" title="클릭하여 속성 편집"></span>
     <div class="tab-switcher">
       <button class="tab-sw-btn on" id="tab-chat-btn" onclick="switchTab('chat')" title="브레인스토밍">💬</button>
       <button class="tab-sw-btn" id="tab-script-btn" onclick="switchTab('script')" title="대본">📄</button>
@@ -999,8 +1066,10 @@ textarea, input { font-family:var(--fb); }
       <!-- Prompter -->
       <div class="prompter" id="prompter">
         <div class="file-analyze-banner" id="file-analyze-banner">
-          <div class="fab-filename" id="fab-filename"></div>
-          <div class="fab-status" id="fab-status">분석 중...</div>
+          <div class="fab-top">
+            <div class="fab-filename" id="fab-filename"></div>
+            <div class="fab-status" id="fab-status">분석 중...</div>
+          </div>
           <div class="fab-actions" id="fab-actions"></div>
         </div>
         <div class="chip-row" id="chip-row">
@@ -1105,6 +1174,36 @@ textarea, input { font-family:var(--fb); }
         <div class="setting-label">콘티 자동생성<small>대본에서 샷·배경·액션 자동 추출</small></div>
         <span class="setting-val" style="color:var(--amber)">준비 중</span>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Project edit modal -->
+<div class="proj-edit-overlay" id="proj-edit-overlay" onclick="onProjEditOverlayClick(event)">
+  <div class="proj-edit-panel" id="proj-edit-panel">
+    <div class="proj-edit-title">프로젝트 속성</div>
+    <div class="proj-edit-row">
+      <div class="proj-edit-label">제목</div>
+      <input class="proj-edit-inp" id="pe-title" placeholder="작품 제목">
+    </div>
+    <div class="proj-edit-row">
+      <div class="proj-edit-label">매체</div>
+      <select class="proj-edit-select" id="pe-medium">
+        <option>뮤지컬</option><option>드라마</option><option>영화</option>
+        <option>애니메이션</option><option>연극</option><option>웹툰</option>
+        <option>소설</option><option>기타</option>
+      </select>
+    </div>
+    <div class="proj-edit-row">
+      <div class="proj-edit-label">장르 태그</div>
+      <div class="genre-tags-wrap" id="pe-tags-wrap">
+        <input class="genre-tag-add-inp" id="pe-tag-inp" placeholder="+ 태그 추가"
+          onkeydown="onTagInpKey(event)">
+      </div>
+    </div>
+    <div class="proj-edit-acts">
+      <button class="proj-edit-cancel" onclick="closeProjEdit()">취소</button>
+      <button class="proj-edit-save" onclick="saveProjEdit()">저장</button>
     </div>
   </div>
 </div>
@@ -1343,6 +1442,7 @@ function renderHome() {
         <div class="proj-card-tags">${tags}</div>
       </div>
       <div class="proj-card-acts">
+        <button class="proj-icon-btn" onclick="editProjFromHome(${p.id},event)" title="속성 편집">✎</button>
         <button class="proj-icon-btn" onclick="duplicateProject(${p.id},event)" title="복제">⎘</button>
         <button class="proj-icon-btn del" id="del-${p.id}" onclick="confirmDelProject(${p.id},event)" title="삭제">✕</button>
       </div>`;
@@ -1388,6 +1488,40 @@ function duplicateProject(id, e) {
   save(); renderHome(); toast(`"${dup.title}" 복제됨`);
 }
 
+function editProjFromHome(id, e) {
+  e.stopPropagation();
+  const p = S.projects.find(x => x.id === id);
+  if (!p) return;
+  // 임시로 S.cur에 넣고 속성 편집 열기, 저장 후 홈 갱신
+  const prevCur = S.cur;
+  S.cur = p;
+  // openProjEdit은 S.cur 기준으로 동작하므로 그대로 사용
+  document.getElementById('pe-title').value = p.title || '';
+  document.getElementById('pe-medium').value = p.medium || '뮤지컬';
+  renderPeTags();
+  // 저장 후 홈 화면 갱신하도록 임시 플래그
+  document.getElementById('proj-edit-overlay')._fromHome = true;
+  document.getElementById('proj-edit-overlay')._prevCur = prevCur;
+  document.getElementById('proj-edit-overlay').classList.add('show');
+  setTimeout(() => document.getElementById('pe-title').select(), 50);
+}
+
+function editProjFromHome(id, e) {
+  e.stopPropagation();
+  const p = S.projects.find(x => x.id === id);
+  if (!p) return;
+  const prevCur = S.cur;
+  S.cur = p;
+  document.getElementById('pe-title').value = p.title || '';
+  document.getElementById('pe-medium').value = p.medium || '뮤지컬';
+  renderPeTags();
+  const overlay = document.getElementById('proj-edit-overlay');
+  overlay._fromHome = true;
+  overlay._prevCur = prevCur;
+  overlay.classList.add('show');
+  setTimeout(() => document.getElementById('pe-title').select(), 50);
+}
+
 function openNewProjectModal() {
   document.getElementById('new-proj-modal').classList.add('show');
   document.getElementById('np-title').focus();
@@ -1408,9 +1542,12 @@ function createProject() {
     characters: [],
     synopsis: '',
     synopsisSections: [],
-    messages: [],
+    messages: [{
+      role: 'assistant',
+      text: '안녕하세요! 《' + title + '》 작업을 시작해볼까요? 반짝이는 아이디어를 입력해보세요. 어떤 장면이나 캐릭터부터 이야기해볼까요? 대본을 함께 만들어줄게요.'
+    }],
     lastOpened: Date.now(),
-    storyboard: [] // reserved for future
+    storyboard: []
   };
   S.projects.push(proj);
   save();
@@ -1450,6 +1587,100 @@ function goHome() {
   renderHome();
 }
 function openSettingsFromHome() { openDrawer('settings'); }
+
+// ═══════════════════════════════════════════
+// PROJECT EDIT
+// ═══════════════════════════════════════════
+function openProjEdit() {
+  if (!S.cur) return;
+  // 현재 값 채우기
+  document.getElementById('pe-title').value = S.cur.title || '';
+  const selMedium = document.getElementById('pe-medium');
+  selMedium.value = S.cur.medium || '뮤지컬';
+  // 장르 태그 렌더
+  renderPeTags();
+  document.getElementById('proj-edit-overlay').classList.add('show');
+  setTimeout(() => document.getElementById('pe-title').select(), 50);
+}
+
+function closeProjEdit() {
+  const overlay = document.getElementById('proj-edit-overlay');
+  if (overlay._fromHome) {
+    S.cur = overlay._prevCur || null;
+    overlay._fromHome = false;
+    overlay._prevCur = null;
+  }
+  overlay.classList.remove('show');
+}
+
+function onProjEditOverlayClick(e) {
+  if (e.target === document.getElementById('proj-edit-overlay')) closeProjEdit();
+}
+
+function renderPeTags() {
+  const wrap = document.getElementById('pe-tags-wrap');
+  const inp = document.getElementById('pe-tag-inp');
+  // 기존 태그 칩 제거 (인풋은 유지)
+  wrap.querySelectorAll('.genre-tag-pill').forEach(el => el.remove());
+  (S.cur.genreTags || []).forEach(tag => {
+    const pill = document.createElement('span');
+    pill.className = 'genre-tag-pill';
+    pill.innerHTML = `${escH(tag)}<span class="genre-tag-del" onclick="removePeTag('${escH(tag)}')">×</span>`;
+    wrap.insertBefore(pill, inp);
+  });
+}
+
+function removePeTag(tag) {
+  S.cur.genreTags = (S.cur.genreTags || []).filter(t => t !== tag);
+  renderPeTags();
+}
+
+function onTagInpKey(e) {
+  if (e.key === 'Enter' || e.key === ',') {
+    if (e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    const val = e.target.value.trim().replace(/,/g, '');
+    if (val && !(S.cur.genreTags || []).includes(val)) {
+      if (!S.cur.genreTags) S.cur.genreTags = [];
+      S.cur.genreTags.push(val);
+      renderPeTags();
+    }
+    e.target.value = '';
+  }
+  if (e.key === 'Escape') closeProjEdit();
+}
+
+function saveProjEdit() {
+  if (!S.cur) return;
+  const title = document.getElementById('pe-title').value.trim();
+  const medium = document.getElementById('pe-medium').value;
+  // 인풋에 입력 중인 태그도 저장
+  const tagInp = document.getElementById('pe-tag-inp');
+  const pendingTag = tagInp.value.trim();
+  if (pendingTag && !(S.cur.genreTags || []).includes(pendingTag)) {
+    if (!S.cur.genreTags) S.cur.genreTags = [];
+    S.cur.genreTags.push(pendingTag);
+    tagInp.value = '';
+  }
+  if (title) S.cur.title = title;
+  S.cur.medium = medium;
+  save(true);
+  const overlay = document.getElementById('proj-edit-overlay');
+  if (overlay._fromHome) {
+    // 홈에서 열었으면 S.cur 복원 후 홈 갱신
+    S.cur = overlay._prevCur || null;
+    overlay._fromHome = false;
+    overlay._prevCur = null;
+    closeProjEdit();
+    renderHome();
+  } else {
+    // 앱 내에서 열었으면 헤더 즉시 반영
+    document.getElementById('app-title').textContent = S.cur.title;
+    document.getElementById('app-medium').textContent = S.cur.medium;
+    closeProjEdit();
+  }
+  toast('✓ 프로젝트 속성 저장됨');
+}
 
 // ═══════════════════════════════════════════
 // NAVIGATOR
@@ -2435,14 +2666,8 @@ ${ctx}
     let scenesData = null;
     if (scenesRaw) { try { scenesData = JSON.parse(scenesRaw); } catch {} }
 
-    // Clean text — remove ALL data tags and code blocks
-    let displayText = raw
-      .replace(/<synopsis[\s\S]*?<\/synopsis>/gi, '')
-      .replace(/<scenes[\s\S]*?<\/scenes>/gi, '')
-      .replace(/<r>[\s\S]*?<\/r>/gi, '')
-      .replace(/```[\s\S]*?```/g, '')
-      .replace(/\[\s*\{[\s\S]*?\}\s*\]/g, '')  // JSON arrays
-      .trim();
+    // Clean text — remove ALL data tags (cleanDisplayText 공통 함수 사용)
+    let displayText = cleanDisplayText(raw);
     if (!displayText) displayText = '생성이 완료됐습니다.';
 
     const actions = [];
@@ -2975,69 +3200,133 @@ async function handleFileAttach(e) {
     const text = await readFileAsText(file);
     if (!text.trim()) { fabStatus.textContent = '빈 파일입니다.'; return; }
 
-    fabStatus.textContent = 'AI가 분석 중... (Haiku)';
+    const isLong = text.length > 4000;
+    const curTitle = S.cur?.title || '';
+    const curSynopsis = S.cur?.synopsis ? S.cur.synopsis.slice(0, 200) : '없음';
 
-    const sys = `당신은 창작 대본 분석 전문가입니다. 주어진 텍스트를 분석해서 다음 중 하나로 분류하세요:
-1. 시놉시스/줄거리 (synopsis)
-2. 대본/씬 텍스트 (script)  
-3. 둘 다 포함 (both)
-4. 기타 메모나 아이디어 (memo)
+    const makeSys = (chunkInfo) => `당신은 창작 대본 분석 전문가입니다.
+현재 프로젝트: "${curTitle}" / 시놉시스 요약: ${curSynopsis}
+${chunkInfo ? '[청크 처리 ' + chunkInfo + ']' : ''}
 
-분류 결과와 함께:
-- 시놉시스가 있으면: <synopsis>시놉시스 내용</synopsis> 태그로 감싸주세요
-- 대본/씬이 있으면: <scenes>[{"title":"씬제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 태그로 감싸주세요
-- 응답 본문은 반드시 자연어로만 작성하고, JSON이나 XML 태그를 본문에 직접 쓰지 마세요
-- 태그는 응답 맨 끝에만 붙이세요
-- 한국어로 답변하세요
-- 텍스트가 대본 형식이면 씬을 최대한 충실히 파싱하되, 각 줄의 type을 정확히 구분하세요`;
+응답 규칙:
+1. 응답 본문은 반드시 자연어 한국어로만 작성하세요. JSON·코드·XML 태그를 본문에 쓰지 마세요.
+2. 태그는 응답 맨 끝에만 붙이세요.
+3. 시놉시스/줄거리가 있으면: <synopsis>내용</synopsis>
+4. 대본/씬이 있으면: <scenes>[{"title":"씬제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes>
+   - type은 action(지문)/character(배역명)/dialogue(대사) 중 하나만 사용
+5. 현재 프로젝트와 전혀 다른 작품이면: <newproject>추천제목</newproject>`;
 
-    // 텍스트가 너무 길면 앞부분만 전달 (Haiku 토큰 절약)
-    const trimmed = text.length > 6000 ? text.slice(0, 6000) + '\n...(이하 생략)' : text;
-    const raw = await callClaude(
-      [{role:'user', content:'다음 텍스트를 분석해주세요:\n\n' + trimmed}],
-      sys, 3000, 'claude-haiku-4-5-20251001'
-    );
+    let synopsisData = null;
+    let allScenes = [];
+    let newProjectTitle = null;
+    let summaryText = '';
 
-    // 태그 파싱
-    const synopsisData = extractTag(raw, 'synopsis');
-    const scenesRaw = extractTag(raw, 'scenes');
-    let scenesData = null;
-    if (scenesRaw) {
-      try { scenesData = JSON.parse(scenesRaw); } catch(pe) {
-        // JSON 파싱 실패 시 씬 데이터 무시, 텍스트만 사용
-        console.warn('Scene JSON parse error:', pe);
+    if (!isLong) {
+      // 짧은 파일 — 한 번에 처리
+      fabStatus.textContent = 'AI 분석 중...';
+      const raw = await callClaude(
+        [{role:'user', content:'다음 텍스트를 분석해주세요:\n\n' + text}],
+        makeSys(''), 6000, 'claude-haiku-4-5-20251001'
+      );
+      synopsisData = extractTag(raw, 'synopsis');
+      const sr = extractTag(raw, 'scenes');
+      newProjectTitle = extractTag(raw, 'newproject');
+      if (sr) { try { const d = JSON.parse(sr); if (Array.isArray(d)) allScenes = d; } catch(pe) { console.warn('parse err', pe); } }
+      summaryText = cleanDisplayText(raw);
+    } else {
+      // 긴 파일 — 청크 분할 처리
+      const CHUNK = 4000;
+      const chunks = [];
+      for (let i = 0; i < text.length; i += CHUNK) chunks.push(text.slice(i, i + CHUNK));
+      const total = chunks.length;
+      fabStatus.textContent = '청크 분할 처리 중... (총 ' + total + '개 구간)';
+
+      for (let ci = 0; ci < chunks.length; ci++) {
+        fabStatus.textContent = '씬 변환 중... ' + (ci + 1) + ' / ' + total + ' 완료';
+        const raw = await callClaude(
+          [{role:'user', content:'다음 텍스트를 분석해주세요 (' + (ci+1) + '/' + total + '):\n\n' + chunks[ci]}],
+          makeSys((ci+1) + '/' + total), 6000, 'claude-haiku-4-5-20251001'
+        );
+        if (ci === 0) {
+          synopsisData = extractTag(raw, 'synopsis');
+          newProjectTitle = extractTag(raw, 'newproject');
+          summaryText = cleanDisplayText(raw);
+        }
+        const sr = extractTag(raw, 'scenes');
+        if (sr) { try { const d = JSON.parse(sr); if (Array.isArray(d)) allScenes = allScenes.concat(d); } catch(pe) { console.warn('chunk ' + ci + ' err', pe); } }
       }
+      if (!summaryText) summaryText = '총 ' + allScenes.length + '개 씬을 추출했습니다.';
     }
 
-    // 자연어 응답만 추출 (태그 제거)
-    const displayText = raw
-      .replace(/<synopsis[\s\S]*?<\/synopsis>/gi, '')
-      .replace(/<scenes[\s\S]*?<\/scenes>/gi, '')
-      .replace(/```[\s\S]*?```/g, '')
-      .trim();
+    const scenesData = allScenes.length > 0 ? allScenes : null;
 
-    fabStatus.textContent = displayText || '분석 완료';
+    // 청크 처리 시 경계 경고 문구
+    const chunkWarning = isLong && scenesData
+      ? '\n\n⚠ 파일이 길어 구간별로 나눠 처리했습니다. 씬 경계에서 내용이 잘렸을 수 있으니 대본 탭에서 확인해주세요. 문제가 있는 씬은 선택 후 프롬프터에서 정리를 요청하세요.'
+      : '';
+
+    fabStatus.textContent = (summaryText || '분석 완료') + chunkWarning;
 
     // 액션 버튼 생성
     const actions = [];
+
+    // 현재 프로젝트에 저장하는 버튼들
     if (synopsisData) {
       actions.push({ label:'📋 시놉시스로 저장', cls:'green', fn: () => {
         S.cur.synopsis = synopsisData; save();
         renderSynopsisDrawer();
         toast('✓ 시놉시스 저장됨');
-        addMsg('assistant', `파일에서 시놉시스를 저장했습니다.
-
-${synopsisData.slice(0,200)}${synopsisData.length>200?'...':''}`);
+        addMsg('assistant', '파일에서 시놉시스를 저장했습니다.\n\n' + synopsisData.slice(0,200) + (synopsisData.length>200?'...':''));
         hideBanner();
       }});
     }
     if (scenesData && Array.isArray(scenesData) && scenesData.length > 0) {
-      actions.push({ label:`🎬 씬 ${scenesData.length}개 대본에 추가`, cls:'purple', fn: () => {
+      actions.push({ label:'🎬 씬 ' + scenesData.length + '개 현재 프로젝트에 추가', cls:'purple', fn: () => {
         addScenesFromAI(scenesData);
-        addMsg('assistant', `파일에서 씬 ${scenesData.length}개를 대본에 추가했습니다.`);
+        addMsg('assistant', '파일에서 씬 ' + scenesData.length + '개를 대본에 추가했습니다.');
         hideBanner();
       }});
     }
+
+    // 새 프로젝트로 저장 버튼 (AI가 다른 작품으로 판단한 경우)
+    if (newProjectTitle && (synopsisData || scenesData)) {
+      const suggestedTitle = newProjectTitle.trim();
+      actions.push({ label:'✨ "' + suggestedTitle + '" 새 프로젝트로 저장', cls:'amber', fn: () => {
+        // 새 프로젝트 생성
+        const newProj = {
+          id: Date.now() + Math.random(),
+          title: suggestedTitle,
+          medium: S.cur?.medium || '기타',
+          genreTags: [],
+          scenes: [],
+          characters: [],
+          synopsis: synopsisData || '',
+          synopsisSections: [],
+          messages: [],
+          lastOpened: Date.now(),
+          storyboard: [],
+        };
+        // 씬 데이터가 있으면 추가
+        if (scenesData && Array.isArray(scenesData)) {
+          newProj.scenes = scenesData.map(s => ({
+            id: Date.now() + Math.random(),
+            title: s.title || '새 씬',
+            locked: false,
+            lines: [
+              { type:'slug', text: s.slug || 'INT. 장소 - 시간대', locked:false },
+              ...(s.lines||[]).map(l => ({ type: l.type==='parenthetical'?'action':(l.type||'action'), text:l.text||'', locked:false }))
+            ],
+            storyboard: [], diff: null,
+          }));
+        }
+        S.projects.push(newProj);
+        save(true);
+        toast('✨ 새 프로젝트 "' + suggestedTitle + '" 생성됨');
+        addMsg('assistant', '"' + suggestedTitle + '" 새 프로젝트를 만들었습니다. 홈으로 돌아가면 확인할 수 있어요.');
+        hideBanner();
+      }});
+    }
+
     // 둘 다 없으면 메모로 브레인스토밍에 추가
     if (!synopsisData && !scenesData) {
       actions.push({ label:'💬 브레인스토밍에 붙여넣기', cls:'', fn: () => {
@@ -3057,11 +3346,10 @@ ${synopsisData.slice(0,200)}${synopsisData.length>200?'...':''}`);
       fabActions.appendChild(btn);
     });
 
-    // 채팅창에도 분석 결과 메시지로 표시
+    // 채팅창에도 분석 결과 메시지로 표시 (자연어만)
     switchTab('chat');
-    addMsg('assistant', `📎 **${file.name}** 분석 완료
-
-${displayText}`, []);
+    const chatSummary = cleanDisplayText(summaryText || '');
+    addMsg('assistant', '📎 ' + file.name + ' 분석 완료\n\n' + (chatSummary || '분석이 완료됐습니다.'), []);
 
   } catch(err) {
     if (err.name === 'AbortError') { hideBanner(); return; }
@@ -3144,7 +3432,7 @@ updateApiDot();
 
 // Keyboard shortcut: Escape closes drawers
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeDrawer(); closeResponsePanel(); cancelDelete(); }
+  if (e.key === 'Escape') { closeDrawer(); closeResponsePanel(); cancelDelete(); closeProjEdit(); }
   if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
   if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
 });
