@@ -713,10 +713,12 @@ textarea, input { font-family:var(--fb); }
   width:38px; height:38px; border-radius:var(--r);
   background:var(--accent); color:#0e0e10; border:none;
   font-size:16px; font-weight:600; flex-shrink:0;
-  transition:all .15s; display:flex; align-items:center; justify-content:center;
+  transition:background .2s, color .2s; display:flex; align-items:center; justify-content:center;
+  cursor:pointer;
 }
 .prompter-send:hover { background:#d4b97e; }
 .prompter-send:disabled { background:var(--bg4); color:var(--text3); cursor:not-allowed; }
+.prompter-send.stopping { background:var(--red); color:#fff; font-size:13px; }
 .prompter-del-btn {
   font-size:10px; padding:0 10px; height:38px; border-radius:var(--r);
   border:1px solid rgba(224,96,96,.3); background:none; color:var(--red);
@@ -816,9 +818,9 @@ textarea, input { font-family:var(--fb); }
 .syn-free-area {
   background:var(--bg3); border:1px solid var(--border2);
   border-radius:var(--r2); color:var(--text); font-size:13px;
-  padding:11px 13px; min-height:100px; outline:none;
-  line-height:1.75; resize:none; width:100%;
-  font-family:var(--fb);
+  padding:11px 13px; min-height:160px; outline:none;
+  line-height:1.75; resize:vertical; width:100%;
+  font-family:var(--fb); overflow-y:auto;
 }
 .syn-free-area:focus { border-color:var(--accent2); }
 .syn-section { background:var(--bg3); border:1px solid var(--border); border-radius:var(--r2); overflow:hidden; }
@@ -946,7 +948,9 @@ textarea, input { font-family:var(--fb); }
       <!-- Script tab -->
       <div class="app-tc" id="tc-script">
         <div class="script-toolbar">
-          <button class="toolbar-btn" onclick="toggleSelectAll()">전체선택</button>
+          <button class="toolbar-btn" id="undo-btn" onclick="undo()" disabled title="되돌리기 (Ctrl+Z)">↩ 되돌리기</button>
+        <button class="toolbar-btn" id="redo-btn" onclick="redo()" disabled title="다시실행 (Ctrl+Y)">↪ 다시실행</button>
+        <button class="toolbar-btn" onclick="toggleSelectAll()">전체선택</button>
           <button class="toolbar-btn" onclick="lockSelected()">🔒 잠금</button>
           <span class="toolbar-info" id="toolbar-info"></span>
           <button class="prompter-del-btn" id="del-btn" onclick="confirmDeleteSelected()">✕ 씬 삭제</button>
@@ -1115,7 +1119,7 @@ const storage = {
 // ═══════════════════════════════════════════
 let S = {
   projects: [],
-  cur: null,           // current project
+  cur: null,
   apiKey: '',
   useProxy: true,
   selectedIds: new Set(),
@@ -1124,7 +1128,85 @@ let S = {
   editingCharId: null,
 };
 
-function save() {
+// AI 응답 대기 상태
+let isWaiting = false;
+
+function setWaiting(val) {
+  isWaiting = val;
+  const btn = document.getElementById('prompter-send');
+  const inp = document.getElementById('prompter-inp');
+  if (!btn) return;
+  if (val) {
+    btn.innerHTML = '⏹';
+    btn.title = '응답 중지';
+    btn.style.background = 'var(--red)';
+    btn.onclick = stopGeneration;
+    if (inp) inp.setAttribute('data-waiting', '1');
+  } else {
+    btn.innerHTML = '↑';
+    btn.title = '';
+    btn.style.background = '';
+    btn.onclick = sendPrompt;
+    btn.disabled = false;
+    if (inp) inp.removeAttribute('data-waiting');
+  }
+}
+
+function stopGeneration() {
+  abortCurrentRequest();
+  hideTyping();
+  setWaiting(false);
+  const btn = document.getElementById('prompter-send');
+  if (btn) btn.innerHTML = '↑';
+  toast('⏹ 중지됨');
+}
+
+// Undo/Redo stacks (snapshots of S.cur)
+let undoStack = [];
+let redoStack = [];
+const UNDO_LIMIT = 50;
+
+function pushUndo() {
+  if (!S.cur) return;
+  undoStack.push(JSON.stringify(S.cur));
+  if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  redoStack = [];
+  updateUndoUI();
+}
+
+function undo() {
+  if (!undoStack.length || !S.cur) return;
+  redoStack.push(JSON.stringify(S.cur));
+  const snap = undoStack.pop();
+  const restored = JSON.parse(snap);
+  const idx = S.projects.findIndex(p => p.id === S.cur.id);
+  if (idx !== -1) S.projects[idx] = restored;
+  S.cur = restored;
+  save(); renderScriptBody(); renderNavSceneList(); renderChatMsgs();
+  updateUndoUI(); toast('↩ 되돌리기');
+}
+
+function redo() {
+  if (!redoStack.length || !S.cur) return;
+  undoStack.push(JSON.stringify(S.cur));
+  const snap = redoStack.pop();
+  const restored = JSON.parse(snap);
+  const idx = S.projects.findIndex(p => p.id === S.cur.id);
+  if (idx !== -1) S.projects[idx] = restored;
+  S.cur = restored;
+  save(); renderScriptBody(); renderNavSceneList(); renderChatMsgs();
+  updateUndoUI(); toast('↪ 다시 실행');
+}
+
+function updateUndoUI() {
+  const undoBtn = document.getElementById('undo-btn');
+  const redoBtn = document.getElementById('redo-btn');
+  if (undoBtn) undoBtn.disabled = undoStack.length === 0;
+  if (redoBtn) redoBtn.disabled = redoStack.length === 0;
+}
+
+function save(skipUndo = false) {
+  if (!skipUndo && S.cur) pushUndo();
   storage.set('ss_projects', S.projects);
   storage.set('ss_api', { key: S.apiKey, proxy: S.useProxy });
 }
@@ -1139,21 +1221,29 @@ function load() {
 // ═══════════════════════════════════════════
 // CLAUDE API
 // ═══════════════════════════════════════════
-async function callClaude(messages, system, maxTokens = 2000) {
-  const body = {
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: maxTokens,
-    system,
-    messages
-  };
-  const resp = await fetch('/api/claude', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  if (!resp.ok) throw new Error(`API ${resp.status}: ${await resp.text()}`);
-  const data = await resp.json();
-  return data.content.map(b => b.text || '').join('');
+let _currentAbortCtrl = null;
+
+function abortCurrentRequest() {
+  if (_currentAbortCtrl) { _currentAbortCtrl.abort(); _currentAbortCtrl = null; }
+}
+
+async function callClaude(messages, system, maxTokens = 2000, model = 'claude-sonnet-4-20250514') {
+  abortCurrentRequest();
+  _currentAbortCtrl = new AbortController();
+  const body = { model, max_tokens: maxTokens, system, messages };
+  try {
+    const resp = await fetch('/api/claude', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: _currentAbortCtrl.signal
+    });
+    if (!resp.ok) throw new Error(`API ${resp.status}: ${await resp.text()}`);
+    const data = await resp.json();
+    return data.content.map(b => b.text || '').join('');
+  } finally {
+    _currentAbortCtrl = null;
+  }
 }
 
 function buildProjectContext() {
@@ -1750,7 +1840,7 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
       const sys = `대본 작가 AI. 씬 제목과 슬러그라인을 제안해주세요.
 반드시 <suggestion>{"title":"씬 제목","slug":"INT/EXT. 장소 - 시간"}</suggestion> 형식으로만 답하세요.`;
       const prevTitles = (S.cur?.scenes||[]).map((s,i)=>`SC${i+1}: ${s.title}`).join(', ');
-      const raw = await callClaude([{role:'user',content:`작품 정보: ${ctx}\n기존 씬: ${prevTitles}\n다음에 올 새 씬을 제안해주세요.`}], sys, 200);
+      const raw = await callClaude([{role:'user',content:`작품 정보: ${ctx}\n기존 씬: ${prevTitles}\n다음에 올 새 씬을 제안해주세요.`}], sys, 200, 'claude-haiku-4-5-20251001');
       const data = extractTag(raw, 'suggestion');
       if (data) {
         const parsed = JSON.parse(data);
@@ -1853,10 +1943,11 @@ function buildSceneBlock(sc, i) {
   const num = document.createElement('span'); num.className = 'scene-num'; num.textContent = `SC ${i+1}`;
   const titleInp = document.createElement('input');
   titleInp.className = 'scene-title-inp'; titleInp.value = sc.title; titleInp.placeholder = '씬 제목';
-  titleInp.oninput = () => { sc.title = titleInp.value; save(); renderNavSceneList(); };
+  titleInp.oninput = () => { sc.title = titleInp.value; save(true); renderNavSceneList(); };
   titleInp.addEventListener('focus', () => {
     setTimeout(() => titleInp.scrollIntoView({ block:'nearest', behavior:'smooth' }), 150);
   });
+  titleInp.addEventListener('blur', () => save());
   titleInp.addEventListener('focus', () => {
     setTimeout(() => titleInp.scrollIntoView({ block:'nearest', behavior:'smooth' }), 150);
   });
@@ -1891,7 +1982,7 @@ function buildSceneBlock(sc, i) {
       el.dataset.locked = sc.locked || line.locked;
       el.textContent = line.text;
       el.style.flex = '1';
-      el.oninput = () => { line.text = el.textContent; save(); };
+      el.oninput = () => { line.text = el.textContent; save(true); };
       el.onkeydown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
@@ -2247,7 +2338,13 @@ function handleMsgAction(action) {
 // PROMPTER SEND
 // ═══════════════════════════════════════════
 function onPromptKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPrompt(); }
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    // IME 조합 중(한글 입력 등) 이면 무시 — 맥북 이중입력 방지
+    if (e.isComposing || e.keyCode === 229) return;
+    if (isWaiting) return;
+    sendPrompt();
+  }
 }
 function autoResize(el) {
   el.style.height = 'auto';
@@ -2255,19 +2352,23 @@ function autoResize(el) {
 }
 
 async function sendPrompt() {
+  if (isWaiting) return;
   const inp = document.getElementById('prompter-inp');
-  const btn = document.getElementById('prompter-send');
   const text = inp.value.trim();
   if (!text) return;
   inp.value = ''; inp.style.height = 'auto';
-  btn.disabled = true;
-
-  if (S.activeTab === 'chat') {
-    await handleChatPrompt(text);
-  } else {
-    await handleScriptPrompt(text);
+  setWaiting(true);
+  try {
+    if (S.activeTab === 'chat') {
+      await handleChatPrompt(text);
+    } else {
+      await handleScriptPrompt(text);
+    }
+  } catch(e) {
+    if (e.name !== 'AbortError') console.error(e);
+  } finally {
+    setWaiting(false);
   }
-  btn.disabled = false;
 }
 
 // ═══════════════════════════════════════════
@@ -2283,12 +2384,14 @@ async function handleChatPrompt(text) {
     const sys = `당신은 창작 대본 작업을 돕는 전문 작가 AI입니다.
 ${ctx}
 
-규칙:
-1. 시놉시스를 작성할 때 반드시 <synopsis>내용</synopsis> 태그로 감싸세요.
-2. 씬/대본을 생성할 때 반드시 <scenes>[JSON배열]</scenes> 태그로 감싸세요.
-   씬 JSON 형식: [{"title":"씬 제목","slug":"INT. 장소 - 시간","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용"}]}]
-3. 일반 대화에서는 태그 없이 자연스럽게 답변하세요.
-4. 한국어로 답변하세요.`;
+응답 규칙:
+- 항상 자연스러운 한국어 대화체로 먼저 답변하세요.
+- 시놉시스를 작성할 경우: 자연어 설명 뒤에 <synopsis>내용만</synopsis> 태그를 붙이세요. 태그 안에는 순수 텍스트만, JSON이나 코드 없이.
+- 씬/대본을 생성할 경우: 자연어 설명 뒤에 <scenes>[JSON]</scenes> 태그를 붙이세요.
+  씬 JSON: [{"title":"씬 제목","slug":"INT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]
+- 태그는 응답 맨 끝에만 붙이세요. 태그가 대화 중간에 섞이지 않게 하세요.
+- 일반 대화나 아이디어 토론은 태그 없이 자연스럽게만 답하세요.
+- JSON이나 코드를 대화 본문에 직접 출력하지 마세요.`;
     const raw = await callClaude([...history, { role:'user', content:text }], sys, 3000);
     hideTyping();
 
@@ -2298,8 +2401,14 @@ ${ctx}
     let scenesData = null;
     if (scenesRaw) { try { scenesData = JSON.parse(scenesRaw); } catch {} }
 
-    // Clean text (remove tags)
-    let displayText = raw.replace(/<synopsis>[\s\S]*?<\/synopsis>/gi, '').replace(/<scenes>[\s\S]*?<\/scenes>/gi, '').trim();
+    // Clean text — remove ALL data tags and code blocks
+    let displayText = raw
+      .replace(/<synopsis[\s\S]*?<\/synopsis>/gi, '')
+      .replace(/<scenes[\s\S]*?<\/scenes>/gi, '')
+      .replace(/<r>[\s\S]*?<\/r>/gi, '')
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/\[\s*\{[\s\S]*?\}\s*\]/g, '')  // JSON arrays
+      .trim();
     if (!displayText) displayText = '생성이 완료됐습니다.';
 
     const actions = [];
@@ -2310,7 +2419,7 @@ ${ctx}
     addMsg('assistant', displayText, actions);
   } catch(e) {
     hideTyping();
-    addMsg('assistant', '오류: ' + e.message);
+    if (e.name !== 'AbortError') addMsg('assistant', '오류: ' + e.message);
   }
 }
 
@@ -2355,9 +2464,6 @@ async function handleScriptPrompt(text) {
 <result>[{"sceneId":숫자,"title":"씬제목","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용","locked":false}],"comment":"변경사항 한 줄 설명"}]</result>
 만약 방향을 선택해야 한다면 <choices>["선택지1","선택지2","선택지3"]</choices> 태그도 추가하세요.`;
 
-  const btn = document.getElementById('prompter-send');
-  btn.innerHTML = '<span class="spinner"></span>';
-
   try {
     const raw = await callClaude([{role:'user', content:`지시: ${text}\n\n씬 데이터:\n${sceneSummary}`}], sys, 3000);
     const resultRaw = extractTag(raw, 'result');
@@ -2389,15 +2495,26 @@ async function handleScriptPrompt(text) {
         applied++;
       });
       save(); renderScriptBody();
+      // 대본 편집 내역을 브레인스토밍 히스토리에도 기록
+      const summary = updates.map(u => {
+        const sc = S.cur.scenes.find(s => s.id === u.sceneId);
+        return sc ? `[대본편집] ${sc.title}: ${u.comment||'수정됨'}` : '';
+      }).filter(Boolean).join(' / ');
+      if (summary) {
+        if (!S.cur.messages) S.cur.messages = [];
+        S.cur.messages.push({ role:'user', text:`[대본 지시] ${text}` });
+        S.cur.messages.push({ role:'assistant', text: summary });
+        save(true);
+        appendMsgEl({ role:'assistant', text: summary }, false);
+      }
       if (choices && choices.length) showChoicesPanel(text, choices);
     } else {
       // Show as comment in response panel
       showCommentPanel(raw.replace(/<[\s\S]*?>/g,'').trim() || '처리 완료');
     }
   } catch(e) {
-    showCommentPanel('오류: ' + e.message);
+    if (e.name !== 'AbortError') showCommentPanel('오류: ' + e.message);
   }
-  btn.textContent = '↑';
 }
 
 // ═══════════════════════════════════════════
@@ -2405,8 +2522,6 @@ async function handleScriptPrompt(text) {
 // ═══════════════════════════════════════════
 async function checkConsistency() { await checkConsistencyWithPrompt('등장인물 대사와 행동이 캐릭터 설정과 일치하는지 검사해줘'); }
 async function checkConsistencyWithPrompt(text) {
-  const btn = document.getElementById('prompter-send');
-  btn.innerHTML = '<span class="spinner"></span>';
   try {
     const ctx = buildProjectContext();
     const scenes = (S.cur?.scenes||[]).map((s,i)=>`SC${i+1}. "${s.title}": ${s.lines.map(l=>l.text).join(' | ')}`).join('\n');
@@ -2420,7 +2535,6 @@ async function checkConsistencyWithPrompt(text) {
   } catch(e) {
     showCommentPanel('검사 오류: ' + e.message);
   }
-  btn.textContent = '↑';
 }
 
 // ═══════════════════════════════════════════
@@ -2472,9 +2586,10 @@ function showChoicesPanel(prompt, choices) {
 }
 
 function showCommentPanel(text) {
+  const escaped = text.replace(/'/g, "\'").replace(/"/g, '&quot;');
   showResponsePanel('comment', 'AI 응답', `<div class="ai-comment-txt">${escH(text)}</div>`,
     `<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>
-     <button class="rp-btn to-chat" onclick="takeToBrainstorm()">브레인스토밍에서 계속 →</button>`);
+     <button class="rp-btn to-chat" onclick="takeToBrainstorm('${escaped}')">브레인스토밍에서 계속 →</button>`);
 }
 
 function selectChoice(btn, choice) {
@@ -2484,9 +2599,16 @@ function selectChoice(btn, choice) {
   inp.focus();
 }
 
-function takeToBrainstorm() {
+function takeToBrainstorm(contextText) {
   closeResponsePanel();
   switchTab('chat');
+  if (contextText) {
+    // 컨텍스트를 브레인스토밍 히스토리에 추가
+    if (!S.cur.messages) S.cur.messages = [];
+    S.cur.messages.push({ role:'assistant', text: '[대본 에디터에서 이어짐] ' + contextText });
+    save(true);
+    renderChatMsgs();
+  }
 }
 
 function gotoSceneByLabel(label) {
@@ -2541,6 +2663,7 @@ function buildCharCard(c) {
       <button class="char-save-btn" onclick="saveChar(${c.id})">저장</button>
       <button class="char-cancel-btn" onclick="closeCharEdit(${c.id})">취소</button>
       <button class="char-ai-fill-btn" onclick="aiAutoFillChar(${c.id})">✦ AI 채워줘</button>
+      <button class="char-ai-fill-btn" style="background:var(--blue2);color:var(--blue);border-color:rgba(110,168,200,.3)" onclick="aiCharFromScript(${c.id})">📄 대본 분석</button>
       <button class="char-del-btn" onclick="deleteChar(${c.id})">삭제</button>
     </div>`;
   card.appendChild(editDiv);
@@ -2588,7 +2711,7 @@ async function aiAutoFillChar(id) {
     const ctx = buildProjectContext();
     const sys = `당신은 창작 캐릭터 디자인 전문가입니다. 주어진 작품 맥락과 인물 정보를 바탕으로 캐릭터 설명과 특성을 채워주세요.
 반드시 <chardata>{"description":"설명","traits":["특성1","특성2","특성3"]}</chardata> 형식으로 응답하세요.`;
-    const raw = await callClaude([{role:'user',content:`작품: ${ctx}\n인물 이름: ${name}\n역할: ${role}`}], sys, 500);
+    const raw = await callClaude([{role:'user',content:`작품: ${ctx}\n인물 이름: ${name}\n역할: ${role}`}], sys, 500, 'claude-haiku-4-5-20251001');
     const dataRaw = extractTag(raw, 'chardata');
     if (dataRaw) {
       const data = JSON.parse(dataRaw);
@@ -2599,6 +2722,44 @@ async function aiAutoFillChar(id) {
       toast('✓ AI가 채웠습니다');
     }
   } catch(e) { toast('AI 오류: ' + e.message); }
+}
+
+async function aiCharFromScript(id) {
+  const c = S.cur.characters.find(x=>x.id===id);
+  if (!c) return;
+  const name = document.getElementById(`ce-name-${id}`)?.value || c.name;
+  // 대본에서 해당 인물 대사/지문 추출
+  const charLines = [];
+  (S.cur.scenes||[]).forEach((sc,i) => {
+    let capturing = false;
+    sc.lines.forEach(l => {
+      if (l.type === 'character' && l.text.includes(name)) { capturing = true; return; }
+      if (capturing && l.type === 'dialogue') { charLines.push(`SC${i+1}: "${l.text}"`); capturing = false; }
+      else if (l.type === 'action' && l.text.includes(name)) { charLines.push(`SC${i+1} 지문: ${l.text}`); }
+      else capturing = false;
+    });
+  });
+  if (!charLines.length) { toast(`${name}의 대사/지문이 없습니다.`); return; }
+  const btn = document.querySelector(`[onclick="aiCharFromScript(${id})"]`);
+  if (btn) { btn.textContent = '⏳ 분석 중...'; btn.disabled = true; }
+  try {
+    const sys = `대본에 등장하는 인물의 대사와 행동을 분석해서 캐릭터 설명과 특성을 추출하세요.
+반드시 <chardata>{"description":"설명 2-3문장","traits":["특성1","특성2","특성3"]}</chardata> 형식으로만 응답하세요.`;
+    const raw = await callClaude([{role:'user',content:`인물: ${name}
+대사/행동:
+${charLines.join('
+')}`}], sys, 400, 'claude-haiku-4-5-20251001');
+    const dataRaw = extractTag(raw, 'chardata');
+    if (dataRaw) {
+      const data = JSON.parse(dataRaw);
+      const descInp = document.getElementById(`ce-desc-${id}`);
+      const traitsInp = document.getElementById(`ce-traits-${id}`);
+      if (descInp && data.description) descInp.value = data.description;
+      if (traitsInp && data.traits) traitsInp.value = data.traits.join(', ');
+      toast(`✓ ${name} 대본 분석 완료`);
+    } else { toast('분석 결과를 파싱할 수 없습니다.'); }
+  } catch(e) { toast('오류: '+e.message); }
+  finally { if (btn) { btn.textContent = '📄 대본 분석'; btn.disabled = false; } }
 }
 
 // ═══════════════════════════════════════════
@@ -2613,7 +2774,16 @@ function renderSynopsisDrawer() {
   ta.className = 'syn-free-area';
   ta.placeholder = '시놉시스를 자유롭게 입력하세요...';
   ta.value = S.cur.synopsis || '';
-  ta.oninput = () => { S.cur.synopsis = ta.value; save(); };
+  ta.oninput = () => {
+    S.cur.synopsis = ta.value; save();
+    ta.style.height = 'auto';
+    ta.style.height = Math.max(160, ta.scrollHeight) + 'px';
+  };
+  // Initial height
+  setTimeout(() => {
+    ta.style.height = 'auto';
+    ta.style.height = Math.max(160, ta.scrollHeight) + 'px';
+  }, 30);
   body.appendChild(ta);
   // Sections
   (S.cur.synopsisSections || []).forEach((sec, i) => {
@@ -2653,16 +2823,27 @@ function deleteSynSection(id) {
   save(); renderSynopsisDrawer();
 }
 async function regenSynopsis() {
-  toast('AI가 시놉시스를 생성 중...');
+  const btn = document.querySelector('#drawer-synopsis .drawer-btn.ai-btn');
+  const origTxt = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = '⏳ 생성 중...'; btn.disabled = true; }
   try {
-    const scenes = (S.cur.scenes||[]).map((s,i)=>`SC${i+1}. ${s.title}: ${s.lines.map(l=>l.text).join(' ')}`).join('\n');
+    const scenes = (S.cur.scenes||[]).map((s,i)=>{
+      const nonSlug = s.lines.filter(l=>l.type!=='slug').map(l=>l.text).join(' ');
+      return `SC${i+1}. ${s.title}: ${nonSlug}`;
+    }).join('\n');
+    if (!scenes.trim()) { toast('씬이 없습니다. 먼저 대본을 작성해주세요.'); return; }
     const sys = `대본을 바탕으로 시놉시스를 작성해주세요. <synopsis>내용</synopsis> 태그로 감싸주세요.`;
-    const raw = await callClaude([{role:'user',content:`대본:\n${scenes}`}], sys, 1000);
+    const raw = await callClaude([{role:'user',content:`대본:\n${scenes}`}], sys, 1000, 'claude-haiku-4-5-20251001');
     const syn = extractTag(raw, 'synopsis');
     if (syn && S.cur) {
       S.cur.synopsis = syn; save(); renderSynopsisDrawer(); toast('✓ 시놉시스 생성됨');
+    } else {
+      toast('생성 실패 — 다시 시도해주세요.');
     }
   } catch(e) { toast('오류: '+e.message); }
+  finally {
+    if (btn) { btn.textContent = origTxt; btn.disabled = false; }
+  }
 }
 function exportSynopsis() {
   const text = [S.cur?.synopsis || '', ...(S.cur?.synopsisSections||[]).map(s=>`[${s.title}]\n${s.body}`)].join('\n\n');
@@ -2788,7 +2969,11 @@ renderHome();
 updateApiDot();
 
 // Keyboard shortcut: Escape closes drawers
-document.addEventListener('keydown', e => { if (e.key==='Escape') { closeDrawer(); closeResponsePanel(); cancelDelete(); } });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeDrawer(); closeResponsePanel(); cancelDelete(); }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
+});
 
 // Mobile keyboard handling
 if (window.visualViewport) {
