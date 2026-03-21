@@ -24,13 +24,15 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  // API 요청은 캐시하지 않음
-  if (e.request.url.includes('/api/')) return;
+  if (e.request.method !== 'GET') return;
+  if (e.request.url.includes('/api/') ||
+      e.request.url.includes('supabase.co') ||
+      e.request.url.includes('chrome-extension')) return;
 
   e.respondWith(
     caches.match(e.request).then(cached => {
       const network = fetch(e.request).then(res => {
-        if (res.ok) {
+        if (res.ok && res.type !== 'opaque') {
           const clone = res.clone();
           caches.open(CACHE).then(c => c.put(e.request, clone));
         }
