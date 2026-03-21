@@ -1043,9 +1043,7 @@ textarea, input { font-family:var(--fb); }
       <div class="app-tc" id="tc-script">
         <div class="script-toolbar">
           <button class="toolbar-btn" id="undo-btn" onclick="undo()" disabled title="되돌리기 (Ctrl+Z)">↩ 되돌리기</button>
-        <button class="toolbar-btn" id="redo-btn" onclick="redo()" disabled title="다시실행 (Ctrl+Y)">↪ 다시실행</button>
-        <button class="toolbar-btn" onclick="toggleSelectAll()">전체선택</button>
-          <button class="toolbar-btn" onclick="lockSelected()">🔒 잠금</button>
+          <button class="toolbar-btn" id="redo-btn" onclick="redo()" disabled title="다시실행 (Ctrl+Y)">↪ 다시실행</button>
           <span class="toolbar-info" id="toolbar-info"></span>
           <button class="prompter-del-btn" id="del-btn" onclick="confirmDeleteSelected()">✕ 씬 삭제</button>
         </div>
@@ -2372,6 +2370,32 @@ function buildSceneBlock(sc, i) {
       el.textContent = line.text;
       el.style.flex = '1';
       let charDetectTimer;
+      el.addEventListener('focusout', () => {
+        // 빈 줄이고 slug가 아니면 자동 삭제 (포커스가 같은 씬 내부로 이동하는 경우는 제외)
+        if (line.type !== 'slug' && el.textContent.trim() === '' && !sc.locked) {
+          // 짧은 지연 후 씬 내부로 포커스가 갔는지 확인
+          setTimeout(() => {
+            const activeEl = document.activeElement;
+            const sameScene = block.contains(activeEl);
+            if (!sameScene) {
+              sc.lines.splice(li, 1);
+              save(true); renderAllLines();
+            }
+          }, 80);
+        }
+      });
+
+      el.addEventListener('focusout', () => {
+        if (line.type !== 'slug' && el.textContent.trim() === '' && !sc.locked) {
+          setTimeout(() => {
+            if (!block.contains(document.activeElement)) {
+              const idx = sc.lines.indexOf(line);
+              if (idx > 0) { sc.lines.splice(idx, 1); save(true); renderAllLines(); }
+            }
+          }, 80);
+        }
+      });
+
       el.oninput = () => {
         line.text = el.textContent;
         save(true);
@@ -2490,7 +2514,7 @@ function buildSceneBlock(sc, i) {
         if (existing) existing.remove();
         const menu = document.createElement('div');
         menu.id = 'line-type-menu';
-        menu.style.cssText = 'position:fixed;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);padding:6px;z-index:200;display:flex;flex-direction:column;gap:2px;min-width:120px;box-shadow:0 8px 24px rgba(0,0,0,.5);';
+        menu.style.cssText = 'position:fixed;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);padding:6px;z-index:200;display:flex;flex-direction:column;gap:2px;min-width:140px;box-shadow:0 8px 24px rgba(0,0,0,.5);';
         const types = [['action','지문'],['character','배역명'],['dialogue','대사'],['parenthetical','괄호 지문']];
         types.forEach(([t, label]) => {
           const btn = document.createElement('button');
@@ -2501,16 +2525,31 @@ function buildSceneBlock(sc, i) {
           btn.onclick = (ev) => { ev.stopPropagation(); line.type = t; save(); renderAllLines(); menu.remove(); menuOpen=false; };
           menu.appendChild(btn);
         });
-        // Divider + delete
-        const div = document.createElement('div');
-        div.style.cssText = 'height:1px;background:var(--border);margin:4px 0;';
-        menu.appendChild(div);
-        const del = document.createElement('button');
-        del.style.cssText = 'font-size:12px;padding:8px 12px;background:none;border:none;color:var(--red);text-align:left;border-radius:var(--r);cursor:pointer;width:100%;';
-        del.textContent = '줄 삭제';
-        del.addEventListener('touchstart', (te) => { te.stopPropagation(); }, {passive:true});
-        del.onclick = (ev) => { ev.stopPropagation(); sc.lines.splice(li,1); save(); renderAllLines(); menu.remove(); menuOpen=false; };
-        menu.appendChild(del);
+        // Divider + insert above/below + delete
+        const mkDiv = () => { const d = document.createElement('div'); d.style.cssText = 'height:1px;background:var(--border);margin:4px 0;'; return d; };
+        const mkMenuBtn = (label, color, fn) => {
+          const b = document.createElement('button');
+          b.style.cssText = 'font-size:12px;padding:8px 12px;background:none;border:none;color:' + (color||'var(--text2)') + ';text-align:left;border-radius:var(--r);cursor:pointer;width:100%;';
+          b.textContent = label;
+          b.addEventListener('touchstart', (te) => { te.stopPropagation(); }, {passive:true});
+          b.onclick = (ev) => { ev.stopPropagation(); fn(); menu.remove(); menuOpen=false; };
+          return b;
+        };
+        menu.appendChild(mkDiv());
+        menu.appendChild(mkMenuBtn('↑ 윗줄 삽입', null, () => {
+          sc.lines.splice(li, 0, { type:'action', text:'', locked:false });
+          save(); renderAllLines();
+          setTimeout(() => { const els = linesWrap.querySelectorAll('.line-el'); if (els[li]) els[li].focus(); }, 20);
+        }));
+        menu.appendChild(mkMenuBtn('↓ 아랫줄 삽입', null, () => {
+          sc.lines.splice(li + 1, 0, { type:'action', text:'', locked:false });
+          save(); renderAllLines();
+          setTimeout(() => { const els = linesWrap.querySelectorAll('.line-el'); if (els[li+1]) els[li+1].focus(); }, 20);
+        }));
+        menu.appendChild(mkDiv());
+        menu.appendChild(mkMenuBtn('줄 삭제', 'var(--red)', () => {
+          sc.lines.splice(li, 1); save(); renderAllLines();
+        }));
         document.body.appendChild(menu);
         // Position near touch/click point
         const mw = 130, mh = 160;
