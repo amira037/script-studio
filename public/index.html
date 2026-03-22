@@ -459,6 +459,7 @@ textarea, input { font-family:var(--fb); }
   color:var(--text2); transition:all .15s;
 }
 .msg-action-btn:hover { border-color:var(--accent2); color:var(--accent); }
+.msg-action-btn.amber { background:var(--accent3); color:var(--accent); border-color:var(--accent2); font-weight:600; }
 .msg-action-btn.green { border-color:rgba(110,200,154,.4); color:var(--green); background:var(--green2); }
 .msg-action-btn.purple { border-color:rgba(168,158,221,.4); color:var(--purple); background:var(--purple2); }
 .typing-dots { display:flex; gap:4px; padding:4px 0; align-items:center; }
@@ -3392,6 +3393,21 @@ function handleMsgAction(action) {
     showSmartSceneAddPanel(action.data);
   } else if (action.type === 'addCharacters') {
     addCharsFromAI(action.data);
+  } else if (action.type === 'gotoScriptFlow') {
+    const sceneNums = action.data;
+    S.selectedIds.clear();
+    sceneNums.forEach(n => {
+      const sc = S.cur?.scenes?.[n - 1];
+      if (sc) S.selectedIds.add(sc.id);
+    });
+    switchTab('script');
+    renderScriptBody();
+    const firstSc = S.cur?.scenes?.[sceneNums[0] - 1];
+    if (firstSc) setTimeout(() => scrollToScene(firstSc.id), 200);
+    const sceneLabel = sceneNums.map(n => 'SC' + n).join(', ');
+    const inp = document.getElementById('prompter-inp');
+    if (inp) inp.value = sceneLabel + ' 씬들의 연결을 자연스럽게 수정해줘';
+    toast('✓ ' + sceneNums.length + '개 씬 선택됨 — 프롬프터에서 전송해주세요', 4000);
   }
 }
 
@@ -3496,6 +3512,11 @@ async function handleChatPrompt(text) {
   switchTab('chat');
   showTyping();
   try {
+    // 씬 흐름 분석 키워드 감지
+    if (/연결|매끄럽|흐름|자연스럽|장면.*전환|씬.*이어/.test(text) && (S.cur?.scenes||[]).length > 1) {
+      await handleFlowAnalysisInChat(text);
+      return;
+    }
     const ctx = buildProjectContext();
     const history = (S.cur.messages || []).slice(-10).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
     const sys = `당신은 창작 대본 작업을 돕는 전문 작가 AI입니다.
@@ -3913,6 +3934,7 @@ async function handleScriptPrompt(text) {
 
   // Special commands
   if (/일관성|검사/.test(text)) { await checkConsistencyWithPrompt(text); return; }
+  if (/연결|매끄럽|흐름|자연스럽|전환.*어색|어색.*전환/.test(text)) { await checkSceneFlowWithPrompt(text); return; }
 
   // 중요 장면 포함 시 확인
   const keyScenes = selectedScenes.filter(s => s.locked);
@@ -4033,6 +4055,35 @@ async function handleScriptPrompt(text) {
 // ═══════════════════════════════════════════
 // CONSISTENCY CHECK
 // ═══════════════════════════════════════════
+async function handleFlowAnalysisInChat(text) {
+  try {
+    const scenes = S.cur?.scenes || [];
+    const sceneSummary = scenes.map((s,i) =>
+      'SC' + (i+1) + '. "' + s.title + '" [' + (s.lines[0]?.text||'') + ']'
+    ).join('\n');
+    const sys = '당신은 대본 흐름 분석 전문가입니다. 씬 목록을 보고 연결이 매끄럽지 않은 부분을 찾아주세요.\n' +
+      '분석 결과를 자연어로 설명한 뒤 반드시 맨 끝에 <flowissues>[문제 씬 번호 배열]</flowissues> 태그를 붙이세요.\n' +
+      '문제 없으면 <flowissues>[]</flowissues>.';
+    const raw = await callClaude(
+      [{role:'user', content:'씬 목록:\n' + sceneSummary + '\n\n요청: ' + text}],
+      sys, 2000
+    );
+    hideTyping();
+    const flowRaw = extractTag(raw, 'flowissues');
+    let problemNums = [];
+    if (flowRaw) { try { problemNums = JSON.parse(flowRaw); } catch {} }
+    const displayText = cleanDisplayText(raw) || '분석 완료됐습니다.';
+    const actions = [];
+    if (problemNums.length > 0) {
+      actions.push({ type:'gotoScriptFlow', data:problemNums, label:'대본 에디터에서 수정하기 →', style:'amber' });
+    }
+    addMsg('assistant', displayText, actions);
+  } catch(e) {
+    hideTyping();
+    addMsg('assistant', '분석 오류: ' + e.message);
+  }
+}
+
 async function checkConsistency() { await checkConsistencyWithPrompt('등장인물 대사와 행동이 캐릭터 설정과 일치하는지 검사해줘'); }
 async function checkConsistencyWithPrompt(text) {
   try {
@@ -4048,6 +4099,112 @@ async function checkConsistencyWithPrompt(text) {
   } catch(e) {
     showCommentPanel('검사 오류: ' + e.message);
   }
+}
+
+// ═══════════════════════════════════════════
+// SCENE FLOW CHECK
+// ═══════════════════════════════════════════
+async function checkSceneFlowWithPrompt(text) {
+  try {
+    const scenes = S.cur?.scenes || [];
+    // 선택된 씬이 있으면 그것만, 없으면 전체
+    const targetScenes = S.selectedIds.size > 0
+      ? scenes.filter(s => S.selectedIds.has(s.id))
+      : scenes;
+    if (targetScenes.length < 2) {
+      showCommentPanel('씬이 2개 이상 있어야 흐름 분석이 가능합니다.');
+      return;
+    }
+    // 씬 요약 — 제목, 슬러그, 첫/마지막 줄 포함
+    const sceneSummary = targetScenes.map((s, i) => {
+      const idx = scenes.indexOf(s) + 1;
+      const firstLine = s.lines.filter(l => l.type !== 'slug')[0]?.text || '';
+      const lastLine = [...s.lines].reverse().find(l => l.type === 'dialogue' || l.type === 'action')?.text || '';
+      return 'SC' + idx + '. "' + s.title + '" [' + (s.lines[0]?.text||'') + ']\n' +
+        '  시작: ' + firstLine + '\n' +
+        '  끝: ' + lastLine;
+    }).join('\n\n');
+
+    const sys = '당신은 대본 흐름 분석 전문가입니다. 인접한 씬들 사이의 연결을 분석해서 어색하거나 매끄럽지 않은 전환을 찾아주세요.\n' +
+      '반드시 <issues>[{"level":"error|warn|ok","scene":"SC번호→SC번호","message":"이슈 설명","fix":"수정 제안 한 줄"}]</issues> 형식으로 응답하세요.\n' +
+      '각 씬 경계마다 분석 결과를 포함하세요. 매끄러우면 level:ok로 표시하세요.';
+
+    const raw = await callClaude(
+      [{role:'user', content:'씬 흐름 분석:\n\n' + sceneSummary + '\n\n요청: ' + text}],
+      sys, 2000
+    );
+    const issuesRaw = extractTag(raw, 'issues');
+    let issues = null;
+    if (issuesRaw) { try { issues = JSON.parse(issuesRaw); } catch {} }
+    showFlowCheckPanel(issues || [], text);
+  } catch(e) {
+    showCommentPanel('분석 오류: ' + e.message);
+  }
+}
+
+function showFlowCheckPanel(issues, prompt) {
+  const bodyHTML = issues.length ? issues.map(iss => {
+    const icon = {error:'⚠',warn:'△',ok:'✓'}[iss.level]||'•';
+    const fixHtml = (iss.fix && iss.level !== 'ok')
+      ? '<div style="font-size:10px;color:var(--accent);margin-top:2px;">→ ' + escH(iss.fix) + '</div>'
+      : '';
+    const gotoHtml = iss.scene
+      ? '<span class="check-goto" onclick="selectFlowScenes(\'' + escH(iss.scene) + '\')">씬 선택</span>'
+      : '';
+    return '<div class="check-item ' + iss.level + '">' +
+      '<span class="check-icon">' + icon + '</span>' +
+      '<div class="check-txt-wrap">' +
+      '<div class="check-msg">' + escH(iss.message) + '</div>' +
+      fixHtml +
+      '<div class="check-meta">' +
+      '<span class="check-scene-tag">' + escH(iss.scene||'') + '</span>' +
+      gotoHtml +
+      '</div></div></div>';
+  }).join('') : '<div style="padding:8px;color:var(--text3);font-size:12px;">모든 씬 연결이 자연스럽습니다 ✓</div>';
+
+  const problemScenes = issues.filter(i => i.level !== 'ok');
+  const fixAllBtn = problemScenes.length > 0
+    ? '<button class="rp-btn" onclick="fixAllFlowIssues(' + JSON.stringify(problemScenes.map(i=>i.scene)) + ')">✦ 문제 씬 모두 수정</button>'
+    : '';
+
+  showResponsePanel('check', '씬 흐름 분석 — ' + issues.filter(i=>i.level!=='ok').length + '개 이슈',
+    bodyHTML,
+    fixAllBtn + '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>'
+  );
+}
+
+function selectFlowScenes(sceneLabel) {
+  // "SC3→SC4" 형태에서 씬 번호 추출
+  const nums = sceneLabel.match(/\d+/g);
+  if (!nums) return;
+  S.selectedIds.clear();
+  nums.forEach(n => {
+    const sc = S.cur?.scenes?.[parseInt(n) - 1];
+    if (sc) S.selectedIds.add(sc.id);
+  });
+  renderScriptBody();
+  const sc = S.cur?.scenes?.[parseInt(nums[0]) - 1];
+  if (sc) scrollToScene(sc.id);
+  // 프롬프터에 수정 요청 자동 입력
+  const inp = document.getElementById('prompter-inp');
+  if (inp) inp.value = sceneLabel + ' 씬 사이의 연결을 자연스럽게 수정해줘';
+}
+
+function fixAllFlowIssues(sceneLabels) {
+  S.selectedIds.clear();
+  sceneLabels.forEach(label => {
+    const nums = label.match(/\d+/g);
+    if (!nums) return;
+    nums.forEach(n => {
+      const sc = S.cur?.scenes?.[parseInt(n) - 1];
+      if (sc) S.selectedIds.add(sc.id);
+    });
+  });
+  renderScriptBody();
+  closeResponsePanel();
+  const inp = document.getElementById('prompter-inp');
+  if (inp) inp.value = '선택된 씬들의 연결이 자연스럽도록 수정해줘';
+  toast('✓ ' + S.selectedIds.size + '개 씬 선택됨 — 전송 버튼을 눌러주세요', 4000);
 }
 
 // ═══════════════════════════════════════════
@@ -4882,6 +5039,7 @@ function cleanDisplayText(raw) {
     .replace(/<themes[\s\S]*?<\/themes>/gi, '')
     .replace(/<loglines[\s\S]*?<\/loglines>/gi, '')
     .replace(/<suggestion[\s\S]*?<\/suggestion>/gi, '')
+    .replace(/<flowissues[\s\S]*?<\/flowissues>/gi, '')
     .replace(/```[\s\S]*?```/g, '')
     .replace(/\[[\s\S]{200,}\]/g, '')
     .replace(/\{[\s\S]{200,}\}/g, '')
