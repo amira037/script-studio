@@ -4308,7 +4308,7 @@ async function buildCompressedHistory() {
     const raw = await callClaude(
       [{role:'user', content:'다음 대화를 3줄로 요약하세요:\n\n' + oldText}],
       '창작 대화 내용을 핵심만 간결하게 요약하세요. 결정사항 위주로.',
-      150, 'claude-haiku-4-5-20251001'
+      300, 'claude-haiku-4-5-20251001'
     );
     summary = raw.replace(/<[^>]+>/g, '').trim();
   } catch(e) { summary = '(이전 대화 참조)'; }
@@ -4411,9 +4411,36 @@ async function handleChatPrompt(text) {
       '- 시놉시스가 없거나 부족할 때: <suggest>synopsis</suggest>\n' +
       '- 등장인물 정보가 부족할 때: <suggest>characters</suggest>\n' +
       '- suggest 태그는 꼭 필요할 때만, 응답 맨 끝에 붙이세요.';
-    // 씬 재구성 요청이면 토큰 더 많이
+    // 씬 재구성 요청이면 토큰 더 많이 + 씬 수 감지
     const needsMore = /씬.*다시|재구성|전체.*씬|씬.*구성|씬.*만들/.test(text);
-    const raw = await callClaude([...history, { role:'user', content:text }], sys, needsMore ? 6000 : 3000);
+    if (needsMore && S.cur) {
+      // 언급된 씬 수 또는 전체 씬 수 파악
+      const totalScenes = (S.cur.scenes||[]).filter(s=>!s.draft).length;
+      const scMentions = (text.match(/SC\s*\d+/gi)||[]).length;
+      const estimatedScenes = scMentions > 0 ? scMentions : totalScenes;
+      if (estimatedScenes >= 6) {
+        // 청크 안내 — AI가 직접 나눠서 제안하도록 시스템 프롬프트에 지시
+        const chunkSize = 5;
+        const chunks = [];
+        for (let i = 0; i < estimatedScenes; i += chunkSize) {
+          const end = Math.min(i + chunkSize, estimatedScenes);
+          chunks.push('SC' + (i+1) + '~SC' + end);
+        }
+        const chunkChoices = JSON.stringify([...chunks, '전체 구조만 제안 (씬 생성 없이)']);
+        addMsg('assistant',
+          '씬이 ' + estimatedScenes + '개라 한 번에 재구성하면 품질이 떨어질 수 있습니다.\n어느 구간부터 작업할까요?',
+          [{
+            type: 'showMultiChoices',
+            data: { prompt: text, choices: chunks.concat('전체 구조만 제안') },
+            label: '구간 선택',
+            style: 'purple'
+          }]
+        );
+        hideTyping();
+        return;
+      }
+    }
+    const raw = await callClaude([...history, { role:'user', content:text }], sys, needsMore ? 12000 : 8000);
     hideTyping();
 
     // Parse special content
@@ -5008,7 +5035,7 @@ async function handleScriptPrompt(text) {
           'sceneId를 모를 때는 title 필드에 씬 제목을 정확히 적으면 자동 매칭됩니다.';
         const chunkRaw = await callClaude(
           [{role:'user', content:'지시: '+text+'\n\n씬 데이터:\n'+chunkSummary}],
-          chunkSys, 3000
+          chunkSys, 10000
         );
         const chunkResult = extractTag(chunkRaw, 'r');
         if (chunkResult) {
@@ -5095,7 +5122,10 @@ async function handleScriptPrompt(text) {
     'sceneId를 모를 때는 title 필드에 씬 제목을 정확히 적으면 자동 매칭됩니다.';
 
   try {
-    const raw = await callClaude([{role:'user', content:`지시: ${text}\n\n씬 데이터:\n${sceneSummary}`}], sys, 3000);
+    // 씬 줄 수 기반 동적 max_tokens
+    const totalLines = selectedScenes.reduce((sum, s) => sum + (s.lines||[]).length, 0);
+    const scriptMaxTokens = totalLines <= 50 ? 4000 : totalLines <= 100 ? 8000 : totalLines <= 200 ? 15000 : 20000;
+    const raw = await callClaude([{role:'user', content:`지시: ${text}\n\n씬 데이터:\n${sceneSummary}`}], sys, scriptMaxTokens);
     const resultRaw = extractTag(raw, 'result');
     const choicesRaw = extractTag(raw, 'choices');
     const newscenesRaw = extractTag(raw, 'newscenes');
@@ -5192,7 +5222,7 @@ async function handleFlowAnalysisInChat(text, mode) {
     const ctx = chars ? '등장인물:\n' + chars + '\n\n씬 목록:\n' : '씬 목록:\n';
     const raw = await callClaude(
       [{role:'user', content: ctx + sceneSummary + '\n\n요청: ' + text}],
-      sys, 2000
+      sys, 5000
     );
     hideTyping();
     const flowRaw = extractTag(raw, 'flowissues');
@@ -5432,6 +5462,53 @@ function showChoicesPanel(prompt, choices) {
     </div>`;
   showResponsePanel('choice', '방향 선택', bodyHTML,
     `<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>`);
+}
+
+function showMultiChoicesPanel(prompt, choices) {
+  const uid = 'mc-' + Date.now();
+  const isSceneChunk = choices.some(c => /SC\d+~SC\d+/.test(c));
+  const title = isSceneChunk ? '작업 구간 선택' : '복수 선택';
+  const hint = isSceneChunk ? '작업할 구간을 선택하세요:' : '해당하는 항목을 모두 선택하세요:';
+  const bodyHTML = '<div class="choice-intro">' + escH(hint) + '</div>' +
+    '<div class="choice-list" id="' + uid + '">' +
+    choices.map((c, i) =>
+      '<button class="choice-option" data-val="' + escH(c).replace(/"/g,'&quot;') + '" onclick="toggleMultiChoiceBtn(this)">' +
+      '<span class="choice-key">☐</span>' + escH(c) + '</button>'
+    ).join('') + '</div>';
+  showResponsePanel('choice', title, bodyHTML,
+    '<button class="rp-btn" onclick="confirmMultiChoicePanel(\'' + uid + '\',\'' + (isSceneChunk?'scene':'normal') + '\')">✓ 선택 완료</button>' +
+    '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
+}
+
+function toggleMultiChoiceBtn(btn) {
+  const key = btn.querySelector('.choice-key');
+  if (btn.classList.contains('selected')) {
+    btn.classList.remove('selected');
+    btn.style.borderColor = ''; btn.style.background = '';
+    if (key) key.textContent = '☐';
+  } else {
+    btn.classList.add('selected');
+    btn.style.borderColor = 'var(--accent)'; btn.style.background = 'var(--accent3)';
+    if (key) key.textContent = '☑';
+  }
+}
+
+function confirmMultiChoicePanel(uid, mode) {
+  const container = document.getElementById(uid);
+  if (!container) return;
+  const selected = [...container.querySelectorAll('.choice-option.selected')].map(b => b.dataset.val);
+  if (selected.length === 0) { toast('항목을 선택해주세요.'); return; }
+  closeResponsePanel();
+  const inp = document.getElementById('prompter-inp');
+  if (inp) {
+    if (mode === 'scene') {
+      const s = selected[0];
+      inp.value = s === '전체 구조만 제안' ? '전체 씬 구조만 제안해줘 (씬 생성 없이)' : s + ' 구간 씬들을 재구성해줘';
+    } else {
+      inp.value = selected.join(', ') + ' 방향으로 진행해줘';
+    }
+    inp.dispatchEvent(new Event('input')); inp.focus();
+  }
 }
 
 function showNewSceneInsertPanel(scenesData, comment, refSc, refLabel) {
@@ -6152,7 +6229,7 @@ async function aiCharUnified(id) {
         'types는 MBTI, 장르 클리셰(에겐남/츤데레/얀데레/퐁퐁남 등) 포함 3개 추천.';
       dataRaw = await callWithRetry(
         [{role:'user', content:'인물: '+name+'\n대사/행동:\n'+charLines.join('\n')}],
-        sys, 600
+        sys, 1500
       );
       successMsg = '✓ ' + name + ' 분석 완료';
     } else {
@@ -6219,7 +6296,7 @@ async function aiAutoFillChar(id) {
     const ctx = buildProjectContext();
     const sys = `당신은 창작 캐릭터 디자인 전문가입니다. 주어진 작품 맥락과 인물 정보를 바탕으로 캐릭터 설명과 특성을 채워주세요.
 반드시 <chardata>{"description":"설명","traits":["특성1","특성2","특성3"]}</chardata> 형식으로 응답하세요.`;
-    const raw = await callClaude([{role:'user',content:`작품: ${ctx}\n인물 이름: ${name}\n역할: ${role}`}], sys, 500, 'claude-haiku-4-5-20251001');
+    const raw = await callClaude([{role:'user',content:`작품: ${ctx}\n인물 이름: ${name}\n역할: ${role}`}], sys, 1200, 'claude-haiku-4-5-20251001');
     const dataRaw = extractTag(raw, 'chardata');
     if (dataRaw) {
       const data = JSON.parse(dataRaw);
@@ -6324,7 +6401,7 @@ async function checkConflictWithPrompt(text) {
 
       const raw = await callClaude(
         [{role:'user', content:'씬 목록:\n'+sceneList+'\n\n씬ID: '+sceneIds}],
-        chunkSys, 2500, 'claude-haiku-4-5-20251001'
+        chunkSys, 4000, 'claude-haiku-4-5-20251001'
       );
 
       const conflictRaw = extractTag(raw, 'conflict');
@@ -6363,7 +6440,7 @@ async function checkConflictWithPrompt(text) {
 
     const advRaw = await callClaude(
       [{role:'user', content:projCtx+'\n\n씬별 갈등 강도:\n'+intensitySummary}],
-      advSys, 2000, 'claude-haiku-4-5-20251001'
+      advSys, 3000, 'claude-haiku-4-5-20251001'
     );
 
     let allAdvice = [], summary = '', detail = '';
@@ -6837,7 +6914,7 @@ function openConflictModal(data) {
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
-          max_tokens: 400,
+          max_tokens: 800,
           system: sys,
           messages: [{role:'user', content:'작품 정보:\n'+ctx+'\n\n씬 수: '+n+'개'}]
         }),
@@ -7186,7 +7263,7 @@ async function regenSynopsis() {
 
     const ctx = S.cur.title + ' (' + S.cur.medium + '), 장르: ' + (S.cur.genreTags||[]).join(', ');
     const sys = '당신은 창작 드라마터지 전문가입니다. 대본을 분석해서 다음을 생성하세요.\n반드시 다음 태그들을 응답 끝에 붙이세요:\n<themes>["주제후보1","주제후보2","주제후보3"]</themes>\n<loglines>["로그라인1(1문장)","로그라인2","로그라인3"]</loglines>\n<synopsis>줄거리 3~5문장</synopsis>\n태그 외 본문은 쓰지 마세요. 한국어로 작성하세요.';
-    const raw = await callClaude([{role:'user', content:'작품: ' + ctx + '\n\n대본:\n' + scenes + keylineHint}], sys, 2000, 'claude-haiku-4-5-20251001');
+    const raw = await callClaude([{role:'user', content:'작품: ' + ctx + '\n\n대본:\n' + scenes + keylineHint}], sys, 3000, 'claude-haiku-4-5-20251001');
     const themesRaw = extractTag(raw, 'themes');
     const loglinesRaw = extractTag(raw, 'loglines');
     const syn = extractTag(raw, 'synopsis');
