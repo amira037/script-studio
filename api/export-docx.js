@@ -1,9 +1,9 @@
-const {
+import {
   Document, Packer, Paragraph, TextRun, AlignmentType,
   Footer, PageNumber, BorderStyle, PageBreak
-} = require('docx');
+} from 'docx';
 
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
   try {
@@ -16,25 +16,21 @@ module.exports = async (req, res) => {
 
     const t = (text, o = {}) => new TextRun({ text: text||'', font: FONT, size: SZ, ...o });
     const emptyP = () => new Paragraph({ children: [t('')], spacing:{before:0,after:0} });
-
     const children = [];
 
-    // ── 표지 ──
+    // 표지
     children.push(emptyP(), emptyP(), emptyP(), emptyP());
     children.push(new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: {before:0,after:240},
+      alignment: AlignmentType.CENTER, spacing: {before:0,after:240},
       children: [new TextRun({ text: project.title||'제목 없음', font:FONT, size:52, bold:true })]
     }));
     children.push(new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: {before:0,after:120},
+      alignment: AlignmentType.CENTER, spacing: {before:0,after:120},
       children: [new TextRun({ text: project.medium||'', font:FONT, size:28 })]
     }));
     if ((project.genreTags||[]).length > 0) {
       children.push(new Paragraph({
-        alignment: AlignmentType.CENTER,
-        spacing: {before:0,after:0},
+        alignment: AlignmentType.CENTER, spacing: {before:0,after:0},
         children: [new TextRun({ text: project.genreTags.join(' / '), font:FONT, size:22, color:'666666' })]
       }));
     }
@@ -45,7 +41,7 @@ module.exports = async (req, res) => {
     }));
     children.push(new Paragraph({ children:[new PageBreak()], spacing:{before:0,after:0} }));
 
-    // ── 시놉시스 ──
+    // 시놉시스
     if (includeSynopsis && project.synopsis) {
       children.push(new Paragraph({
         spacing:{before:0,after:200},
@@ -59,7 +55,7 @@ module.exports = async (req, res) => {
       children.push(new Paragraph({children:[new PageBreak()],spacing:{before:0,after:0}}));
     }
 
-    // ── 등장인물 ──
+    // 등장인물
     if (includeChars && (project.characters||[]).length>0) {
       children.push(new Paragraph({
         spacing:{before:0,after:200},
@@ -82,7 +78,7 @@ module.exports = async (req, res) => {
       children.push(new Paragraph({children:[new PageBreak()],spacing:{before:0,after:0}}));
     }
 
-    // ── 대본 본문 ──
+    // 대본 본문
     let sceneCount = 0;
     (project.scenes||[]).forEach((sc) => {
       if (sc.draft) return;
@@ -154,4 +150,4 @@ module.exports = async (req, res) => {
     console.error('export-docx error:', e);
     res.status(500).json({ error: e.message });
   }
-};
+}
