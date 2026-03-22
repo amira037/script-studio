@@ -709,7 +709,8 @@ textarea, input { font-family:var(--fb); }
 .rp-type-badge.choice { background:var(--purple2); color:var(--purple); border-color:rgba(168,158,221,.3); }
 .rp-type-badge.comment { background:var(--blue2); color:var(--blue); border-color:rgba(110,168,200,.3); }
 .rp-title { font-size:11px; color:var(--text2); flex:1; }
-.rp-close-btn { background:none; border:none; color:var(--text3); font-size:12px; padding:2px 6px; }
+.rp-close-btn { background:none; border:none; color:var(--text3); font-size:12px; padding:2px 6px; cursor:pointer; }
+#rp-collapse-btn { font-size:10px; transition:transform .2s; }
 .rp-close-btn:hover { color:var(--text2); }
 .rp-body { flex:1; overflow-y:auto; padding:10px 12px; display:flex; flex-direction:column; gap:6px; }
 .rp-acts { display:flex; gap:6px; padding:8px 12px; border-top:1px solid var(--border); flex-shrink:0; flex-wrap:wrap; }
@@ -1250,10 +1251,15 @@ textarea, input { font-family:var(--fb); }
         <div class="rp-hdr">
           <span class="rp-type-badge" id="rp-badge">AI</span>
           <span class="rp-title" id="rp-title">응답</span>
-          <button class="rp-close-btn" onclick="closeResponsePanel()">✕</button>
+          <div style="display:flex;gap:4px;margin-left:auto;">
+            <button class="rp-close-btn" id="rp-collapse-btn" onclick="toggleResponsePanel()" title="접기">▼</button>
+            <button class="rp-close-btn" onclick="closeResponsePanel()">✕</button>
+          </div>
         </div>
-        <div class="rp-body" id="rp-body"></div>
-        <div class="rp-acts" id="rp-acts"></div>
+        <div id="rp-collapsible">
+          <div class="rp-body" id="rp-body"></div>
+          <div class="rp-acts" id="rp-acts"></div>
+        </div>
       </div>
 
       <!-- Prompter -->
@@ -4087,6 +4093,32 @@ function handleMsgAction(action) {
     } else if (action.data === 'characters') {
       extractCharsFromScript().then(_afterAnalysis);
     }
+  } else if (action.type === 'gotoScriptEditSingle') {
+    // 단일 씬 수정 — response panel 유지하면서 씬 선택 + 프롬프터 입력
+    const { scNum, prompt } = action.data;
+    const allSc = S.cur?.scenes || [];
+    const sc = allSc.find(s => getSceneLabel(s, allSc) === 'SC ' + scNum);
+    if (sc) {
+      S.selectedIds.clear(); S.selectedIds.add(sc.id);
+      save(true); renderScriptBody(); renderNavSceneList();
+      switchTab('script');
+      setTimeout(() => scrollToScene(sc.id), 150);
+      setTimeout(() => {
+        const inp = document.getElementById('prompter-inp');
+        if (inp) { inp.value = prompt; inp.dispatchEvent(new Event('input')); inp.focus(); }
+      }, 200);
+    }
+  } else if (action.type === 'flowToBrainstorm') {
+    const { nums, text: flowText } = action.data;
+    const scLabels = nums.map(n => 'SC' + n).join(', ');
+    switchTab('chat');
+    setTimeout(() => {
+      const inp = document.getElementById('prompter-inp');
+      if (inp) {
+        inp.value = scLabels + ' 흐름 문제를 어떻게 개선하면 좋을까?\n\n[분석 결과 참조]\n' + (flowText||'').slice(0, 200);
+        inp.dispatchEvent(new Event('input')); inp.focus();
+      }
+    }, 200);
   } else if (action.type === 'gotoScriptFlow') {
     const sceneNums = action.data;
     S.selectedIds.clear();
@@ -4098,9 +4130,9 @@ function handleMsgAction(action) {
     renderScriptBody();
     const firstSc = S.cur?.scenes?.[sceneNums[0] - 1];
     if (firstSc) setTimeout(() => scrollToScene(firstSc.id), 200);
-    const sceneLabel = sceneNums.map(n => 'SC' + n).join(', ');
+    const defaultLabel = sceneNums.map(n => 'SC' + n).join(', ') + ' 씬들의 연결을 자연스럽게 수정해줘';
     const inp = document.getElementById('prompter-inp');
-    if (inp) inp.value = sceneLabel + ' 씬들의 연결을 자연스럽게 수정해줘';
+    if (inp) { inp.value = action.prompt || defaultLabel; inp.dispatchEvent(new Event('input')); }
     toast('✓ ' + sceneNums.length + '개 씬 선택됨 — 프롬프터에서 전송해주세요', 4000);
   }
 }
@@ -4343,6 +4375,10 @@ async function handleChatPrompt(text) {
     // 씬 흐름/감정/설정 분석 키워드 감지
     if (/갈등.*분석|갈등.*흐름|긴장.*흐름|갈등.*검사|갈등.*봐/.test(text) && (S.cur?.scenes||[]).length > 0) {
       await checkConflictWithPrompt(text); return;
+    }
+    // 앞뒤 씬 연결 분석 먼저 (단일 씬 기준)
+    if (/앞뒤|이전.*씬|다음.*씬|씬.*앞뒤|이 씬.*흐름/.test(text) && S.selectedIds.size > 0) {
+      await handleSceneConnection(text); return;
     }
     if (/연결|매끄럽|자연스럽|장면.*전환|씬.*이어/.test(text) && (S.cur?.scenes||[]).length > 1) {
       await handleFlowAnalysisInChat(text, 'flow'); return;
@@ -5120,17 +5156,41 @@ async function handleKeyline(text, setOn) {
     return;
   }
 
-  // 특정 인물 대사
-  let count = 0;
-  let lastChar = '';
-  (sc.lines||[]).forEach(l => {
-    if (l.type === 'character') lastChar = l.text;
-    if (l.type === 'dialogue' && lastChar.includes(mentionedChar)) {
-      l.keyline = setOn; l.locked = setOn; count++;
+  // 특정 인물 대사 — Haiku가 중요도 판단해서 1~2개만 선택
+  const charDialogues = [];
+  let lastChar2 = '';
+  (sc.lines||[]).forEach((l,idx) => {
+    if (l.type==='character') lastChar2=l.text;
+    if (l.type==='dialogue' && lastChar2.includes(mentionedChar)) {
+      charDialogues.push({ idx, line:l, text:l.text });
     }
   });
-  save(true); renderScriptBody();
-  toast((setOn ? '★ ' : '☆ ') + mentionedChar + ' 대사 ' + count + '개 중요 대사 ' + (setOn?'지정':'해제') + '됨');
+  if (!charDialogues.length) { toast(mentionedChar + '의 대사가 없습니다.'); return; }
+
+  if (setOn && charDialogues.length > 1) {
+    // Haiku가 중요 대사 1~2개 선택
+    toast('✦ ' + mentionedChar + ' 중요 대사 분석 중...', 3000);
+    const dlgList = charDialogues.map((d,i) => i + ': "' + d.text + '"').join('\n');
+    const raw = await callClaude(
+      [{role:'user', content:'씬 "'+sc.title+'"에서 '+mentionedChar+'의 대사:\n'+dlgList+'\n\n가장 극적으로 중요한 대사 1~2개를 선택하세요.'}],
+      '반드시 <keylines>[인덱스]</keylines> 형식으로만 응답하세요. 1~2개만. 전체 선택 금지.',
+      50, 'claude-haiku-4-5-20251001'
+    );
+    const klRaw = extractTag(raw, 'keylines');
+    let selectedIdxs = [];
+    if (klRaw) { try { selectedIdxs = JSON.parse(klRaw); } catch {} }
+    if (!selectedIdxs.length) selectedIdxs = [0]; // 파싱 실패 시 첫 번째만
+    selectedIdxs.forEach(i => {
+      if (charDialogues[i]) { charDialogues[i].line.keyline = true; charDialogues[i].line.locked = true; }
+    });
+    save(true); renderScriptBody();
+    toast('★ ' + mentionedChar + ' 중요 대사 ' + selectedIdxs.length + '개 지정됨');
+  } else {
+    // 해제 또는 대사 1개면 그냥 처리
+    charDialogues.forEach(d => { d.line.keyline = setOn; d.line.locked = setOn; });
+    save(true); renderScriptBody();
+    toast((setOn?'★ ':'☆ ') + mentionedChar + ' 대사 ' + charDialogues.length + '개 중요 대사 ' + (setOn?'지정':'해제') + '됨');
+  }
 }
 
 // ── 씬 시간 추정 ──────────────────────────────────────────────────────
@@ -5255,7 +5315,7 @@ async function handleSceneConnection(text) {
 function showChoicesPanelCb(title, choices, onSelect) {
   const bodyHTML = '<div class="choice-intro">' + escH(title) + '</div>' +
     '<div class="choice-list">' + choices.map((c,i) =>
-      '<button class="choice-option" onclick="selectChoiceCb(this,\'_cb\')">' +
+      '<button class="choice-option" onclick="selectChoiceSingle(this)">' +
       '<span class="choice-key">' + (i+1) + '</span>' + escH(c) + '</button>'
     ).join('') + '</div>';
   window._choiceCb = onSelect;
@@ -5263,11 +5323,19 @@ function showChoicesPanelCb(title, choices, onSelect) {
     '<button class="rp-btn" onclick="confirmChoiceCb()">✓ 선택</button>' +
     '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
 }
-function selectChoiceCb(btn) {
+function selectChoiceSingle(btn) {
+  // 단일 선택 — 기존 선택 모두 해제 후 현재만
   document.querySelectorAll('#rp-body .choice-option').forEach(b => {
-    b.classList.remove('selected'); b.style.borderColor=''; b.style.background='';
+    b.classList.remove('selected');
+    b.style.borderColor = ''; b.style.background = '';
+    const k = b.querySelector('.choice-key');
+    if (k) k.style.color = '';
   });
-  btn.classList.add('selected'); btn.style.borderColor='var(--accent)'; btn.style.background='var(--accent3)';
+  btn.classList.add('selected');
+  btn.style.borderColor = 'var(--accent)';
+  btn.style.background = 'var(--accent3)';
+  const k = btn.querySelector('.choice-key');
+  if (k) k.style.color = 'var(--accent)';
 }
 function confirmChoiceCb() {
   const sel = document.querySelector('#rp-body .choice-option.selected');
@@ -5326,7 +5394,7 @@ async function handleScriptPrompt(text) {
   if (/대사.*몇 줄|몇 줄.*대사|대사.*통계|줄 수/.test(text)) { handleDialogueStats(text); return; }
   if (/대사.*뽑아|대사.*보여|대사.*목록|대사.*확인/.test(text)) { handleCharDialogueLookup(text); return; }
   if (/요약해|요약 해|씬.*요약|한 줄.*요약/.test(text)) { await handleSceneSummary(text); return; }
-  if (/연결.*자연|앞뒤.*자연|자연스러워|씬.*이어.*분석/.test(text)) { await handleSceneConnection(text); return; }
+  if (/앞뒤.*흐름|앞뒤.*어때|앞뒤.*분석|연결.*자연|앞뒤.*자연|자연스러워|씬.*이어.*분석|이 씬.*앞뒤|앞뒤.*이 씬/.test(text)) { await handleSceneConnection(text); return; }
   if (/일관성|검사/.test(text)) { await checkConsistencyWithPrompt(text); return; }
   if (/연결|매끄럽|흐름|자연스럽|전환.*어색|어색.*전환/.test(text)) { await checkSceneFlowWithPrompt(text); return; }
   if (/감정|심리|내면|감정.*흐름|심리.*변화/.test(text)) { await checkEmotionFlowWithPrompt(text); return; }
@@ -5676,20 +5744,20 @@ async function handleFlowAnalysisInChat(text, mode) {
   mode = mode || 'flow';
   try {
     const scenes = S.cur?.scenes || [];
-    const chars = (S.cur?.characters||[]).map(c => c.name + '(' + c.role + '): ' + (c.description||'')).join('\n');
+    const chars = (S.cur?.characters||[]).map(c => c.name+'('+c.role+'): '+(c.description||'')).join('; ');
     const sceneSummary = scenes.map((s,i) => {
-      const key = s.lines.filter(l => l.type === 'dialogue').slice(0,2).map(l=>l.text).join(' / ');
-      return 'SC' + (i+1) + '. "' + s.title + '"' + (key ? ' — ' + key : '');
+      const key = s.lines.filter(l=>l.type==='dialogue').slice(0,2).map(l=>l.text).join(' / ');
+      return 'SC'+(i+1)+'. "'+s.title+'"'+(key?' — '+key:'');
     }).join('\n');
     const sysMap = {
-      flow: '당신은 대본 흐름 분석 전문가입니다. 씬 연결이 매끄럽지 않은 부분을 찾아주세요.',
-      emotion: '당신은 극작 심리 분석 전문가입니다. 등장인물의 감정/심리 흐름에서 부자연스러운 변화를 찾아주세요.',
-      setting: '당신은 대본 설정 검증 전문가입니다. 인물 설정과 사실 관계의 모순/충돌을 찾아주세요.'
+      flow: '당신은 대본 흐름 분석 전문가입니다. 씬 연결이 매끄럽지 않은 부분을 찾아주세요.\n각 문제마다 <issue sc="씬번호">수정 제안 한 줄</issue> 태그를 붙이세요.',
+      emotion: '당신은 극작 심리 분석 전문가입니다. 감정/심리 흐름의 부자연스러운 변화를 찾아주세요.\n각 문제마다 <issue sc="씬번호">수정 제안 한 줄</issue> 태그를 붙이세요.',
+      setting: '당신은 대본 설정 검증 전문가입니다. 인물 설정과 사실 관계의 모순/충돌을 찾아주세요.\n각 문제마다 <issue sc="씬번호">수정 제안 한 줄</issue> 태그를 붙이세요.'
     };
-    const sys = (sysMap[mode] || sysMap.flow) + '\n분석 결과를 자연어로 설명한 뒤 반드시 맨 끝에 <flowissues>[문제 씬 번호 배열]</flowissues> 태그를 붙이세요.\n문제 없으면 <flowissues>[]</flowissues>.';
-    const ctx = chars ? '등장인물:\n' + chars + '\n\n씬 목록:\n' : '씬 목록:\n';
+    const sys = (sysMap[mode]||sysMap.flow) + '\n분석 결과를 자연어로 설명한 뒤 반드시 맨 끝에 <flowissues>[문제 씬 번호 배열]</flowissues> 태그를 붙이세요.\n문제 없으면 <flowissues>[]</flowissues>.';
+    const ctx = chars ? '등장인물:\n'+chars+'\n\n씬 목록:\n' : '씬 목록:\n';
     const raw = await callClaude(
-      [{role:'user', content: ctx + sceneSummary + '\n\n요청: ' + text}],
+      [{role:'user', content: ctx+sceneSummary+'\n\n요청: '+text}],
       sys, 5000
     );
     hideTyping();
@@ -5697,9 +5765,35 @@ async function handleFlowAnalysisInChat(text, mode) {
     let problemNums = [];
     if (flowRaw) { try { problemNums = JSON.parse(flowRaw); } catch {} }
     const displayText = cleanDisplayText(raw) || '분석 완료됐습니다.';
+
+    // 씬별 수정 제안 추출
+    const issueMap = {};
+    const issuePat = /<issue\s+sc="(\d+)">([\s\S]*?)<\/issue>/gi;
+    let im;
+    while ((im = issuePat.exec(raw)) !== null) {
+      issueMap[parseInt(im[1])] = im[2].trim();
+    }
+
+    // 브레인스토밍 히스토리에 분석 결과 공유
+    if (!S.cur.messages) S.cur.messages = [];
+    S.cur.messages.push({ role:'assistant', text:'[흐름 분석 결과]\n' + displayText });
+    save(true);
+
     const actions = [];
     if (problemNums.length > 0) {
-      actions.push({ type:'gotoScriptFlow', data:problemNums, label:'대본 에디터에서 수정하기 →', style:'amber' });
+      // 씬별 수정 버튼
+      problemNums.forEach(n => {
+        const suggestion = issueMap[n] || '';
+        const promptText = suggestion ? 'SC'+n+' 수정: '+suggestion : 'SC'+n+' 흐름 문제를 수정해줘';
+        actions.push({ type:'gotoScriptEditSingle', data:{ scNum:n, prompt:promptText }, label:'✦ SC'+n+' 수정하기 →', style:'amber' });
+      });
+      // 전체 수정 버튼
+      if (problemNums.length > 1) {
+        const allPrompt = '다음 흐름 문제들을 수정해줘:\n' +
+          problemNums.map(n => 'SC'+n+(issueMap[n]?': '+issueMap[n]:'')).join('\n');
+        actions.push({ type:'gotoScriptFlow', data:problemNums, label:'✦ 전체 수정하기 →', style:'amber', prompt:allPrompt });
+      }
+      actions.push({ type:'flowToBrainstorm', data:{nums:problemNums, text:displayText}, label:'💬 브레인스토밍에서 논의 →', style:'purple' });
     }
     addMsg('assistant', displayText, actions);
   } catch(e) {
