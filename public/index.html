@@ -5491,20 +5491,33 @@ async function checkConflictWithPrompt(text) {
     const projCtx = '제목: '+(proj.title||'')+'\n장르: '+(proj.genreTags||[]).join(', ')+
       '\n시놉시스: '+(proj.synopsis||'').slice(0,200);
 
-    const advSys = '대본 갈등 흐름을 분석하여 조언과 요약을 생성하세요. 정확한 한국어 맞춤법을 사용하세요.\n' +
-      '반드시 다음 형식으로만 응답하세요 (마크다운 없이):\n' +
+    const advSys = '대본 갈등 흐름을 분석하세요. 정확한 한국어를 사용하고 어려운 전문 용어 대신 쉽고 직관적인 표현을 쓰세요.\n' +
+      '반드시 아래 형식 그대로만 응답하세요. 태그 밖에 텍스트 없음, 마크다운(**) 절대 금지:\n\n' +
       '<summary>한 줄 요약 (30자 이내, 핵심 갈등 구조만)</summary>\n' +
-      '<detail>상세 분석 (갈등 유형 분포, 극적 구조, 강점, 보완점 — 3~5문장)</detail>\n' +
-      '<advice>[{"level":"error|warn|ok","scene":"씬범위(예:SC3~SC4)","message":"조언 제목 (20자 이내)","fix":"해결 방법 (30자 이내)"}]</advice>\n' +
-      'advice는 3~5개, 마크다운(**) 절대 사용 금지.';
+      '<detail>\n' +
+      '중심 갈등: (주요 갈등 유형과 빈도, 예: 인물vs운명 13회)\n' +
+      '심리적 깊이: (보조 갈등 유형, 예: 인물vs내면 10회)\n' +
+      '극적 구조: (초반→중반→후반 흐름을 화살표로, 예: 낮은 긴장 → 급상승 → 수렴)\n' +
+      '강점: (2가지 이내, 쉬운 표현으로)\n' +
+      '보완점: (2가지 이내, 쉬운 표현으로, 구체적 씬 번호 포함)\n' +
+      '</detail>\n' +
+      '<advice>[{"level":"error또는warn또는ok","scene":"씬범위(예:SC27~SC32)","message":"조언 제목 20자 이내","fix":"해결 방법 30자 이내"}]</advice>\n\n' +
+      '중요: advice 태그 안에는 순수 JSON 배열만. 설명 텍스트 절대 금지. advice 3~5개.';
 
     const advRaw = await callClaude(
       [{role:'user', content:projCtx+'\n\n씬별 갈등 강도:\n'+intensitySummary}],
-      advSys, 1500, 'claude-haiku-4-5-20251001'
+      advSys, 2000, 'claude-haiku-4-5-20251001'
     );
 
     let allAdvice = [], summary = '', detail = '';
-    try { allAdvice = JSON.parse(extractTag(advRaw, 'advice')||'[]'); } catch {}
+    // advice 파싱 — JSON 코드블록 제거 후 파싱
+    try {
+      let adviceRaw = extractTag(advRaw, 'advice') || '[]';
+      adviceRaw = adviceRaw.replace(/```json|```/g, '').trim();
+      allAdvice = JSON.parse(adviceRaw);
+    } catch {
+      // 파싱 실패 시 빈 배열 유지, 오류 무시
+    }
     summary = extractTag(advRaw, 'summary') || '';
     detail = extractTag(advRaw, 'detail') || '';
 
@@ -5620,8 +5633,33 @@ function renderConflictBody(body, data, skipChart) {
 
     if (data.detail) {
       const detailDiv = document.createElement('div');
-      detailDiv.style.cssText = 'display:none;font-size:11px;color:var(--text3);line-height:1.7;margin-top:8px;padding:10px;background:var(--bg3);border-radius:var(--r);border:1px solid var(--border);';
-      detailDiv.textContent = data.detail;
+      detailDiv.style.cssText = 'display:none;margin-top:8px;padding:10px;background:var(--bg3);border-radius:var(--r);border:1px solid var(--border);';
+      // 소제목형 파싱 — "소제목: 내용" 형태로 줄 분리
+      const lines = data.detail.split('\n').map(l => l.trim()).filter(Boolean);
+      lines.forEach(line => {
+        const colonIdx = line.indexOf(':');
+        if (colonIdx > 0 && colonIdx < 12) {
+          // 소제목 있는 줄
+          const label = line.slice(0, colonIdx).trim();
+          const content = line.slice(colonIdx + 1).trim();
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;gap:8px;margin-bottom:6px;align-items:flex-start;';
+          const lbl = document.createElement('span');
+          lbl.style.cssText = 'font-size:10px;color:var(--accent);font-weight:600;white-space:nowrap;min-width:64px;padding-top:1px;';
+          lbl.textContent = label;
+          const cont = document.createElement('span');
+          cont.style.cssText = 'font-size:11px;color:var(--text2);line-height:1.6;';
+          cont.textContent = content;
+          row.append(lbl, cont);
+          detailDiv.appendChild(row);
+        } else {
+          // 소제목 없는 줄
+          const p = document.createElement('div');
+          p.style.cssText = 'font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:4px;';
+          p.textContent = line;
+          detailDiv.appendChild(p);
+        }
+      });
       sumWrap.appendChild(detailDiv);
       sumLine.onclick = () => {
         const open = detailDiv.style.display !== 'none';
