@@ -4972,7 +4972,6 @@ function buildCharCard(c) {
     <div class="char-edit-field-wrap">
       <div class="char-edit-label">특성</div>
       <div id="ce-traits-wrap-${c.id}" style="display:flex;flex-wrap:wrap;gap:5px;align-items:center;min-height:28px;padding:4px 0;">
-        ${(c.traits||[]).map((tr,ti) => '<span style="display:inline-flex;align-items:center;gap:3px;background:var(--purple2);color:var(--purple);border:1px solid rgba(168,158,221,.3);border-radius:3px;padding:2px 8px;font-size:10px;font-family:var(--fm);">' + escH(tr) + '<button onclick="removeCharTrait(' + c.id + ',' + ti + ')" style="background:none;border:none;color:var(--purple);cursor:pointer;font-size:11px;padding:0 0 0 3px;line-height:1;">×</button></span>').join('')}
         <input id="ce-traits-inp-${c.id}" placeholder="+ 특성 추가 후 Enter" onkeydown="onTraitInpKey(event,${c.id})"
           style="border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-size:11px;font-family:var(--fm);outline:none;border-radius:var(--r);padding:3px 8px;min-width:100px;flex:1;">
       </div>
@@ -5026,7 +5025,10 @@ function addCharTrait(id, trait) {
   const c = S.cur?.characters?.find(x => x.id === id);
   if (!c) return;
   if (!c.traits) c.traits = [];
-  if (c.traits.includes(trait)) return;
+  if (c.traits.includes(trait)) {
+    toast('"' + trait + '" 속성이 이미 등록되어 있습니다.', 2000);
+    return;
+  }
   c.traits.push(trait);
   save();
   renderCharTraitPills(id);
@@ -5047,6 +5049,8 @@ function openCharEdit(id) {
   if (S.editingCharId && S.editingCharId !== id) closeCharEdit(S.editingCharId);
   S.editingCharId = id;
   document.getElementById('char-edit-'+id).style.display = 'flex';
+  // 편집 열릴 때 pill 렌더링 (innerHTML 중복 방지)
+  renderCharTraitPills(id);
 }
 function closeCharEdit(id) {
   const el = document.getElementById('char-edit-'+id);
