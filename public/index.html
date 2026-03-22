@@ -5069,7 +5069,7 @@ function renderCharTraitPills(id) {
     x.textContent = '×';
     x.onclick = (e) => { e.stopPropagation(); removeCharTrait(id, tr); };
     pill.append(label, x);
-    wrap.insertBefore(pill, wrap.querySelector('#ce-traits-inp-'+id));
+    wrap.insertBefore(pill, document.getElementById('ce-traits-inp-'+id));
   });
   if (inp) inp.value = inpVal;
 }
