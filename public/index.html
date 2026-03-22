@@ -2734,11 +2734,17 @@ function buildSceneBlock(sc, i) {
           const newVal = !line.keyline;
           line.keyline = newVal;
           line.locked = newVal;
-          // 바로 다음 dialogue 줄도 함께 처리
-          const nextLine = sc.lines[li + 1];
-          if (nextLine && nextLine.type === 'dialogue') {
-            nextLine.keyline = newVal;
-            nextLine.locked = newVal;
+          // 바로 뒤에 오는 parenthetical, dialogue 줄 모두 함께 처리
+          let nextIdx = li + 1;
+          while (nextIdx < sc.lines.length) {
+            const nextLine = sc.lines[nextIdx];
+            if (nextLine.type === 'dialogue' || nextLine.type === 'parenthetical') {
+              nextLine.keyline = newVal;
+              nextLine.locked = newVal;
+              nextIdx++;
+            } else {
+              break;
+            }
           }
           save(); renderAllLines();
           toast(newVal ? '★ 중요 대사로 표시됨' : '중요 대사 해제됨');
