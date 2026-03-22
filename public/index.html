@@ -4053,6 +4053,8 @@ function handleMsgAction(action) {
     toast('네비게이터에서 씬을 드래그하여 이동하세요: ' + action.data, 4000);
   } else if (action.type === 'reorderScenes') {
     showReorderPreviewModal(action.data);
+  } else if (action.type === 'gotoCharCard') {
+    gotoCharCardHandler(action.data);
   } else if (action.type === 'showChoices') {
     // 단일 선택 — 씬 구간 선택에 사용
     const choices = action.data.choices;
@@ -4527,7 +4529,17 @@ async function handleChatPrompt(text) {
       });
     }
     addMsg('assistant', displayText, actions);
-    // 대화 10개 단위로 자동 메모 추출
+    // 인물+대사 키워드 감지 → 카드 보기 버튼 추가
+    const charNames4 = (S.cur?.characters||[]).map(c=>c.name).filter(Boolean);
+    const mentionedChar4 = charNames4.find(n => text.includes(n));
+    const wantsDialogue = /대사|등장.*씬|장면.*보여|캐릭터.*분석|인물.*분석/.test(text);
+    if (mentionedChar4 && wantsDialogue) {
+      const cardBtn = document.createElement('button');
+      cardBtn.style.cssText = 'margin:4px 0;font-size:11px;background:var(--bg3);color:var(--accent);border:1px solid var(--accent2);border-radius:var(--r);padding:5px 12px;cursor:pointer;';
+      cardBtn.textContent = '👤 ' + mentionedChar4 + ' 카드 보기 →';
+      cardBtn.onclick = () => gotoCharCardHandler(mentionedChar4);
+      document.getElementById('chat-msgs')?.appendChild(cardBtn);
+    }
     const msgCount = (S.cur.messages||[]).length;
     if (msgCount > 0 && msgCount % 10 === 0) {
       setTimeout(() => autoExtractMemoFromHistory(), 1000);
@@ -5029,6 +5041,272 @@ async function handleDiffCancel(text) {
   toast('↩ ' + targets.length + '개 씬 수정 제안이 취소됐습니다.');
 }
 
+// ── response-panel 텍스트 포맷팅 ─────────────────────────────────────
+function formatRpText(text) {
+  return (text||'')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
+    .replace(/(^|\n)(\d+\.|[-•])\s/g,'$1<span style="color:var(--accent);font-weight:600;">$2</span> ')
+    .replace(/\n/g,'<br>');
+}
+
+// ── 씬 제목 변경 ──────────────────────────────────────────────────────
+// ── 씬 잠금/해제 ──────────────────────────────────────────────────────
+async function handleSceneLock(text, lock) {
+  const scenes = S.cur?.scenes || [];
+  const scPat = /SC\s*(\d+)/i;
+  const m = text.match(scPat);
+  const targets = m
+    ? [scenes.find(s => getSceneLabel(s, scenes) === 'SC ' + parseInt(m[1]))].filter(Boolean)
+    : [...S.selectedIds].map(id => scenes.find(s=>s.id===id)).filter(Boolean);
+  if (!targets.length) { toast('씬을 찾을 수 없습니다.'); return; }
+  targets.forEach(sc => { sc.locked = lock; });
+  save(true); renderScriptBody(); renderNavSceneList();
+  toast((lock ? '★ ' : '☆ ') + targets.map(s=>s.title).join(', ') + (lock ? ' — 중요 장면으로 지정됨' : ' — 잠금 해제됨'));
+}
+
+// ── 씬 복제 ───────────────────────────────────────────────────────────
+async function handleSceneClone(text) {
+  const scenes = S.cur?.scenes || [];
+  const scPat = /SC\s*(\d+)/i;
+  const m = text.match(scPat);
+  const sc = m
+    ? scenes.find(s => getSceneLabel(s, scenes) === 'SC ' + parseInt(m[1]))
+    : scenes.find(s => S.selectedIds.has(s.id));
+  if (!sc) { toast('복제할 씬을 찾을 수 없습니다.'); return; }
+  const cloned = JSON.parse(JSON.stringify(sc));
+  cloned.id = Date.now() + Math.floor(Math.random()*100000);
+  cloned.draft = true;
+  cloned.draftOf = sc.id;
+  cloned.title = sc.title + ' (복제)';
+  const idx = scenes.indexOf(sc);
+  scenes.splice(idx+1, 0, cloned);
+  save(true); renderScriptBody(); renderNavSceneList();
+  toast('⎘ "' + sc.title + '" 복제됨 — 대안 장면으로 생성됨');
+}
+
+// ── 중요 대사 지정/해제 ───────────────────────────────────────────────
+async function handleKeyline(text, setOn) {
+  const scenes = S.cur?.scenes || [];
+  const scPat = /SC\s*(\d+)/i;
+  const m = text.match(scPat);
+  const sc = m
+    ? scenes.find(s => getSceneLabel(s, scenes) === 'SC ' + parseInt(m[1]))
+    : scenes.find(s => S.selectedIds.has(s.id));
+  if (!sc) { toast('씬을 찾을 수 없습니다.'); return; }
+
+  // 인물 이름 감지
+  const charNames = (S.cur.characters||[]).map(c=>c.name).filter(Boolean);
+  const mentionedChar = charNames.find(n => text.includes(n));
+
+  if (!mentionedChar) {
+    // 인물 미지정이면 Haiku가 중요도 판단
+    toast('✦ 중요 대사 분석 중...', 3000);
+    const dialogues = (sc.lines||[]).filter(l=>l.type==='dialogue').map((l,i)=>i+': "'+l.text+'"').join('\n');
+    const raw = await callClaude(
+      [{role:'user', content:'씬 대사 목록:\n'+dialogues+'\n\n가장 극적으로 중요한 대사 인덱스를 선택하세요.'}],
+      '반드시 <keylines>[인덱스,인덱스]</keylines> 형식으로만 응답하세요. 1~3개만.',
+      50, 'claude-haiku-4-5-20251001'
+    );
+    const klRaw = extractTag(raw, 'keylines');
+    if (klRaw) {
+      let idxs = [];
+      try { idxs = JSON.parse(klRaw); } catch {}
+      const dialogueLines = (sc.lines||[]).filter(l=>l.type==='dialogue');
+      idxs.forEach(i => { if (dialogueLines[i]) { dialogueLines[i].keyline = setOn; dialogueLines[i].locked = setOn; } });
+      save(true); renderScriptBody();
+      toast((setOn ? '★ ' : '☆ ') + idxs.length + '개 대사 중요 대사 ' + (setOn?'지정':'해제') + '됨');
+    }
+    return;
+  }
+
+  // 특정 인물 대사
+  let count = 0;
+  let lastChar = '';
+  (sc.lines||[]).forEach(l => {
+    if (l.type === 'character') lastChar = l.text;
+    if (l.type === 'dialogue' && lastChar.includes(mentionedChar)) {
+      l.keyline = setOn; l.locked = setOn; count++;
+    }
+  });
+  save(true); renderScriptBody();
+  toast((setOn ? '★ ' : '☆ ') + mentionedChar + ' 대사 ' + count + '개 중요 대사 ' + (setOn?'지정':'해제') + '됨');
+}
+
+// ── 씬 시간 추정 ──────────────────────────────────────────────────────
+function handleSceneTime(text) {
+  const scenes = S.cur?.scenes || [];
+  const scPat = /SC\s*(\d+)/i;
+  const m = text.match(scPat);
+  const targets = m
+    ? [scenes.find(s => getSceneLabel(s, scenes) === 'SC ' + parseInt(m[1]))].filter(Boolean)
+    : [...S.selectedIds].map(id=>scenes.find(s=>s.id===id)).filter(Boolean);
+  if (!targets.length) { toast('씬을 선택해주세요.'); return; }
+
+  const results = targets.map(sc => {
+    const dialogues = (sc.lines||[]).filter(l=>l.type==='dialogue');
+    const actions = (sc.lines||[]).filter(l=>l.type==='action');
+    const dlgChars = dialogues.reduce((sum,l)=>sum+l.text.length, 0);
+    const actChars = actions.reduce((sum,l)=>sum+l.text.length, 0);
+    // 대사: 분당 약 250자, 지문: 분당 약 150자 (연기 시간 포함)
+    const mins = (dlgChars/250 + actChars/150);
+    const minStr = mins < 1 ? Math.round(mins*60)+'초' : Math.round(mins*10)/10 + '분';
+    return getSceneLabel(sc, scenes) + ' "' + sc.title + '"\n• 대사 ' + dialogues.length + '줄 (' + dlgChars + '자)\n• 지문 ' + actions.length + '줄\n• 예상 상연시간: ' + minStr;
+  }).join('\n\n');
+
+  showResponsePanel('comment', '⏱ 씬 시간 추정', '<div class="ai-comment-txt">' + formatRpText(results) + '</div>', '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
+}
+
+// ── 인물 대사 통계 ────────────────────────────────────────────────────
+function handleDialogueStats(text) {
+  const charNames = (S.cur?.characters||[]).map(c=>c.name).filter(Boolean);
+  const mentioned = charNames.find(n => text.includes(n));
+  const scenes = S.cur?.scenes || [];
+
+  let result = '';
+  if (mentioned) {
+    let totalLines = 0, totalChars = 0, sceneSet = new Set();
+    scenes.forEach((sc,si) => {
+      let lastChar = '';
+      (sc.lines||[]).forEach(l => {
+        if (l.type==='character') lastChar=l.text;
+        if (l.type==='dialogue' && lastChar.includes(mentioned)) {
+          totalLines++; totalChars+=l.text.length; sceneSet.add(si);
+        }
+      });
+    });
+    result = mentioned + ' 대사 통계\n• 등장 씬: ' + sceneSet.size + '개\n• 총 대사: ' + totalLines + '줄\n• 총 글자: ' + totalChars + '자\n• 평균 대사 길이: ' + (totalLines?Math.round(totalChars/totalLines):0) + '자';
+  } else {
+    // 전체 인물 통계
+    const stats = {};
+    scenes.forEach(sc => {
+      let lastChar = '';
+      (sc.lines||[]).forEach(l => {
+        if (l.type==='character') lastChar=l.text;
+        if (l.type==='dialogue' && lastChar) { stats[lastChar]=(stats[lastChar]||0)+1; }
+      });
+    });
+    const sorted = Object.entries(stats).sort((a,b)=>b[1]-a[1]).slice(0,10);
+    result = '대사 줄 수 순위\n' + sorted.map((e,i)=>(i+1)+'. '+e[0]+': '+e[1]+'줄').join('\n');
+  }
+  showResponsePanel('comment', '📊 대사 통계', '<div class="ai-comment-txt">' + formatRpText(result) + '</div>', '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
+}
+
+// ── 씬 요약 ───────────────────────────────────────────────────────────
+async function handleSceneSummary(text) {
+  const scenes = S.cur?.scenes || [];
+  const scPat = /SC\s*(\d+)/i;
+  const m = text.match(scPat);
+  const sc = m
+    ? scenes.find(s => getSceneLabel(s, scenes) === 'SC ' + parseInt(m[1]))
+    : scenes.find(s => S.selectedIds.has(s.id));
+  if (!sc) { toast('요약할 씬을 선택해주세요.'); return; }
+
+  toast('✦ 요약 중...', 3000);
+  const content = (sc.lines||[]).map(l=>l.type+': '+l.text).join('\n').slice(0,800);
+  const raw = await callClaude(
+    [{role:'user', content:'씬 "'+sc.title+'":\n'+content}],
+    '이 씬을 2~3문장으로 요약하세요. 핵심 사건과 감정 변화 위주로. 정확한 한국어로.',
+    200, 'claude-haiku-4-5-20251001'
+  );
+  const summary = cleanDisplayText(raw) || raw;
+  showResponsePanel('comment', '📝 ' + sc.title + ' 요약',
+    '<div class="ai-comment-txt">' + formatRpText(summary) + '</div>',
+    '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
+}
+
+// ── 씬 연결 분석 ──────────────────────────────────────────────────────
+async function handleSceneConnection(text) {
+  const scenes = S.cur?.scenes || [];
+  const nonDraft = scenes.filter(s=>!s.draft);
+  const scPat = /SC\s*(\d+)/i;
+  const m = text.match(scPat);
+  let sc = m
+    ? nonDraft.find(s => getSceneLabel(s, scenes) === 'SC ' + parseInt(m[1]))
+    : nonDraft.find(s => S.selectedIds.has(s.id));
+  if (!sc) sc = nonDraft[Math.floor(nonDraft.length/2)];
+
+  const idx = nonDraft.indexOf(sc);
+  const prev = nonDraft[idx-1];
+  const next = nonDraft[idx+1];
+
+  const sceneText = (s) => {
+    const lbl = getSceneLabel(s, scenes);
+    const content = (s.lines||[]).map(l=>l.text).join(' ').slice(0,200);
+    return lbl + ' "' + s.title + '": ' + content;
+  };
+
+  const combined = [prev, sc, next].filter(Boolean).map(sceneText).join('\n\n');
+  toast('✦ 씬 연결 분석 중...', 4000);
+
+  const raw = await callClaude(
+    [{role:'user', content:'씬 연결 분석:\n\n'+combined+'\n\n중심 씬: '+getSceneLabel(sc, scenes)}],
+    '씬들의 연결이 자연스러운지 분석하세요.\n결과를 다음 형식으로 작성하세요:\n연결 평가: (자연스러움/약간 어색/어색)\n문제점: (있으면 구체적으로)\n개선 제안: (구체적인 방법)\n정확한 한국어로, 마크다운 없이.',
+    600
+  );
+  const result = cleanDisplayText(raw) || raw;
+  showResponsePanel('comment', '🔗 씬 연결 분석 — ' + getSceneLabel(sc, scenes),
+    '<div class="ai-comment-txt">' + formatRpText(result) + '</div>',
+    '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>' +
+    '<button class="rp-btn to-chat" onclick="takeToBrainstorm(\'\',\'' + escH(getSceneLabel(sc,scenes)) + ' 씬 연결 개선 방법을 논의하고 싶어\')">💬 브레인스토밍 →</button>');
+}
+
+// showChoicesPanel 콜백 버전 (제목 선택용)
+function showChoicesPanelCb(title, choices, onSelect) {
+  const bodyHTML = '<div class="choice-intro">' + escH(title) + '</div>' +
+    '<div class="choice-list">' + choices.map((c,i) =>
+      '<button class="choice-option" onclick="selectChoiceCb(this,\'_cb\')">' +
+      '<span class="choice-key">' + (i+1) + '</span>' + escH(c) + '</button>'
+    ).join('') + '</div>';
+  window._choiceCb = onSelect;
+  showResponsePanel('choice', title, bodyHTML,
+    '<button class="rp-btn" onclick="confirmChoiceCb()">✓ 선택</button>' +
+    '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
+}
+function selectChoiceCb(btn) {
+  document.querySelectorAll('#rp-body .choice-option').forEach(b => {
+    b.classList.remove('selected'); b.style.borderColor=''; b.style.background='';
+  });
+  btn.classList.add('selected'); btn.style.borderColor='var(--accent)'; btn.style.background='var(--accent3)';
+}
+function confirmChoiceCb() {
+  const sel = document.querySelector('#rp-body .choice-option.selected');
+  if (!sel) { toast('선택해주세요.'); return; }
+  const val = sel.textContent.replace(/^[0-9]+/, '').trim();
+  closeResponsePanel();
+  if (window._choiceCb) window._choiceCb(val);
+}
+
+// handleTitleChange가 showChoicesPanelCb 사용하도록 수정
+async function handleTitleChange(text) {
+  const scenes = S.cur?.scenes || [];
+  const scPat = /SC\s*(\d+)/i;
+  const m = text.match(scPat);
+  const sc = m
+    ? scenes.find(s => getSceneLabel(s, scenes) === 'SC ' + parseInt(m[1]))
+    : scenes.find(s => S.selectedIds.has(s.id));
+  if (!sc) { toast('씬을 찾을 수 없습니다. SC번호를 명시해주세요.'); return; }
+
+  const direction = text.replace(/SC\s*\d+/gi,'').replace(/제목.*바꿔|제목.*변경|제목.*수정/g,'').trim();
+  toast('✦ 제목 후보 생성 중...', 3000);
+  const raw = await callClaude(
+    [{role:'user', content:'씬 내용:\n'+(sc.lines||[]).map(l=>l.text).join(' ').slice(0,300)+'\n\n현재 제목: '+sc.title+(direction?'\n방향: '+direction:'')}],
+    '이 씬에 어울리는 제목 후보 3개를 생성하세요.\n반드시 <choices>["제목1","제목2","제목3"]</choices> 형식으로만 응답하세요.',
+    100, 'claude-haiku-4-5-20251001'
+  );
+  const choicesRaw = extractTag(raw, 'choices');
+  if (!choicesRaw) { toast('제목 생성 실패'); return; }
+  let choices = [];
+  try { choices = JSON.parse(choicesRaw); } catch {}
+  if (!choices.length) return;
+  showChoicesPanelCb('제목 후보 선택', choices, (chosen) => {
+    sc.title = chosen;
+    save(true); renderScriptBody(); renderNavSceneList();
+    toast('✓ 제목 변경됨: ' + chosen);
+  });
+}
+
+// ── 빈 핸들러 제거 (위에서 중복 정의된 것) ──────────────────────────
 async function handleScriptPrompt(text) {
   const selectedScenes = S.selectedIds.size > 0
     ? (S.cur?.scenes||[]).filter(s => S.selectedIds.has(s.id) && !s.locked)
@@ -5038,6 +5316,17 @@ async function handleScriptPrompt(text) {
 
   // Special commands
   if (/갈등.*분석|갈등.*흐름|긴장.*흐름|갈등.*검사|갈등.*봐/.test(text)) { await checkConflictWithPrompt(text); return; }
+  if (/제목.*바꿔|제목.*변경|제목.*수정|제목.*극적|제목.*추천/.test(text)) { await handleTitleChange(text); return; }
+  if (/중요 장면|잠금해줘|locked.*on|장면.*잠금/.test(text)) { await handleSceneLock(text, true); return; }
+  if (/잠금 해제|잠금.*해제|중요 장면.*해제|locked.*off/.test(text)) { await handleSceneLock(text, false); return; }
+  if (/복제해줘|복제 해줘|씬.*복제/.test(text)) { await handleSceneClone(text); return; }
+  if (/중요 대사.*해제|keyline.*해제|중요대사.*해제/.test(text)) { await handleKeyline(text, false); return; }
+  if (/중요 대사|keyline|핵심 대사/.test(text) && /SC\s*\d+|이 씬/.test(text)) { await handleKeyline(text, true); return; }
+  if (/몇 분|상연 시간|러닝타임|분짜리/.test(text)) { handleSceneTime(text); return; }
+  if (/대사.*몇 줄|몇 줄.*대사|대사.*통계|줄 수/.test(text)) { handleDialogueStats(text); return; }
+  if (/대사.*뽑아|대사.*보여|대사.*목록|대사.*확인/.test(text)) { handleCharDialogueLookup(text); return; }
+  if (/요약해|요약 해|씬.*요약|한 줄.*요약/.test(text)) { await handleSceneSummary(text); return; }
+  if (/연결.*자연|앞뒤.*자연|자연스러워|씬.*이어.*분석/.test(text)) { await handleSceneConnection(text); return; }
   if (/일관성|검사/.test(text)) { await checkConsistencyWithPrompt(text); return; }
   if (/연결|매끄럽|흐름|자연스럽|전환.*어색|어색.*전환/.test(text)) { await checkSceneFlowWithPrompt(text); return; }
   if (/감정|심리|내면|감정.*흐름|심리.*변화/.test(text)) { await checkEmotionFlowWithPrompt(text); return; }
@@ -5782,7 +6071,7 @@ function showNewSceneInsertPanel(scenesData, comment, refSc, refLabel) {
 function showCommentPanel(rawText) {
   const text = cleanDisplayText(rawText) || rawText.slice(0, 300) || '처리 완료';
   const escaped = text.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-  showResponsePanel('comment', 'AI 응답', `<div class="ai-comment-txt">${escH(text)}</div>`,
+  showResponsePanel('comment', 'AI 응답', `<div class="ai-comment-txt">${formatRpText(text)}</div>`,
     `<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>
      <button class="rp-btn to-chat" onclick="takeToBrainstorm('${escaped}')">브레인스토밍에서 계속 →</button>`);
 }
@@ -6084,6 +6373,119 @@ function sortChars(mode) {
   renderCharsDrawer();
 }
 
+// ── 대사 조회 → 등장인물 탭 연동 ─────────────────────────────────────
+function handleCharDialogueLookup(text) {
+  const charNames = (S.cur?.characters||[]).map(c=>c.name).filter(Boolean);
+  const foundChar = charNames.find(n => text.includes(n));
+  if (!foundChar) { toast('인물 이름을 찾을 수 없습니다.'); return; }
+  showResponsePanel('comment', '👤 ' + foundChar + ' 대사 조회',
+    '<div class="ai-comment-txt">' + formatRpText(foundChar + '의 주요 대사를 등장인물 탭에서 확인하세요.\n등장 씬 목록과 주요 대사가 함께 표시됩니다.') + '</div>',
+    '<button class="rp-btn" onclick="closeResponsePanel();gotoCharCardHandler(\'' + escH(foundChar) + '\')">👤 ' + escH(foundChar) + ' 카드 보기 →</button>' +
+    '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
+}
+
+// ── 브레인스토밍 — 인물+대사 키워드 감지 → 카드 보기 버튼 ───────────
+function buildCharStatsHTML(c) {
+  if (!S.cur) return '';
+  const scenes = S.cur.scenes || [];
+  const sceneAppearances = [];
+  const keylineDialogues = [];
+  const allDialogues = [];
+
+  scenes.forEach((sc, si) => {
+    let lastChar = '';
+    let appeared = false;
+    (sc.lines||[]).forEach(l => {
+      if (l.type === 'character') lastChar = l.text;
+      if (l.type === 'dialogue' && lastChar.includes(c.name)) {
+        appeared = true;
+        allDialogues.push({ sc, si, text: l.text, keyline: l.keyline });
+        if (l.keyline) keylineDialogues.push({ sc, si, text: l.text });
+      }
+      if (l.type === 'action' && l.text.includes(c.name)) appeared = true;
+    });
+    if (appeared) sceneAppearances.push({ sc, si });
+  });
+
+  // 주요 대사: keyline 우선, 없으면 갈등도+길이 복합 점수로 선택
+  const conflictScenes = S.cur.conflictData?.scenes || [];
+  const displayDialogues = keylineDialogues.length > 0
+    ? keylineDialogues
+    : [...allDialogues].sort((a, b) => {
+        // 갈등도 점수 (0~5)
+        const aConflict = conflictScenes.find(c => c.sceneId === a.sc.id)?.intensity || 0;
+        const bConflict = conflictScenes.find(c => c.sceneId === b.sc.id)?.intensity || 0;
+        // 복합 점수: 갈등도 × 2 + 대사 길이 / 50
+        const aScore = aConflict * 2 + a.text.length / 50;
+        const bScore = bConflict * 2 + b.text.length / 50;
+        return bScore - aScore;
+      }).slice(0, 3);
+  const isAutoSelected = keylineDialogues.length === 0;
+
+  let html = '<div style="padding:10px 12px;display:flex;flex-direction:column;gap:10px;">';
+
+  // 등장 씬 목록
+  html += '<div>';
+  html += '<div style="font-size:10px;color:var(--accent);font-weight:600;margin-bottom:5px;">등장 씬 (' + sceneAppearances.length + '개)</div>';
+  if (sceneAppearances.length === 0) {
+    html += '<div style="font-size:10px;color:var(--text3);">등장 씬 없음</div>';
+  } else {
+    sceneAppearances.forEach(({sc, si}) => {
+      const lbl = getSceneLabel(sc, scenes);
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:3px 0;">' +
+        '<span style="font-size:11px;color:var(--text2);">' + escH(lbl + '. ' + sc.title) + '</span>' +
+        '<button onclick="event.stopPropagation();switchTab(\'script\');setTimeout(()=>scrollToScene(\'' + sc.id + '\'),100);closeDrawer();" ' +
+        'style="font-size:9px;padding:1px 6px;border-radius:3px;border:1px solid var(--border2);background:none;color:var(--text3);cursor:pointer;">→</button>' +
+        '</div>';
+    });
+  }
+  html += '</div>';
+
+  // 주요 대사 목록
+  if (displayDialogues.length > 0) {
+    html += '<div>';
+    html += '<div style="font-size:10px;color:var(--accent);font-weight:600;margin-bottom:5px;">' +
+      (isAutoSelected ? '대사 샘플 (갈등도+길이 기준)' : '★ 주요 대사 (' + displayDialogues.length + '개)') + '</div>';
+    if (isAutoSelected) {
+      html += '<div style="font-size:9px;color:var(--text3);margin-bottom:4px;">★ 중요 대사 지정하면 여기에 표시됩니다</div>';
+    }
+    displayDialogues.forEach(({sc, si, text}) => {
+      const lbl = getSceneLabel(sc, scenes);
+      html += '<div style="padding:4px 8px;background:var(--bg3);border-radius:var(--r);margin-bottom:3px;border-left:2px solid ' + (isAutoSelected ? 'var(--border2)' : 'var(--accent)') + ';">' +
+        '<div style="font-size:9px;color:var(--text3);margin-bottom:2px;">' + escH(lbl) + '</div>' +
+        '<div style="font-size:11px;color:var(--text2);line-height:1.5;">"' + escH(text.slice(0,80)) + (text.length>80?'...':'') + '"</div>' +
+        '</div>';
+    });
+    html += '</div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+// ── gotoCharCard 액션 핸들러 ──────────────────────────────────────────
+function gotoCharCardHandler(charName) {
+  if (!S.cur) return;
+  const c = (S.cur.characters||[]).find(x => x.name === charName);
+  if (!c) { toast(charName + ' 캐릭터를 찾을 수 없습니다.'); return; }
+  openDrawer('chars');
+  setTimeout(() => {
+    const card = document.getElementById('char-' + c.id);
+    if (card) {
+      card.scrollIntoView({ behavior:'smooth', block:'center' });
+      // 통계 섹션 자동 펼치기
+      const statsDiv = document.getElementById('char-stats-' + c.id);
+      const statsBtn = card.querySelector('button[style*="등장 씬"]') ||
+        [...card.querySelectorAll('button')].find(b => b.textContent.includes('등장 씬'));
+      if (statsDiv && statsDiv.style.display === 'none') {
+        statsDiv.style.display = 'block';
+        statsDiv.innerHTML = buildCharStatsHTML(c);
+        if (statsBtn) statsBtn.textContent = '▲ 등장 씬 · 대사';
+      }
+    }
+  }, 350);
+}
+
 function renderCharsDrawer() {
   const body = document.getElementById('chars-body');
   if (!body || !S.cur) return;
@@ -6151,6 +6553,27 @@ function buildCharCard(c) {
       <button class="char-del-btn" onclick="deleteChar(${c.id})">삭제</button>
     </div>`;
   card.appendChild(editDiv);
+
+  // ── 등장 씬 + 주요 대사 섹션 ─────────────────────────────────────
+  const statsDiv = document.createElement('div');
+  statsDiv.id = 'char-stats-' + c.id;
+  statsDiv.style.cssText = 'border-top:1px solid var(--border);padding:0;display:none;';
+  statsDiv.innerHTML = buildCharStatsHTML(c);
+  card.appendChild(statsDiv);
+
+  // 카드 뷰에 통계 토글 버튼 추가
+  const statsBtn = document.createElement('button');
+  statsBtn.style.cssText = 'font-size:9px;padding:2px 7px;border-radius:3px;border:1px solid var(--border2);background:none;color:var(--text3);cursor:pointer;margin-top:4px;';
+  statsBtn.textContent = '▼ 등장 씬 · 대사';
+  statsBtn.onclick = (e) => {
+    e.stopPropagation();
+    const open = statsDiv.style.display !== 'none';
+    statsDiv.style.display = open ? 'none' : 'block';
+    statsBtn.textContent = open ? '▼ 등장 씬 · 대사' : '▲ 등장 씬 · 대사';
+    if (!open) statsDiv.innerHTML = buildCharStatsHTML(c);
+  };
+  viewDiv.querySelector('.char-info').appendChild(statsBtn);
+
   return card;
 }
 
