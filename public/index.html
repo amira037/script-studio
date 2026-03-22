@@ -4000,7 +4000,9 @@ ${ctx}
 - 태그는 응답 맨 끝에만 붙이세요. 태그가 대화 중간에 섞이지 않게 하세요.
 - 일반 대화나 아이디어 토론은 태그 없이 자연스럽게만 답하세요.
 - JSON이나 코드를 대화 본문에 직접 출력하지 마세요.`;
-    const raw = await callClaude([...history, { role:'user', content:text }], sys, 3000);
+    // 씬 재구성 요청이면 토큰 더 많이
+    const needsMore = /씬.*다시|재구성|전체.*씬|씬.*구성|씬.*만들/.test(text);
+    const raw = await callClaude([...history, { role:'user', content:text }], sys, needsMore ? 6000 : 3000);
     hideTyping();
 
     // Parse special content
@@ -4407,6 +4409,31 @@ async function handleScriptPrompt(text) {
   if (/감정|심리|내면|감정.*흐름|심리.*변화/.test(text)) { await checkEmotionFlowWithPrompt(text); return; }
   if (/설정.*충돌|모순|설정.*오류|설정.*검사|충돌.*설정/.test(text)) { await checkSettingConflictWithPrompt(text); return; }
 
+  // ── 브레인스토밍 판단 (2단계) — _skipBrainCheck면 건너뜀 ────────────
+  if (!S._skipBrainCheck) {
+    const definiteBrain = /어떻게.*하면 좋|어떻게.*바꿔야|왜.*이상|방향.*맞는지|어떤.*방법이 좋|어떻게.*생각|어떤.*게 좋|어떻게 해야|조언.*해줘|어떻게 하지/.test(text);
+    const definiteEdit = /바꿔줘|수정해줘|고쳐줘|추가해줘|삭제해줘|써줘|넣어줘|만들어줘|바꿔$|수정$/.test(text);
+
+    if (definiteBrain) {
+      showBrainstormSuggestion(text);
+      return;
+    }
+
+    // 2단계: 애매한 경우 Haiku 판단
+    if (!definiteEdit) {
+      const intentRaw = await callClaude(
+        [{role:'user', content:'대본 작업 요청: "'+text+'"'}],
+        '이 요청이 방향 탐색/질문인지, 직접 편집 요청인지 판단하세요.\n반드시 <intent>brainstorm</intent> 또는 <intent>edit</intent>만 응답하세요.',
+        30, 'claude-haiku-4-5-20251001'
+      );
+      const intent = extractTag(intentRaw, 'intent');
+      if (intent === 'brainstorm') {
+        showBrainstormSuggestion(text);
+        return;
+      }
+    }
+  } // end skipBrainCheck
+
   // 중요 장면 포함 시 확인
   const keyScenes = selectedScenes.filter(s => s.locked);
   if (keyScenes.length > 0) {
@@ -4437,6 +4464,66 @@ async function handleScriptPrompt(text) {
       setTimeout(() => { if (document.body.contains(bar)) { bar.remove(); resolve(false); } }, 8000);
     });
     if (!confirmed) return;
+  }
+
+  // ── 청크 처리: 선택 씬 6개 이상이면 3씬씩 나눠서 처리 ──────────────
+  if (selectedScenes.length >= 6) {
+    const SCHUNK = 3;
+    const totalSChunks = Math.ceil(selectedScenes.length / SCHUNK);
+    setWaiting(true);
+    try {
+      for (let ci = 0; ci < totalSChunks; ci++) {
+        const chunk = selectedScenes.slice(ci * SCHUNK, (ci + 1) * SCHUNK);
+        toast('✦ 씬 편집 중... (' + (ci+1) + '/' + totalSChunks + ')', 6000);
+        // 청크 전용 요청 — 현재 함수 재귀 대신 직접 API 호출
+        const chunkAllScenes = S.cur.scenes || [];
+        const chunkFullList = chunkAllScenes.map(s => {
+          const lbl = getSceneLabel(s, chunkAllScenes);
+          const slug = (s.lines||[]).find(l=>l.type==='slug')?.text||'';
+          return lbl + '. "' + s.title + '"' + (slug?' ['+slug+']':'');
+        }).join('\n');
+        const chunkSummary = chunk.map(s => {
+          const label = getSceneLabel(s, S.cur.scenes);
+          return label+'[id:'+s.id+'] "'+s.title+'": '+JSON.stringify(s.lines.map(l=>({type:l.type,text:l.text,locked:l.locked})));
+        }).join('\n');
+        const chunkSys = '당신은 대본 편집 AI입니다.\n\n[전체 씬 목록 — 참조용]\n'+chunkFullList+'\n\n[편집 가능한 씬 데이터]\n' +
+          '잠금(locked:true)된 줄과 중요 대사(keyline:true)는 절대 수정하지 마세요.\n' +
+          '편집 시 반드시 <r>[{"sceneId":숫자,"title":"씬제목","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용","locked":false}],"comment":"변경사항 한 줄"}]</r> 형식으로 응답하세요.\n' +
+          'sceneId를 모를 때는 title 필드에 씬 제목을 정확히 적으면 자동 매칭됩니다.';
+        const chunkRaw = await callClaude(
+          [{role:'user', content:'지시: '+text+'\n\n씬 데이터:\n'+chunkSummary}],
+          chunkSys, 3000
+        );
+        const chunkResult = extractTag(chunkRaw, 'r');
+        if (chunkResult) {
+          let updates = null;
+          try { updates = JSON.parse(chunkResult); } catch {}
+          if (updates && Array.isArray(updates)) {
+            updates.forEach(u => {
+              const sc = S.cur.scenes.find(s => s.id === u.sceneId)
+                || S.cur.scenes.find(s => s.title === u.title)
+                || S.cur.scenes.find(s => u.title && s.title.includes(u.title.slice(0,6)));
+              if (!sc) return;
+              if (u.title && u.title !== sc.title) sc.title = u.title;
+              const diffLines = [];
+              const newLines = u.lines || [];
+              const maxLen = Math.max(sc.lines.length, newLines.length);
+              for (let i = 0; i < maxLen; i++) {
+                const old = sc.lines[i], nw = newLines[i];
+                if (old && nw && old.text === nw.text) { diffLines.push({type:'ctx', text:old.text}); }
+                else { if (old) diffLines.push({type:'del', text:old.text}); if (nw) diffLines.push({type:'add', text:nw.text}); }
+              }
+              sc.diff = { prompt:text, lines:diffLines, newLines, comment:u.comment||'' };
+            });
+          }
+        }
+      }
+      save(); renderScriptBody();
+      toast('✓ 전체 편집 완료 — diff를 확인하세요', 4000);
+    } catch(e) {
+      if (e.name !== 'AbortError') toast('편집 오류: ' + e.message);
+    } finally { setWaiting(false); }
+    return;
   }
 
   // 전체 씬 목록 요약 (참조용)
@@ -4886,16 +4973,70 @@ function selectChoice(btn, choice) {
   inp.focus();
 }
 
-function takeToBrainstorm(contextText) {
+function showBrainstormSuggestion(originalText) {
+  // 기존 안내 바 제거
+  document.getElementById('brain-suggest-bar')?.remove();
+  const bar = document.createElement('div');
+  bar.id = 'brain-suggest-bar';
+  bar.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);' +
+    'background:var(--bg4);border:1px solid rgba(168,158,221,.4);border-radius:var(--r2);' +
+    'padding:12px 16px;z-index:500;display:flex;flex-direction:column;gap:8px;' +
+    'min-width:300px;max-width:90vw;box-shadow:0 8px 24px rgba(0,0,0,.5);';
+  const msg = document.createElement('div');
+  msg.style.cssText = 'font-size:12px;color:var(--text);line-height:1.6;';
+  msg.innerHTML = '<span style="color:#afa9ec;">💬</span> 방향을 함께 정하는 게 좋을 것 같습니다.<br>' +
+    '<span style="font-size:10px;color:var(--text3);">브레인스토밍에서 이야기해볼까요?</span>';
+  const btns = document.createElement('div');
+  btns.style.cssText = 'display:flex;gap:6px;';
+  const goBtn = document.createElement('button');
+  goBtn.textContent = '💬 브레인스토밍으로 →';
+  goBtn.style.cssText = 'flex:1;background:#afa9ec;color:#0e0e10;border:none;border-radius:var(--r);padding:6px;font-size:11px;cursor:pointer;font-weight:600;';
+  // 브레인스토밍용 프롬프트 생성
+  const brainPrompt = originalText.replace(/[.!?]$/, '') + ' — 어떻게 하면 좋을까?';
+  goBtn.onclick = () => { bar.remove(); takeToBrainstorm('', brainPrompt); };
+  const continueBtn = document.createElement('button');
+  continueBtn.textContent = '여기서 계속';
+  continueBtn.style.cssText = 'background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text3);padding:6px 12px;font-size:11px;cursor:pointer;';
+  continueBtn.onclick = () => { bar.remove(); handleScriptPromptDirect(originalText); };
+  btns.append(goBtn, continueBtn);
+  bar.append(msg, btns);
+  document.body.appendChild(bar);
+  setTimeout(() => bar?.remove(), 12000);
+}
+
+async function handleScriptPromptDirect(text) {
+  // 브레인스토밍 판단 건너뛰고 바로 편집 처리
+  // Special commands는 이미 통과했으므로 직접 편집 로직으로
+  const inp = document.getElementById('prompter-inp');
+  if (inp) { inp.value = text; }
+  // definiteEdit 강제 설정 후 재호출 대신 플래그로 처리
+  S._skipBrainCheck = true;
+  await handleScriptPrompt(text);
+  S._skipBrainCheck = false;
+}
+
+function takeToBrainstorm(contextText, promptText) {
   closeResponsePanel();
+  document.getElementById('conflict-modal')?.remove();
   switchTab('chat');
   if (contextText) {
-    const clean = cleanDisplayText(contextText) || contextText.slice(0, 200);
+    let clean = cleanDisplayText(contextText) || '';
+    clean = clean.replace(/[{[<][^}\]>]{0,50}$/, '').trim();
+    clean = clean || '이전 대화 내용을 참고해주세요.';
     if (!S.cur.messages) S.cur.messages = [];
     S.cur.messages.push({ role:'assistant', text: '[대본 에디터에서 이어짐] ' + clean });
     save(true);
     renderChatMsgs();
   }
+  // 프롬프터에 자동 입력
+  setTimeout(() => {
+    const inp = document.getElementById('prompter-inp');
+    if (inp && promptText) {
+      inp.value = promptText;
+      inp.dispatchEvent(new Event('input'));
+      inp.focus();
+    }
+  }, 150);
 }
 
 function gotoSceneByLabel(label) {
@@ -6627,6 +6768,11 @@ function cleanDisplayText(raw) {
     .replace(/<newscenes[\s\S]*?<\/newscenes>/gi, '')
     .replace(/<newproject[\s\S]*?<\/newproject>/gi, '')
     .replace(/<r>[\s\S]*?<\/r>/gi, '')
+    .replace(/<result>[\s\S]*?<\/result>/gi, '')
+    .replace(/<r>[\s\S]*/gi, '')
+    .replace(/<result>[\s\S]*/gi, '')
+    .replace(/<scenes>[\s\S]*/gi, '')
+    .replace(/<newscenes>[\s\S]*/gi, '')
     .replace(/<issues[\s\S]*?<\/issues>/gi, '')
     .replace(/<choices[\s\S]*?<\/choices>/gi, '')
     .replace(/<chardata[\s\S]*?<\/chardata>/gi, '')
