@@ -4391,13 +4391,70 @@ function importProject(e) {
     try {
       const data = JSON.parse(ev.target.result);
       const projects = Array.isArray(data) ? data : [data];
-      projects.forEach(p => {
-        if (!p.id) p.id = Date.now() + Math.random();
-        S.projects.push(p);
-      });
-      save(); renderHome(); toast(`✓ ${projects.length}개 프로젝트 불러옴`);
+      e.target.value = '';
+
+      // 중복 이름 감지
+      const duplicates = projects.filter(p =>
+        S.projects.find(existing => existing.title === p.title)
+      );
+      const newOnes = projects.filter(p =>
+        !S.projects.find(existing => existing.title === p.title)
+      );
+
+      const doImport = (overwrite) => {
+        projects.forEach(p => {
+          if (!p.id) p.id = Date.now() + Math.random();
+          const existing = S.projects.find(x => x.title === p.title);
+          if (existing) {
+            if (overwrite) {
+              // 덮어쓰기 — 기존 id 유지, 내용만 교체
+              Object.assign(existing, { ...p, id: existing.id });
+            } else {
+              // 새로 추가 — 새 id 부여
+              S.projects.push({ ...p, id: Date.now() + Math.random() });
+            }
+          } else {
+            S.projects.push(p);
+          }
+        });
+        save(); renderHome();
+        toast('✓ ' + projects.length + '개 프로젝트 불러옴');
+      };
+
+      if (duplicates.length > 0) {
+        const names = duplicates.map(p => '"' + p.title + '"').join(', ');
+        // 드로어 안에 인라인 확인 바 표시
+        const bar = document.createElement('div');
+        bar.id = 'import-confirm-bar';
+        bar.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);' +
+          'background:var(--bg4);border:1px solid var(--border2);border-radius:var(--r2);' +
+          'padding:12px 16px;z-index:500;display:flex;flex-direction:column;gap:8px;' +
+          'min-width:280px;max-width:90vw;box-shadow:0 8px 24px rgba(0,0,0,.5);';
+        bar.innerHTML = '<div style="font-size:12px;color:var(--text);line-height:1.5;">' +
+          escH(names) + ' 이(가) 이미 있습니다.<br>어떻게 할까요?</div>' +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+          '<button onclick="document.getElementById(\'import-confirm-bar\').remove();(function(){' +
+          'const projects=' + JSON.stringify(projects) + ';' +
+          'projects.forEach(p=>{if(!p.id)p.id=Date.now()+Math.random();' +
+          'const ex=S.projects.find(x=>x.title===p.title);' +
+          'if(ex){Object.assign(ex,{...p,id:ex.id});}else{S.projects.push(p);}});' +
+          'save();renderHome();toast(\'✓ 덮어쓰기 완료\');})()" ' +
+          'style="font-size:11px;background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:5px 12px;font-weight:600;cursor:pointer;">덮어쓰기</button>' +
+          '<button onclick="document.getElementById(\'import-confirm-bar\').remove();(function(){' +
+          'const projects=' + JSON.stringify(projects) + ';' +
+          'projects.forEach(p=>{S.projects.push({...p,id:Date.now()+Math.random()});});' +
+          'save();renderHome();toast(\'✓ 새로 추가 완료\');})()" ' +
+          'style="font-size:11px;background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);padding:5px 12px;cursor:pointer;">새로 추가</button>' +
+          '<button onclick="document.getElementById(\'import-confirm-bar\').remove()" ' +
+          'style="font-size:11px;background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text3);padding:5px 12px;cursor:pointer;">취소</button>' +
+          '</div>';
+        document.body.appendChild(bar);
+        // 5초 후 자동 닫힘
+        setTimeout(() => bar?.remove(), 8000);
+      } else {
+        doImport(false);
+      }
     } catch(err) { toast('파일 오류: ' + err.message); }
-    e.target.value = '';
   };
   reader.readAsText(file);
 }
