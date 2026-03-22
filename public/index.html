@@ -2622,14 +2622,20 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
     const parseBtn = wrap.querySelector('#nsi-parse-btn');
     parseBtn.textContent = '⏳ AI 분석 중...'; parseBtn.disabled = true;
     try {
-      const sys = `당신은 대본 파서입니다. 주어진 텍스트를 씬 데이터로 변환하세요.
-반드시 <scenes>[JSON]</scenes> 형식으로만 응답하세요. 다른 텍스트 없이 태그만.
-씬 JSON: [{"title":"씬제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]
-- 씬 제목/번호 줄 → title과 slug 추출
-- 지문/설명 → action
-- 인물명만 있는 줄 → character
-- 대사 → dialogue
-- 인물명 + 대사가 한 줄이면 character 줄과 dialogue 줄로 분리`;
+      // 등장인물 목록 수집
+      const charNames = (S.cur?.characters||[]).map(c=>c.name).filter(Boolean);
+      const charHint = charNames.length > 0 ? '\n등장인물 이름 목록: ' + charNames.join(', ') : '';
+      const sys = '당신은 대본 파서입니다. 주어진 텍스트를 씬 데이터로 변환하세요.\n' +
+        '반드시 <scenes>[JSON]</scenes> 형식으로만 응답하세요. 다른 텍스트 없이 태그만.\n' +
+        '씬 JSON: [{"title":"씬제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]\n' +
+        '- 씬 제목/번호 줄 → title과 slug 추출\n' +
+        '- 지문/설명 → action\n' +
+        '- 인물명만 있는 줄 → character\n' +
+        '- 대사 → dialogue\n' +
+        '- 인물명 + 대사가 한 줄이면 character 줄과 dialogue 줄로 분리\n' +
+        '- 지문(action) 바로 다음 줄은 대사가 아니라 배역명(character)일 가능성이 높음\n' +
+        '- 한 줄에서 첫 단어가 4자 이하이고 등장인물 이름이거나 이름처럼 보이면 배역명으로 분리\n' +
+        charHint;
       const raw = await callClaude([{role:'user', content:rawText}], sys, 6000, 'claude-haiku-4-5-20251001');
       const scenesRaw = extractTag(raw, 'scenes');
       if (!scenesRaw) { toast('파싱 실패 — 텍스트 형식을 확인해주세요.'); return; }
@@ -3728,11 +3734,17 @@ function openSceneTextEditor(sc, block) {
     if (!rawText) return;
     parseBtn.textContent = '⏳ 분석 중...'; parseBtn.disabled = true;
     try {
+      const charNames2 = (S.cur?.characters||[]).map(c=>c.name).filter(Boolean);
+      const charHint2 = charNames2.length > 0 ? '\n등장인물 이름 목록: ' + charNames2.join(', ') : '';
       const sys = '대본 파서입니다. 주어진 텍스트를 씬 데이터로 변환하세요.\n' +
         '반드시 <scenes>[JSON]</scenes> 형식으로만 응답하세요.\n' +
         '씬 JSON: [{"title":"씬제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용"}]}]\n' +
         '- 슬러그/씬 제목 → slug와 title\n' +
-        '- 지문 → action, 인물명 → character, 대사 → dialogue, 괄호지문 → parenthetical';
+        '- 지문 → action, 인물명 → character, 대사 → dialogue, 괄호지문 → parenthetical\n' +
+        '- 지문(action) 바로 다음 줄은 대사가 아니라 배역명(character)일 가능성이 높음\n' +
+        '- 한 줄에서 첫 단어가 4자 이하이고 등장인물 이름이거나 이름처럼 보이면 배역명으로 분리\n' +
+        '- 인물명 + 대사가 한 줄이면 character 줄과 dialogue 줄로 분리\n' +
+        charHint2;
       const raw = await callClaude([{role:'user', content:rawText}], sys, 6000, 'claude-haiku-4-5-20251001');
       const scenesRaw = extractTag(raw, 'scenes');
       if (!scenesRaw) { toast('파싱 실패 — 다시 시도해주세요.'); return; }
@@ -4994,11 +5006,7 @@ function showBrainstormSuggestion(originalText) {
   // 브레인스토밍용 프롬프트 생성
   const brainPrompt = originalText.replace(/[.!?]$/, '') + ' — 어떻게 하면 좋을까?';
   goBtn.onclick = () => { bar.remove(); takeToBrainstorm('', brainPrompt); };
-  const continueBtn = document.createElement('button');
-  continueBtn.textContent = '여기서 계속';
-  continueBtn.style.cssText = 'background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text3);padding:6px 12px;font-size:11px;cursor:pointer;';
-  continueBtn.onclick = () => { bar.remove(); handleScriptPromptDirect(originalText); };
-  btns.append(goBtn, continueBtn);
+  btns.append(goBtn);
   bar.append(msg, btns);
   document.body.appendChild(bar);
   setTimeout(() => bar?.remove(), 12000);
