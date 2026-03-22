@@ -543,9 +543,9 @@ textarea, input { font-family:var(--fb); }
 /* slug is now a line type, not a header input */
 .scene-hdr-acts { display:flex; gap:4px; flex-shrink:0; margin-left:auto; }
 .sc-hdr-btn {
-  font-size:9px; padding:2px 8px; border-radius:4px;
+  font-size:10px; padding:3px 9px; border-radius:4px;
   border:1px solid var(--border2); background:transparent;
-  color:var(--text3); transition:all .15s; font-family:var(--fm);
+  color:var(--text2); transition:all .15s; font-family:var(--fm);
   white-space:nowrap;
 }
 .sc-hdr-btn:hover { color:var(--text2); border-color:var(--border3); }
@@ -2139,7 +2139,15 @@ function filterNavScenes(query) {
   const items = document.querySelectorAll('#nav-scene-list .nav-sc-item');
   items.forEach(item => {
     const title = (item.dataset.title || '').toLowerCase();
-    item.style.display = (!q || title.includes(q)) ? '' : 'none';
+    const content = (item.dataset.content || '').toLowerCase();
+    const match = !q || title.includes(q) || content.includes(q);
+    item.style.display = match ? '' : 'none';
+    // 대사에서 발견된 경우 표시
+    if (match && q && !title.includes(q) && content.includes(q)) {
+      item.style.borderLeft = '2px solid var(--accent2)';
+    } else {
+      item.style.borderLeft = '';
+    }
   });
 }
 
@@ -2156,6 +2164,9 @@ function renderNavSceneList() {
       (sc.collapsed ? ' collapsed' : '');
     item.dataset.id = sc.id;
     item.dataset.title = (sc.title || '').toLowerCase();
+    // 대사+지문 내용도 검색 가능하게 저장
+    const scContent = (sc.lines||[]).map(l => l.text).join(' ').toLowerCase();
+    item.dataset.content = scContent;
     item.draggable = !sc.locked;
 
     // ── 드래그 핸들 ──
@@ -2767,8 +2778,8 @@ function buildSceneBlock(sc, i) {
   const lockBtn = document.createElement('button');
   lockBtn.className = 'sc-hdr-btn' + (sc.locked ? ' active' : '');
   lockBtn.style.cssText = sc.locked
-    ? 'font-size:11px;color:#5dcaa5;border-color:#1d9e75;background:rgba(13,24,18,.6);'
-    : 'font-size:11px;';
+    ? 'font-size:10px;color:#5dcaa5;border-color:#1d9e75;background:rgba(29,158,117,.2);font-weight:600;'
+    : 'font-size:10px;color:#5dcaa5;border-color:rgba(29,158,117,.4);background:rgba(29,158,117,.12);';
   lockBtn.textContent = sc.locked ? '★ 중요 장면' : '☆ 중요 장면';
   lockBtn.title = sc.locked ? '중요 장면 해제' : '중요 장면으로 표시 (AI 편집 보호)';
   lockBtn.onclick = () => {
@@ -2780,13 +2791,13 @@ function buildSceneBlock(sc, i) {
   const txtEditBtn = document.createElement('button');
   txtEditBtn.className = 'sc-hdr-btn';
   txtEditBtn.textContent = '📝 텍스트 편집';
-  txtEditBtn.style.cssText = 'font-size:9px;';
+  txtEditBtn.style.cssText = 'font-size:10px;color:#85b7eb;border-color:rgba(110,168,200,.4);background:rgba(110,168,200,.12);';
   txtEditBtn.onclick = () => openSceneTextEditor(sc, block);
   // 씬 제목 AI 채우기 버튼 (제목이 없거나 '새 씬'일 때만 표시)
   const titleAiBtn = document.createElement('button');
   titleAiBtn.className = 'sc-hdr-btn';
-  titleAiBtn.style.cssText = 'font-size:9px;color:var(--purple);border-color:rgba(168,158,221,.4);background:var(--purple2);';
-  titleAiBtn.textContent = '✦ 제목';
+  titleAiBtn.style.cssText = 'font-size:10px;color:#afa9ec;border-color:rgba(168,158,221,.4);background:rgba(168,158,221,.12);';
+  titleAiBtn.textContent = '✦ AI 제목';
   titleAiBtn.title = 'AI가 씬 내용을 읽고 제목을 제안합니다';
   titleAiBtn.onclick = async () => {
     titleAiBtn.textContent = '...'; titleAiBtn.disabled = true;
@@ -2825,7 +2836,7 @@ function buildSceneBlock(sc, i) {
   }
   // 접기/펼치기 버튼
   const collapseBtn = document.createElement('button');
-  collapseBtn.className = 'collapse-btn';
+  collapseBtn.className = 'collapse-btn'; collapseBtn.style.fontSize = '11px';
   collapseBtn.title = sc.collapsed ? '펼치기' : '접어두기';
   collapseBtn.textContent = sc.collapsed ? '▶' : '▼';
   collapseBtn.onclick = () => {
@@ -2835,7 +2846,7 @@ function buildSceneBlock(sc, i) {
   // 복제 버튼
   const cloneBtn = document.createElement('button');
   cloneBtn.className = 'sc-hdr-btn';
-  cloneBtn.style.cssText = 'font-size:9px;';
+  cloneBtn.style.cssText = 'font-size:10px;color:#f0997b;border-color:rgba(216,90,48,.4);background:rgba(216,90,48,.12);';
   cloneBtn.textContent = '⎘ 복제';
   cloneBtn.title = '이 씬을 복제합니다';
   cloneBtn.onclick = () => {
@@ -3128,6 +3139,28 @@ function buildSceneBlock(sc, i) {
         menu.appendChild(mkMenuBtn('줄 삭제', 'var(--red)', () => {
           sc.lines.splice(li, 1); save(); renderAllLines();
         }));
+        // 대사 묶음 삭제 — character/parenthetical/dialogue 어느 줄에서든 묶음 전체 삭제
+        const isDialogueLine = ['character','parenthetical','dialogue'].includes(line.type);
+        if (isDialogueLine) {
+          menu.appendChild(mkMenuBtn('🗑 대사 묶음 삭제', 'var(--red)', () => {
+            // 위로 올라가서 character 줄 찾기
+            let charIdx = li;
+            if (line.type !== 'character') {
+              for (let k = li - 1; k >= 0; k--) {
+                if (sc.lines[k].type === 'character') { charIdx = k; break; }
+                if (sc.lines[k].type === 'action' || sc.lines[k].type === 'slug') break;
+              }
+            }
+            // charIdx부터 아래로 parenthetical/dialogue 줄 모두 포함
+            let endIdx = charIdx;
+            for (let k = charIdx + 1; k < sc.lines.length; k++) {
+              if (sc.lines[k].type === 'parenthetical' || sc.lines[k].type === 'dialogue') endIdx = k;
+              else break;
+            }
+            sc.lines.splice(charIdx, endIdx - charIdx + 1);
+            save(); renderAllLines();
+          }));
+        }
         document.body.appendChild(menu);
         // Position near touch/click point
         const mw = 130, mh = 160;
@@ -3341,9 +3374,9 @@ function buildDiffBlock(sc) {
     </div>
     <div class="diff-lines">${buildDiffLines(sc.diff.lines)}</div>
     <div class="diff-acts">
+      <button class="diff-apply-btn" style="background:var(--purple2);color:var(--purple);border-color:rgba(168,158,221,.4);" onclick="suggestTraitFromDiff(${sc.id}, '${(sc.diff&&sc.diff.prompt)||''}')">👤 어투 속성 저장</button>
       <button class="diff-apply-btn" onclick="applyDiff(${sc.id})">✓ 바로 적용</button>
       <button class="diff-apply-btn" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);" onclick="saveAsDraft(${sc.id})">📝 대안으로 저장</button>
-      <button class="diff-apply-btn" style="background:var(--purple2);color:var(--purple);border-color:rgba(168,158,221,.4);" onclick="suggestTraitFromDiff(${sc.id}, '${(sc.diff&&sc.diff.prompt)||''}')">👤 어투 속성 저장</button>
       <button class="diff-cancel-btn" onclick="cancelDiff(${sc.id})">✕ 취소</button>
     </div>`;
   return wrap;
@@ -4936,7 +4969,15 @@ function buildCharCard(c) {
     <div class="char-edit-field-wrap"><div class="char-edit-label">이름</div><input class="char-edit-inp" id="ce-name-${c.id}" value="${escH(c.name||'')}"></div>
     <div class="char-edit-field-wrap"><div class="char-edit-label">역할</div><input class="char-edit-inp" id="ce-role-${c.id}" value="${escH(c.role||'')}"></div>
     <div class="char-edit-field-wrap"><div class="char-edit-label">설명</div><input class="char-edit-inp" id="ce-desc-${c.id}" value="${escH(c.description||'')}"></div>
-    <div class="char-edit-field-wrap"><div class="char-edit-label">특성 (쉼표 구분)</div><input class="char-edit-inp" id="ce-traits-${c.id}" value="${escH((c.traits||[]).join(', '))}"></div>
+    <div class="char-edit-field-wrap">
+      <div class="char-edit-label">특성</div>
+      <div id="ce-traits-wrap-${c.id}" style="display:flex;flex-wrap:wrap;gap:5px;align-items:center;min-height:28px;padding:4px 0;">
+        ${(c.traits||[]).map((tr,ti) => '<span style="display:inline-flex;align-items:center;gap:3px;background:var(--purple2);color:var(--purple);border:1px solid rgba(168,158,221,.3);border-radius:3px;padding:2px 8px;font-size:10px;font-family:var(--fm);">' + escH(tr) + '<button onclick="removeCharTrait(' + c.id + ',' + ti + ')" style="background:none;border:none;color:var(--purple);cursor:pointer;font-size:11px;padding:0 0 0 3px;line-height:1;">×</button></span>').join('')}
+        <input id="ce-traits-inp-${c.id}" placeholder="+ 특성 추가" onkeydown="onTraitInpKey(event,${c.id})"
+          style="border:none;background:none;color:var(--text);font-size:10px;font-family:var(--fm);outline:none;min-width:80px;padding:2px 4px;">
+      </div>
+      <input type="hidden" id="ce-traits-${c.id}" value="${escH((c.traits||[]).join(', '))}">
+    </div>
     <div class="char-edit-acts">
       <button class="char-save-btn" onclick="saveChar(${c.id})">저장</button>
       <button class="char-cancel-btn" onclick="closeCharEdit(${c.id})">취소</button>
@@ -4945,6 +4986,61 @@ function buildCharCard(c) {
     </div>`;
   card.appendChild(editDiv);
   return card;
+}
+
+function removeCharTrait(id, traitIdx) {
+  const c = S.cur?.characters?.find(x => x.id === id);
+  if (!c || !c.traits) return;
+  c.traits.splice(traitIdx, 1);
+  save();
+  renderCharTraitPills(id);
+}
+
+function renderCharTraitPills(id) {
+  const c = S.cur?.characters?.find(x => x.id === id);
+  const wrap = document.getElementById('ce-traits-wrap-'+id);
+  if (!wrap || !c) return;
+  const inp = document.getElementById('ce-traits-inp-'+id);
+  const inpVal = inp?.value || '';
+  // 기존 pill만 제거 (input은 유지)
+  [...wrap.querySelectorAll('.trait-pill')].forEach(p => p.remove());
+  // pill 재생성
+  (c.traits||[]).forEach((tr, ti) => {
+    const pill = document.createElement('span');
+    pill.className = 'trait-pill';
+    pill.style.cssText = 'display:inline-flex;align-items:center;gap:3px;background:var(--purple2);color:var(--purple);border:1px solid rgba(168,158,221,.3);border-radius:3px;padding:2px 8px;font-size:10px;font-family:var(--fm);';
+    pill.textContent = tr;
+    const x = document.createElement('button');
+    x.style.cssText = 'background:none;border:none;color:var(--purple);cursor:pointer;font-size:11px;padding:0 0 0 3px;line-height:1;';
+    x.textContent = '×';
+    x.onclick = (e) => { e.stopPropagation(); removeCharTrait(id, ti); };
+    pill.appendChild(x);
+    wrap.insertBefore(pill, wrap.querySelector('#ce-traits-inp-'+id));
+  });
+  if (inp) inp.value = inpVal;
+}
+
+function addCharTrait(id, trait) {
+  trait = trait.trim();
+  if (!trait) return;
+  const c = S.cur?.characters?.find(x => x.id === id);
+  if (!c) return;
+  if (!c.traits) c.traits = [];
+  if (c.traits.includes(trait)) return;
+  c.traits.push(trait);
+  save();
+  renderCharTraitPills(id);
+  const inp = document.getElementById('ce-traits-inp-'+id);
+  if (inp) inp.value = '';
+}
+
+function onTraitInpKey(e, id) {
+  if (e.isComposing || e.keyCode === 229) return; // IME 조합 중 무시
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault();
+    const val = (e.target.value || '').replace(',','').trim();
+    if (val) addCharTrait(id, val);
+  }
 }
 
 function openCharEdit(id) {
@@ -4965,7 +5061,17 @@ function saveChar(id) {
   c.name = newName;
   c.role = document.getElementById('ce-role-'+id)?.value || '';
   c.description = document.getElementById('ce-desc-'+id)?.value || '';
-  c.traits = (document.getElementById('ce-traits-'+id)?.value||'').split(',').map(s=>s.trim()).filter(Boolean);
+  // traits — 태그 pill에서 수집
+  const traitWrap = document.getElementById('ce-traits-wrap-'+id);
+  if (traitWrap) {
+    const pills = traitWrap.querySelectorAll('.trait-pill');
+    c.traits = [...pills].map(p => p.childNodes[0]?.textContent?.trim()).filter(Boolean);
+    // 입력 중인 텍스트도 포함
+    const traitInp = document.getElementById('ce-traits-inp-'+id);
+    if (traitInp?.value.trim()) c.traits.push(traitInp.value.trim());
+  } else {
+    c.traits = (document.getElementById('ce-traits-'+id)?.value||'').split(',').map(s=>s.trim()).filter(Boolean);
+  }
   save(); closeCharEdit(id); renderCharsDrawer();
 
   // 이름이 바뀐 경우 대본 치환 제안
@@ -5088,75 +5194,104 @@ function addCharacter() {
 }
 
 async function aiCharUnified(id) {
-  // 대사 있으면 대본 분석 + 유형 추천, 없으면 시놉시스 기반 기본 정보 채움
   const c = S.cur?.characters?.find(x => x.id === id);
   if (!c) return;
   const name = document.getElementById('ce-name-'+id)?.value || c.name;
 
-  // 대사 수집
-  const charLines = [];
+  // 대사 수집 — 우선순위: 1.중요대사(keyline) 2.중요장면(sc.locked) 3.긴 대사 순
+  const allLines = [];
   (S.cur.scenes||[]).forEach((sc, si) => {
     let capturing = false;
     sc.lines.forEach(l => {
       if (l.type === 'character' && l.text.includes(name)) { capturing = true; return; }
-      if (capturing && (l.type === 'dialogue' || l.type === 'parenthetical')) {
-        charLines.push('SC'+(si+1)+': "'+l.text+'"'); capturing = false;
+      if (capturing && l.type === 'dialogue') {
+        allLines.push({
+          text: 'SC'+(si+1)+': "'+l.text+'"',
+          priority: l.keyline ? 0 : sc.locked ? 1 : 2,
+          len: l.text.length
+        });
+        capturing = false;
+      } else if (capturing && l.type === 'parenthetical') {
+        capturing = true; // parenthetical은 캡처 유지
       } else if (l.type === 'action' && l.text.includes(name)) {
-        charLines.push('SC'+(si+1)+' 지문: '+l.text);
+        allLines.push({ text: 'SC'+(si+1)+' 지문: '+l.text, priority: 2, len: l.text.length });
       } else { capturing = false; }
     });
   });
+  // 우선순위 → 길이 순 정렬 후 10개 선택
+  allLines.sort((a, b) => a.priority !== b.priority ? a.priority - b.priority : b.len - a.len);
+  const charLines = allLines.slice(0, 10).map(l => l.text);
 
   const btn = document.querySelector('[onclick="aiCharUnified('+id+')"]');
   if (btn) { btn.textContent = '⏳ 분석 중...'; btn.disabled = true; }
-  toast('✦ AI 분석 중...', 3000);
+  setWaiting(true);
+  toast('✦ AI 분석 중...', 10000);
+
+  // 재시도 포함 callClaude 래퍼
+  const callWithRetry = async (msgs, sys, tokens) => {
+    let raw = await callClaude(msgs, sys, tokens, 'claude-haiku-4-5-20251001');
+    let dataRaw = extractTag(raw, 'chardata');
+    if (!dataRaw) {
+      // 한 번 재시도
+      toast('⟳ 재시도 중...', 2000);
+      raw = await callClaude(msgs, sys, tokens, 'claude-haiku-4-5-20251001');
+      dataRaw = extractTag(raw, 'chardata');
+    }
+    return dataRaw;
+  };
 
   try {
+    let dataRaw, successMsg;
+
     if (charLines.length > 0) {
-      // ── 대사 있음: 대본 기반 분석 + 유형 추천 ──────────
       const sys = '대본 인물의 대사와 행동을 분석해서 캐릭터 정보와 유형을 추출하세요.\n' +
         '반드시 <chardata>{"description":"설명 2-3문장","traits":["특성1","특성2","특성3"],"types":[{"type":"유형명","reason":"이유 한 줄","traits":["속성1","속성2"]}]}</chardata> 형식으로만 응답하세요.\n' +
         'types는 MBTI, 장르 클리셰(에겐남/츤데레/얀데레/퐁퐁남 등) 포함 3개 추천.';
-      const raw = await callClaude(
+      dataRaw = await callWithRetry(
         [{role:'user', content:'인물: '+name+'\n대사/행동:\n'+charLines.join('\n')}],
-        sys, 600, 'claude-haiku-4-5-20251001'
+        sys, 600
       );
-      const dataRaw = extractTag(raw, 'chardata');
-      if (!dataRaw) { toast('분석 결과를 파싱할 수 없습니다.'); return; }
-      const data = JSON.parse(dataRaw);
-      const descInp = document.getElementById('ce-desc-'+id);
-      const traitsInp = document.getElementById('ce-traits-'+id);
-      if (descInp && data.description) descInp.value = data.description;
-      if (traitsInp && data.traits) traitsInp.value = data.traits.join(', ');
-      toast('✓ ' + name + ' 분석 완료');
-      if ((data.types||[]).length > 0) {
-        setTimeout(() => showCharTypeSuggestPanel(c, data.types), 300);
-      }
+      successMsg = '✓ ' + name + ' 분석 완료';
     } else {
-      // ── 대사 없음: 시놉시스/제목 기반 기본 정보 채움 ───
       const role = document.getElementById('ce-role-'+id)?.value || c.role;
       const ctx = buildProjectContext();
       const sys = '당신은 창작 캐릭터 디자인 전문가입니다. 작품 맥락과 인물 정보를 바탕으로 캐릭터를 설계해주세요.\n' +
         '반드시 <chardata>{"description":"설명 2-3문장","traits":["특성1","특성2","특성3"],"types":[{"type":"유형명","reason":"이유","traits":["속성1"]}]}</chardata> 형식으로 응답하세요.\n' +
         'types는 어울릴 법한 유형 2개 추천.';
-      const raw = await callClaude(
+      dataRaw = await callWithRetry(
         [{role:'user', content:'작품: '+ctx+'\n인물: '+name+'\n역할: '+(role||'미정')}],
-        sys, 500, 'claude-haiku-4-5-20251001'
+        sys, 500
       );
-      const dataRaw = extractTag(raw, 'chardata');
-      if (!dataRaw) { toast('분석 결과를 파싱할 수 없습니다.'); return; }
-      const data = JSON.parse(dataRaw);
-      const descInp = document.getElementById('ce-desc-'+id);
-      const traitsInp = document.getElementById('ce-traits-'+id);
-      if (descInp && data.description) descInp.value = data.description;
-      if (traitsInp && data.traits) traitsInp.value = data.traits.join(', ');
-      toast('✓ ' + name + ' 기본 정보 채움 (대사 기반 분석은 대본 작성 후 가능)');
-      if ((data.types||[]).length > 0) {
-        setTimeout(() => showCharTypeSuggestPanel(c, data.types), 300);
-      }
+      successMsg = '✓ ' + name + ' 기본 정보 채움 (대사 기반 분석은 대본 작성 후 가능)';
     }
-  } catch(e) { toast('오류: ' + e.message); }
-  finally { if (btn) { btn.textContent = '✦ AI 추천'; btn.disabled = false; } }
+
+    if (!dataRaw) { toast('분석 결과를 가져오지 못했습니다. 다시 시도해주세요.'); return; }
+
+    let data;
+    try { data = JSON.parse(dataRaw); }
+    catch { toast('분석 결과 형식 오류. 다시 시도해주세요.'); return; }
+
+    // 설명 업데이트
+    const descInp = document.getElementById('ce-desc-'+id);
+    if (descInp && data.description) descInp.value = data.description;
+
+    // traits — pill UI 업데이트
+    if (data.traits && data.traits.length > 0) {
+      c.traits = data.traits;
+      save(true);
+      renderCharTraitPills(id);
+    }
+
+    toast(successMsg);
+    if ((data.types||[]).length > 0) {
+      setTimeout(() => showCharTypeSuggestPanel(c, data.types), 300);
+    }
+  } catch(e) {
+    if (e.name !== 'AbortError') toast('오류: ' + e.message);
+  } finally {
+    if (btn) { btn.textContent = '✦ AI 추천'; btn.disabled = false; }
+    setWaiting(false);
+  }
 }
 
 async function aiAutoFillChar(id) {
