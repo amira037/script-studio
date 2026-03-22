@@ -4973,8 +4973,8 @@ function buildCharCard(c) {
       <div class="char-edit-label">특성</div>
       <div id="ce-traits-wrap-${c.id}" style="display:flex;flex-wrap:wrap;gap:5px;align-items:center;min-height:28px;padding:4px 0;">
         ${(c.traits||[]).map((tr,ti) => '<span style="display:inline-flex;align-items:center;gap:3px;background:var(--purple2);color:var(--purple);border:1px solid rgba(168,158,221,.3);border-radius:3px;padding:2px 8px;font-size:10px;font-family:var(--fm);">' + escH(tr) + '<button onclick="removeCharTrait(' + c.id + ',' + ti + ')" style="background:none;border:none;color:var(--purple);cursor:pointer;font-size:11px;padding:0 0 0 3px;line-height:1;">×</button></span>').join('')}
-        <input id="ce-traits-inp-${c.id}" placeholder="+ 특성 추가" onkeydown="onTraitInpKey(event,${c.id})"
-          style="border:none;background:none;color:var(--text);font-size:10px;font-family:var(--fm);outline:none;min-width:80px;padding:2px 4px;">
+        <input id="ce-traits-inp-${c.id}" placeholder="+ 특성 추가 후 Enter" onkeydown="onTraitInpKey(event,${c.id})"
+          style="border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-size:11px;font-family:var(--fm);outline:none;border-radius:var(--r);padding:3px 8px;min-width:100px;flex:1;">
       </div>
       <input type="hidden" id="ce-traits-${c.id}" value="${escH((c.traits||[]).join(', '))}">
     </div>
@@ -4988,10 +4988,10 @@ function buildCharCard(c) {
   return card;
 }
 
-function removeCharTrait(id, traitIdx) {
+function removeCharTrait(id, traitVal) {
   const c = S.cur?.characters?.find(x => x.id === id);
   if (!c || !c.traits) return;
-  c.traits.splice(traitIdx, 1);
+  c.traits = c.traits.filter(t => t !== traitVal);
   save();
   renderCharTraitPills(id);
 }
@@ -5002,19 +5002,19 @@ function renderCharTraitPills(id) {
   if (!wrap || !c) return;
   const inp = document.getElementById('ce-traits-inp-'+id);
   const inpVal = inp?.value || '';
-  // 기존 pill만 제거 (input은 유지)
   [...wrap.querySelectorAll('.trait-pill')].forEach(p => p.remove());
-  // pill 재생성
-  (c.traits||[]).forEach((tr, ti) => {
+  (c.traits||[]).forEach((tr) => {
     const pill = document.createElement('span');
     pill.className = 'trait-pill';
+    pill.dataset.traitVal = tr; // 값을 data 속성에 저장
     pill.style.cssText = 'display:inline-flex;align-items:center;gap:3px;background:var(--purple2);color:var(--purple);border:1px solid rgba(168,158,221,.3);border-radius:3px;padding:2px 8px;font-size:10px;font-family:var(--fm);';
-    pill.textContent = tr;
+    const label = document.createElement('span');
+    label.textContent = tr; // 텍스트는 별도 span에
     const x = document.createElement('button');
     x.style.cssText = 'background:none;border:none;color:var(--purple);cursor:pointer;font-size:11px;padding:0 0 0 3px;line-height:1;';
     x.textContent = '×';
-    x.onclick = (e) => { e.stopPropagation(); removeCharTrait(id, ti); };
-    pill.appendChild(x);
+    x.onclick = (e) => { e.stopPropagation(); removeCharTrait(id, tr); };
+    pill.append(label, x);
     wrap.insertBefore(pill, wrap.querySelector('#ce-traits-inp-'+id));
   });
   if (inp) inp.value = inpVal;
@@ -5065,8 +5065,7 @@ function saveChar(id) {
   const traitWrap = document.getElementById('ce-traits-wrap-'+id);
   if (traitWrap) {
     const pills = traitWrap.querySelectorAll('.trait-pill');
-    c.traits = [...pills].map(p => p.childNodes[0]?.textContent?.trim()).filter(Boolean);
-    // 입력 중인 텍스트도 포함
+    c.traits = [...pills].map(p => p.dataset.traitVal).filter(Boolean);
     const traitInp = document.getElementById('ce-traits-inp-'+id);
     if (traitInp?.value.trim()) c.traits.push(traitInp.value.trim());
   } else {
