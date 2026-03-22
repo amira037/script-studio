@@ -1390,17 +1390,6 @@ textarea, input { font-family:var(--fb); }
         접힌 장면 포함
       </label>
     </div>
-    <div class="modal-field">
-      <div class="modal-label">배역명 정렬</div>
-      <div style="display:flex;gap:8px;margin-top:4px;">
-        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text2);cursor:pointer;">
-          <input type="radio" name="docx-align" value="left" checked style="accent-color:var(--accent);"> 좌측 들여쓰기
-        </label>
-        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text2);cursor:pointer;">
-          <input type="radio" name="docx-align" value="center" style="accent-color:var(--accent);"> 가운데 정렬
-        </label>
-      </div>
-    </div>
     <div style="display:flex;gap:8px;margin-top:12px;">
       <button class="proj-edit-save" onclick="runDocxExport()" style="flex:1;">⬇ 내보내기</button>
       <button class="proj-edit-cancel" onclick="closeDocxExportModal()">취소</button>
@@ -5527,11 +5516,11 @@ async function runDocxExport() {
     // Vercel API 없는 경우 로컬에서 직접 생성 시도
     status.textContent = '⏳ 로컬 생성 중...';
     try {
-      await exportDocxLocal(S.cur, { includeSynopsis, includeChars, charAlign });
+      await exportDocxLocal(S.cur, { includeSynopsis, includeChars, includeCollapsed, charAlign });
       status.textContent = '✓ 다운로드 완료!';
       setTimeout(() => closeDocxExportModal(), 1500);
     } catch(e2) {
-      status.textContent = '오류: ' + e2.message;
+      status.textContent = '오류: ' + (e2?.message || String(e2));
     }
   }
 }
@@ -5539,17 +5528,25 @@ async function runDocxExport() {
 async function exportDocxLocal(project, opts) {
   // docx.js CDN으로 클라이언트 사이드 생성
   if (!window.docx) {
-    await new Promise((res, rej) => {
+    // jsdelivr 먼저 시도, 실패하면 unpkg 폴백
+    const tryLoad = (src) => new Promise((res, rej) => {
       const s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/docx@9.5.3/build/index.umd.js';
-      s.onload = res; s.onerror = rej;
+      s.src = src; s.onload = res;
+      s.onerror = () => rej(new Error('로드 실패: ' + src));
       document.head.appendChild(s);
     });
+    try {
+      await tryLoad('https://cdn.jsdelivr.net/npm/docx@9.5.3/build/index.umd.js');
+    } catch {
+      await tryLoad('https://unpkg.com/docx@9.5.3/build/index.umd.js');
+    }
   }
+  if (!window.docx) throw new Error('docx 라이브러리를 불러오지 못했습니다');
   const {
     Document, Packer, Paragraph, TextRun, AlignmentType,
     Footer, PageNumber, BorderStyle, PageBreak
   } = window.docx;
+  if (!Document || !Packer) throw new Error('docx 라이브러리 구조가 올바르지 않습니다');
 
   const FONT = 'Batang';
   const SZ = 24; // 12pt
