@@ -5388,23 +5388,52 @@ async function handleSceneConnection(text) {
     if (container) appendMsgEl(S.cur.messages[S.cur.messages.length-1], false);
   }
 
-  // SC번호 감지 → 수정하기 버튼 생성
+  // 방안별 버튼 생성 — 방안N: 패턴 감지
+  const planPat = /방안\s*(\d+)[:\s：](.{1,200})/g;
+  let planMatch;
+  const plans = [];
+  while ((planMatch = planPat.exec(result)) !== null) {
+    const planNum = planMatch[1];
+    const planContent = planMatch[0];
+    // 방안에 포함된 SC번호 추출
+    const planScNums = [...new Set((planContent.match(/SC\s*(\d+)/gi)||[]).map(s=>parseInt(s.replace(/SC\s*/i,''))))];
+    plans.push({ num: planNum, scNums: planScNums, content: planContent.slice(0,200) });
+  }
+
+  // 방안 없으면 일반 SC번호 감지
   const scNums = [];
   const sp = /SC\s*(\d+)/gi; let sm;
   while ((sm = sp.exec(result)) !== null) scNums.push(parseInt(sm[1]));
-  const uniqueNums = [...new Set(scNums)].slice(0,4);
+  const uniqueNums = [...new Set(scNums)].slice(0,5);
 
   let fixBtns = '';
-  uniqueNums.forEach(n => {
-    fixBtns += '<button class="rp-btn" onclick="selectFlowScenesWithFix(\'SC'+n+'\',\''+scLbl+' 씬 연결을 자연스럽게 수정해줘\')">✦ SC'+n+' 수정하기</button>';
-  });
+  if (plans.length > 0) {
+    plans.forEach(plan => {
+      if (plan.scNums.length > 0) {
+        const prompt = '방안' + plan.num + '으로 수정해줘: ' + plan.content.slice(0,150);
+        window['_planPrompt'+plan.num] = prompt;
+        window['_planScNums'+plan.num] = plan.scNums;
+        fixBtns += '<button class="rp-btn" onclick="applyPlanFix(' + plan.num + ')">✦ 방안' + plan.num + '으로 수정하기</button>';
+      }
+    });
+    if (uniqueNums.length > 0) {
+      const allPrompt = result.slice(0,400);
+      window._rpAllPrompt = allPrompt;
+      window._rpAllNums = uniqueNums;
+      fixBtns += '<button class="rp-btn" onclick="applyAllPlanFix()">✦ 전체 수정하기</button>';
+    }
+  } else {
+    uniqueNums.forEach(n => {
+      fixBtns += '<button class="rp-btn" onclick="selectFlowScenesWithFix(\'SC'+n+'\',\''+escH(scLbl)+' 씬 연결을 자연스럽게 수정해줘\')">✦ SC'+n+' 수정하기</button>';
+    });
+  }
 
-  const brainPrompt = scLbl + ' 씬 연결 분석 결과:\n' + result.slice(0,300) + '\n\n어떻게 개선하면 좋을까요?';
+  window._rpBrainPrompt = scLbl + ' 씬 연결 분석 결과:\n' + result.slice(0,300) + '\n\n어떻게 개선하면 좋을까요?';
 
   showResponsePanel('comment', '🔗 씬 연결 분석 — ' + scLbl,
     '<div class="ai-comment-txt">' + formatRpText(result) + '</div>',
     fixBtns +
-    '<button class="rp-btn" onclick="flowPanelToBrainstorm(' + JSON.stringify(brainPrompt) + ')">💬 브레인스토밍 →</button>' +
+    '<button class="rp-btn" onclick="flowPanelToBrainstorm(window._rpBrainPrompt)">💬 브레인스토밍 →</button>' +
     '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
 }
 
@@ -5490,7 +5519,7 @@ async function handleScriptPrompt(text) {
   if (/몇 분|상연 시간|러닝타임|분짜리/.test(text)) { handleSceneTime(text); return; }
   if (/대사.*몇 줄|몇 줄.*대사|대사.*통계|줄 수/.test(text)) { handleDialogueStats(text); return; }
   // 대사 관련 — 분기
-  if (/대사.*분석|인물.*대사.*분석|대사.*어때|대사.*검토|주요.*대사.*찾|중요.*대사.*찾/.test(text)) { await handleCharDialogueAnalysis(text); return; }
+  if (/대사.*분석|인물.*대사.*분석|대사.*어때|대사.*검토|주요.*대사|중요.*대사.*찾|중요.*대사.*분석/.test(text)) { await handleCharDialogueAnalysis(text); return; }
   if (/SC\s*\d+.*대사.*중요|SC\s*\d+.*중요.*대사|중요.*대사.*SC\s*\d+|대사.*선택.*SC\s*\d+/.test(text)) { await handleKeyline(text, true); return; }
   if (/대사.*뽑아|대사.*보여|대사.*목록|대사.*확인/.test(text)) { handleCharDialogueLookup(text); return; }
   if (/요약해|요약 해|씬.*요약|한 줄.*요약/.test(text)) { await handleSceneSummary(text); return; }
@@ -6054,17 +6083,55 @@ function showFlowCheckPanel(issues, prompt) {
     }
   }
 
+  window._flowProblemScenes = problemScenes;
   const fixAllBtn = problemScenes.length > 0
-    ? '<button class="rp-btn" onclick="fixAllFlowIssues(' + JSON.stringify(problemScenes.map(i=>i.scene)) + ',' + JSON.stringify(problemScenes.map(i=>i.fix||'').join('\n')) + ')">✦ 전체 수정하기</button>'
+    ? '<button class="rp-btn" onclick="fixAllFlowIssues(window._flowProblemScenes)">✦ 전체 수정하기</button>'
     : '';
+  window._rpBrainPrompt = '다음 씬 흐름 문제들을 어떻게 개선하면 좋을까요?\n\n' + analysisText;
   const brainBtn = problemScenes.length > 0
-    ? '<button class="rp-btn" onclick="flowPanelToBrainstorm(' + JSON.stringify(analysisText) + ')">💬 브레인스토밍 →</button>'
+    ? '<button class="rp-btn" onclick="flowPanelToBrainstorm(window._rpBrainPrompt)">💬 브레인스토밍 →</button>'
     : '';
 
   showResponsePanel('check', '씬 흐름 분석 — ' + issues.filter(i=>i.level!=='ok').length + '개 이슈',
     bodyHTML,
     fixAllBtn + brainBtn + '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>'
   );
+}
+
+function applyPlanFix(planNum) {
+  const scNums = window['_planScNums'+planNum] || [];
+  const prompt = window['_planPrompt'+planNum] || '';
+  if (!scNums.length) return;
+  S.selectedIds.clear();
+  const scenes = S.cur?.scenes || [];
+  scNums.forEach(n => {
+    const sc = scenes.find(s => getSceneLabel(s,scenes) === 'SC '+n);
+    if (sc) S.selectedIds.add(sc.id);
+  });
+  save(true); renderScriptBody(); renderNavSceneList(); switchTab('script');
+  const firstSc = scenes.find(s => getSceneLabel(s,scenes) === 'SC '+scNums[0]);
+  if (firstSc) setTimeout(() => scrollToScene(firstSc.id), 150);
+  setTimeout(() => {
+    const inp = document.getElementById('prompter-inp');
+    if (inp) { inp.value = prompt; inp.dispatchEvent(new Event('input')); inp.focus(); }
+  }, 200);
+}
+
+function applyAllPlanFix() {
+  const scNums = window._rpAllNums || [];
+  const prompt = window._rpAllPrompt || '';
+  if (!scNums.length) return;
+  S.selectedIds.clear();
+  const scenes = S.cur?.scenes || [];
+  scNums.forEach(n => {
+    const sc = scenes.find(s => getSceneLabel(s,scenes) === 'SC '+n);
+    if (sc) S.selectedIds.add(sc.id);
+  });
+  save(true); renderScriptBody(); renderNavSceneList(); switchTab('script');
+  setTimeout(() => {
+    const inp = document.getElementById('prompter-inp');
+    if (inp) { inp.value = prompt; inp.dispatchEvent(new Event('input')); inp.focus(); }
+  }, 200);
 }
 
 function selectFlowScenesWithFix(sceneLabel, fix) {
@@ -6114,7 +6181,8 @@ function selectFlowScenes(sceneLabel) {
   if (inp) inp.value = sceneLabel + ' 씬 사이의 연결을 자연스럽게 수정해줘';
 }
 
-function fixAllFlowIssues(sceneLabels) {
+function fixAllFlowIssues(data) {
+  const sceneLabels = Array.isArray(data) ? data.map(d => typeof d === 'object' ? d.scene : d) : [];
   S.selectedIds.clear();
   sceneLabels.forEach(label => {
     const nums = label.match(/\d+/g);
@@ -6727,7 +6795,8 @@ async function handleCharDialogueAnalysis(text) {
   const markAllBtn = selectedDlgs.length > 0
     ? '<button class="rp-btn" onclick="markAllKeylines(window._markAllData)">★ 전체 중요 대사 지정</button>'
     : '';
-  const brainBtn = '<button class="rp-btn" onclick="flowPanelToBrainstorm(' + JSON.stringify(foundChar + ' 주요 대사 분석 결과를 바탕으로 캐릭터 arc를 논의하고 싶어') + ')">💬 브레인스토밍 →</button>';
+  window._rpBrainPrompt = foundChar + ' 주요 대사 분석 결과를 바탕으로 캐릭터 arc를 논의하고 싶어';
+  const brainBtn = '<button class="rp-btn" onclick="flowPanelToBrainstorm(window._rpBrainPrompt)">💬 브레인스토밍 →</button>';
 
   showResponsePanel('comment', foundChar + ' 대사 분석', bodyHTML,
     markAllBtn + brainBtn + '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
