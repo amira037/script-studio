@@ -692,9 +692,10 @@ textarea, input { font-family:var(--fb); }
 ═══════════════════════════════════════════ */
 .response-panel {
   background:var(--bg2); border-top:1px solid var(--border2);
-  display:none; flex-direction:column; max-height:50dvh;
-  flex-shrink:0;
+  display:none; flex-direction:column; max-height:45dvh;
+  flex-shrink:0; z-index:10;
 }
+#rp-collapsible { display:flex; flex-direction:column; overflow:hidden; flex:1; min-height:0; }
 .response-panel.show { display:flex; }
 .rp-hdr {
   display:flex; align-items:center; gap:8px;
@@ -712,7 +713,7 @@ textarea, input { font-family:var(--fb); }
 .rp-close-btn { background:none; border:none; color:var(--text3); font-size:12px; padding:2px 6px; cursor:pointer; }
 #rp-collapse-btn { font-size:10px; transition:transform .2s; }
 .rp-close-btn:hover { color:var(--text2); }
-.rp-body { flex:1; overflow-y:auto; padding:10px 12px; display:flex; flex-direction:column; gap:6px; }
+.rp-body { flex:1; overflow-y:auto; padding:8px 12px; display:flex; flex-direction:column; gap:4px; max-height:30dvh; }
 .rp-acts { display:flex; gap:6px; padding:8px 12px; border-top:1px solid var(--border); flex-shrink:0; flex-wrap:wrap; }
 .rp-btn { font-size:10px; padding:4px 11px; border-radius:var(--r); border:1px solid var(--border2); background:none; color:var(--text2); transition:all .15s; }
 .rp-btn:hover { border-color:var(--border3); color:var(--text); }
@@ -745,7 +746,7 @@ textarea, input { font-family:var(--fb); }
 .choice-key { font-size:16px;font-weight:700;color:var(--accent);min-width:22px;flex-shrink:0;padding-top:0px;line-height:1; }
 
 /* AI comment */
-.ai-comment-txt { font-size:12px; color:var(--text2); line-height:1.7; background:var(--bg3); border-radius:var(--r); padding:10px 12px; border-left:2px solid var(--accent2); }
+.ai-comment-txt { font-size:12px; color:var(--text2); line-height:1.5; background:var(--bg3); border-radius:var(--r); padding:10px 12px; border-left:2px solid var(--accent2); }
 
 /* ═══════════════════════════════════════════
    PROMPTER (bottom, always visible)
@@ -4111,11 +4112,12 @@ function handleMsgAction(action) {
   } else if (action.type === 'flowToBrainstorm') {
     const { nums, text: flowText } = action.data;
     const scLabels = nums.map(n => 'SC' + n).join(', ');
+    const summary = (flowText||'').slice(0, 300);
     switchTab('chat');
     setTimeout(() => {
       const inp = document.getElementById('prompter-inp');
       if (inp) {
-        inp.value = scLabels + ' 흐름 문제를 어떻게 개선하면 좋을까?\n\n[분석 결과 참조]\n' + (flowText||'').slice(0, 200);
+        inp.value = '방금 분석된 흐름 문제(' + scLabels + ')를 어떻게 개선하면 좋을까요?\n\n분석 내용: ' + summary;
         inp.dispatchEvent(new Event('input')); inp.focus();
       }
     }, 200);
@@ -5778,6 +5780,11 @@ async function handleFlowAnalysisInChat(text, mode) {
     if (!S.cur.messages) S.cur.messages = [];
     S.cur.messages.push({ role:'assistant', text:'[흐름 분석 결과]\n' + displayText });
     save(true);
+    // 브레인스토밍 탭이 아니어도 히스토리 UI 업데이트
+    if (S.activeTab !== 'chat') {
+      const container = document.getElementById('chat-msgs');
+      if (container) { const m = S.cur.messages[S.cur.messages.length-1]; appendMsgEl(m, false); }
+    }
 
     const actions = [];
     if (problemNums.length > 0) {
@@ -5919,7 +5926,7 @@ function showFlowCheckPanel(issues, prompt) {
       ? '<div style="font-size:10px;color:var(--accent);margin-top:2px;">→ ' + escH(iss.fix) + '</div>'
       : '';
     const gotoHtml = iss.scene
-      ? '<span class="check-goto" onclick="selectFlowScenes(\'' + escH(iss.scene) + '\')">씬 선택</span>'
+      ? '<span class="check-goto" onclick="selectFlowScenesWithFix(\'' + escH(iss.scene) + '\',\'' + escH(iss.fix||'') + '\')">✦ 수정하기</span>'
       : '';
     return '<div class="check-item ' + iss.level + '">' +
       '<span class="check-icon">' + icon + '</span>' +
@@ -5933,14 +5940,60 @@ function showFlowCheckPanel(issues, prompt) {
   }).join('') : '<div style="padding:8px;color:var(--text3);font-size:12px;">모든 씬 연결이 자연스럽습니다 ✓</div>';
 
   const problemScenes = issues.filter(i => i.level !== 'ok');
+
+  // 브레인스토밍 히스토리에 공유
+  const analysisText = issues.filter(i=>i.level!=='ok').map(i => i.scene + ': ' + i.message + (i.fix ? ' → ' + i.fix : '')).join('\n');
+  if (analysisText && S.cur) {
+    if (!S.cur.messages) S.cur.messages = [];
+    S.cur.messages.push({ role:'assistant', text:'[씬 흐름 분석 결과]\n' + analysisText });
+    save(true);
+    if (S.activeTab !== 'chat') {
+      const container = document.getElementById('chat-msgs');
+      if (container) appendMsgEl(S.cur.messages[S.cur.messages.length-1], false);
+    }
+  }
+
   const fixAllBtn = problemScenes.length > 0
-    ? '<button class="rp-btn" onclick="fixAllFlowIssues(' + JSON.stringify(problemScenes.map(i=>i.scene)) + ')">✦ 문제 씬 모두 수정</button>'
+    ? '<button class="rp-btn" onclick="fixAllFlowIssues(' + JSON.stringify(problemScenes.map(i=>i.scene)) + ',' + JSON.stringify(problemScenes.map(i=>i.fix||'').join('\n')) + ')">✦ 전체 수정하기</button>'
+    : '';
+  const brainBtn = problemScenes.length > 0
+    ? '<button class="rp-btn" onclick="flowPanelToBrainstorm(' + JSON.stringify(analysisText) + ')">💬 브레인스토밍 →</button>'
     : '';
 
   showResponsePanel('check', '씬 흐름 분석 — ' + issues.filter(i=>i.level!=='ok').length + '개 이슈',
     bodyHTML,
-    fixAllBtn + '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>'
+    fixAllBtn + brainBtn + '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>'
   );
+}
+
+function selectFlowScenesWithFix(sceneLabel, fix) {
+  const nums = sceneLabel.match(/\d+/g);
+  if (!nums) return;
+  S.selectedIds.clear();
+  nums.forEach(n => {
+    const sc = S.cur?.scenes?.[parseInt(n) - 1];
+    if (sc) S.selectedIds.add(sc.id);
+  });
+  renderScriptBody();
+  const sc = S.cur?.scenes?.[parseInt(nums[0]) - 1];
+  if (sc) scrollToScene(sc.id);
+  const inp = document.getElementById('prompter-inp');
+  if (inp) {
+    inp.value = fix ? sceneLabel + ' 수정: ' + fix : sceneLabel + ' 씬 사이의 연결을 자연스럽게 수정해줘';
+    inp.dispatchEvent(new Event('input')); inp.focus();
+  }
+}
+
+function flowPanelToBrainstorm(analysisText) {
+  closeResponsePanel();
+  switchTab('chat');
+  setTimeout(() => {
+    const inp = document.getElementById('prompter-inp');
+    if (inp) {
+      inp.value = '다음 씬 흐름 문제들을 어떻게 개선하면 좋을까요?\n\n' + analysisText;
+      inp.dispatchEvent(new Event('input')); inp.focus();
+    }
+  }, 200);
 }
 
 function selectFlowScenes(sceneLabel) {
@@ -5992,6 +6045,11 @@ function showResponsePanel(type, title, bodyHTML, actsHTML) {
   body.innerHTML = bodyHTML;
   acts.innerHTML = actsHTML;
   panel.classList.add('show');
+  // 접기 상태 초기화
+  const col = document.getElementById('rp-collapsible');
+  const btn = document.getElementById('rp-collapse-btn');
+  if (col) col.style.display = '';
+  if (btn) btn.textContent = '▼';
 }
 function closeResponsePanel() { document.getElementById('response-panel').classList.remove('show'); }
 
