@@ -5632,16 +5632,15 @@ function renderConflictBody(body, data, skipChart) {
         brainBtn.style.cssText = 'font-size:9px;padding:2px 8px;border-radius:3px;border:1px solid rgba(168,158,221,.3);background:rgba(168,158,221,.1);color:#afa9ec;cursor:pointer;';
         brainBtn.textContent = '💬 브레인스토밍';
         brainBtn.onclick = () => {
-          // 드로어 닫기
           document.querySelector('.drawer-overlay')?.click();
           document.getElementById('conflict-modal')?.remove();
+          const promptText = (adv.scene ? '['+adv.scene+'] ' : '') + adv.message + (adv.fix ? ' — ' + adv.fix : '');
           setTimeout(() => {
             switchTab('chat');
-            const inp = document.getElementById('chat-inp');
-            if (inp) {
-              inp.value = (adv.scene ? '['+adv.scene+'] ' : '') + adv.message + (adv.fix ? ' — ' + adv.fix : '');
-              inp.focus();
-            }
+            setTimeout(() => {
+              const inp = document.getElementById('prompter-inp');
+              if (inp) { inp.value = promptText; inp.focus(); inp.dispatchEvent(new Event('input')); }
+            }, 50);
           }, 150);
         };
         const editBtn = document.createElement('button');
@@ -5650,6 +5649,7 @@ function renderConflictBody(body, data, skipChart) {
         editBtn.onclick = () => {
           document.querySelector('.drawer-overlay')?.click();
           document.getElementById('conflict-modal')?.remove();
+          const promptText = (adv.scene ? '['+adv.scene+'] ' : '') + adv.message + (adv.fix ? ' — ' + adv.fix : '');
           setTimeout(() => {
             switchTab('script');
             // 씬 번호 파싱 → 자동 선택
@@ -5661,19 +5661,16 @@ function renderConflictBody(body, data, skipChart) {
               S.selectedIds.clear();
               sceneNums.forEach(num => {
                 const found = (S.cur.scenes||[]).find(s => getSceneLabel(s, S.cur.scenes) === 'SC ' + num);
-                if (found) { S.selectedIds.add(found.id); }
+                if (found) S.selectedIds.add(found.id);
               });
               save(true); renderScriptBody(); renderNavSceneList();
-              // 첫 번째 씬으로 스크롤
-              const firstNum = sceneNums[0];
-              const firstSc = (S.cur.scenes||[]).find(s => getSceneLabel(s, S.cur.scenes) === 'SC ' + firstNum);
+              const firstSc = (S.cur.scenes||[]).find(s => getSceneLabel(s, S.cur.scenes) === 'SC ' + sceneNums[0]);
               if (firstSc) setTimeout(() => scrollToScene(firstSc.id), 200);
             }
-            const inp = document.getElementById('script-prompt-inp');
-            if (inp) {
-              inp.value = (adv.scene ? '['+adv.scene+'] ' : '') + adv.message + (adv.fix ? ' — ' + adv.fix : '');
-              inp.focus();
-            }
+            setTimeout(() => {
+              const inp = document.getElementById('prompter-inp');
+              if (inp) { inp.value = promptText; inp.focus(); inp.dispatchEvent(new Event('input')); }
+            }, 50);
           }, 150);
         };
         btns.append(brainBtn, editBtn);
