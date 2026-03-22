@@ -79,7 +79,7 @@ textarea, input { font-family:var(--fb); }
 .hbtn {
   font-size:11px; padding:4px 12px; border-radius:var(--r);
   border:1px solid var(--border2); background:transparent;
-  color:var(--text2); transition:all .15s;
+  color:var(--text2); transition:all .15s; white-space:nowrap;
 }
 .hbtn:hover { color:var(--accent); border-color:var(--accent2); }
 .hbtn.pri { background:var(--accent); color:#0e0e10; border-color:var(--accent); font-weight:600; }
@@ -1051,7 +1051,7 @@ textarea, input { font-family:var(--fb); }
     <div class="home-logo"><span class="home-logo-dot"></span>Script Studio</div>
     <div class="home-hdr-r">
       <span class="api-status-dot" id="api-dot"></span>
-      <button class="hbtn" onclick="openSettingsFromHome()">⚙ 설정</button>
+      <button class="hbtn" onclick="openSettingsFromHome()" title="설정">⚙</button>
       <button class="hbtn pri" onclick="openNewProjectModal()">+ 새 프로젝트</button>
     </div>
   </div>
@@ -1671,18 +1671,20 @@ function renderHome() {
     const letter = (p.title||'?')[0].toUpperCase();
     const tags = (p.genreTags||[]).map(t=>`<span class="ptag">${t}</span>`).join('');
     const ownerTag = (IS_ADMIN && p._owner)
-      ? `<span style="font-size:9px;background:var(--red2);color:var(--red);border:1px solid rgba(224,96,96,.3);border-radius:3px;padding:1px 6px;font-family:var(--fm);">@${escH(p._owner)}</span>`
+      ? `<span style="font-size:9px;background:var(--red2);color:var(--red);border:1px solid rgba(224,96,96,.3);border-radius:3px;padding:2px 7px;font-family:var(--fm);flex-shrink:0;">@${escH(p._owner)}</span>`
       : '';
     card.innerHTML = `
       <div class="proj-card-thumb">
         <div class="proj-card-letter">${letter}</div>
         <div class="proj-card-center">
           <div class="proj-card-title">${escH(p.title)}</div>
-          <div class="proj-card-medium">${escH(p.medium||'')} ${ownerTag}</div>
+          <div class="proj-card-medium">${escH(p.medium||'')}</div>
         </div>
       </div>
       <div class="proj-card-body">
-        <div class="proj-card-meta">씬 ${(p.scenes||[]).length}개</div>
+        <div class="proj-card-meta" style="display:flex;align-items:center;gap:6px;">
+          <span>씬 ${(p.scenes||[]).length}개</span>${ownerTag}
+        </div>
         <div class="proj-card-tags">${tags}</div>
       </div>
       <div class="proj-card-acts">
