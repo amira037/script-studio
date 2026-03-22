@@ -1412,7 +1412,10 @@ async function syncFromSupabase(force = false) {
     const res = await fetch(query);
     if (!res.ok) return false;
     const rows = await res.json();
-    if (!rows || !rows.length) return false;
+    if (!rows || !rows.length) {
+      _syncReady = true; // 원격 데이터 없음 — 새 유저로 간주, save() 허용
+      return false;
+    }
     // admin이면 모든 유저 프로젝트 병합
     let remote, remoteTime;
     if (IS_ADMIN) {
@@ -1433,6 +1436,7 @@ async function syncFromSupabase(force = false) {
         localStorage.setItem('ss_last_saved_' + USER_ID, remoteTime.toString());
       }
       S.projects = remote;
+      _syncReady = true; // pull 완료 — 이제 save() 허용
       S.cur = null;
       S.selectedIds.clear();
       document.getElementById('app-screen')?.classList.remove('show');
@@ -1448,6 +1452,7 @@ async function syncFromSupabase(force = false) {
     return true;
   } catch(e) {
     console.warn('Supabase pull failed', e);
+    _syncReady = true; // 실패해도 차단 해제 (오프라인 등)
     return false;
   }
 }
@@ -1556,7 +1561,11 @@ function updateUndoUI() {
   if (redoBtn) redoBtn.disabled = redoStack.length === 0;
 }
 
+// 로컬이 비어있을 때 pull 완료 전까지 save 차단
+let _syncReady = false;
+
 function save(skipUndo = false) {
+  if (!_syncReady) return; // pull 완료 전 차단
   if (!skipUndo && S.cur) pushUndo();
   localStorage.setItem('ss_last_saved_' + USER_ID, Date.now().toString());
   storage.set('ss_projects', S.projects);
@@ -1565,15 +1574,17 @@ function save(skipUndo = false) {
 
 function load() {
   if (IS_ADMIN) {
-    // admin은 로컬 스토리지 사용 안 함
     S.projects = [];
     S.useProxy = true;
+    _syncReady = true; // admin은 저장 안 하니까 바로 허용
     return;
   }
   S.projects = storage.get('ss_projects') || [];
   const api = storage.get('ss_api') || {};
   S.apiKey = api.key || '';
   S.useProxy = api.proxy !== false;
+  // 로컬에 데이터 있으면 즉시 허용, 없으면 pull 완료 후 허용
+  if (S.projects.length > 0) _syncReady = true;
 }
 
 // ═══════════════════════════════════════════
