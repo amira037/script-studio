@@ -5451,7 +5451,7 @@ async function checkConflictWithPrompt(text) {
       return (i+1)+'. "'+s.title+'" ['+slug+']: '+lines;
     }).join('\n');
 
-    const sys = '대본 씬들의 갈등 강도와 유형을 분석하세요.\n' +
+    const sys = '대본 씬들의 갈등 강도와 유형을 분석하세요. 정확한 한국어 맞춤법을 반드시 사용하세요.\n' +
       '각 씬의 갈등 강도(1~5)와 유형, 전체 조언을 반드시 다음 형식으로만 응답하세요:\n' +
       '<conflict>[{"sceneId":"씬id","label":"SC번호","intensity":1~5,"type":"인물vs인물|인물vs내면|인물vs운명|인물vs사회","chars":["인물1","인물2"]}]</conflict>\n' +
       '<advice>[{"level":"error|warn|ok","scene":"씬범위","message":"조언","fix":"해결방법"}]</advice>\n' +
@@ -5592,10 +5592,12 @@ function renderConflictBody(body, data) {
   // 미니 차트 (SVG)
   if (scenes.length > 0) {
     const chartWrap = document.createElement('div');
-    chartWrap.style.cssText = 'background:var(--bg3);border-radius:var(--r);padding:10px;margin-bottom:10px;cursor:pointer;';
+    chartWrap.style.cssText = 'background:var(--bg3);border-radius:var(--r);padding:10px;margin-bottom:10px;cursor:pointer;overflow:hidden;';
     chartWrap.title = '클릭하여 확대';
     chartWrap.onclick = () => openConflictModal(data);
-    chartWrap.innerHTML = buildConflictChartSVG(scenes, 340, 100, true);
+    // 씬 수에 따라 너비 동적 계산
+    const chartW = Math.max(300, Math.min(500, scenes.length * 55 + 60));
+    chartWrap.innerHTML = buildConflictChartSVG(scenes, chartW, 110, true);
     const hint = document.createElement('div');
     hint.style.cssText = 'text-align:center;font-size:9px;color:#444;margin-top:4px;';
     hint.textContent = '클릭하여 확대 · 템플릿 비교';
@@ -5623,19 +5625,49 @@ function renderConflictBody(body, data) {
         brainBtn.style.cssText = 'font-size:9px;padding:2px 8px;border-radius:3px;border:1px solid rgba(168,158,221,.3);background:rgba(168,158,221,.1);color:#afa9ec;cursor:pointer;';
         brainBtn.textContent = '💬 브레인스토밍';
         brainBtn.onclick = () => {
-          switchTab('chat');
-          const inp = document.getElementById('chat-inp');
-          if (inp) { inp.value = adv.scene + ' — ' + adv.fix; inp.focus(); }
+          // 드로어 닫기
           document.querySelector('.drawer-overlay')?.click();
+          document.getElementById('conflict-modal')?.remove();
+          setTimeout(() => {
+            switchTab('chat');
+            const inp = document.getElementById('chat-inp');
+            if (inp) {
+              inp.value = (adv.scene ? '['+adv.scene+'] ' : '') + adv.message + (adv.fix ? ' — ' + adv.fix : '');
+              inp.focus();
+            }
+          }, 150);
         };
         const editBtn = document.createElement('button');
         editBtn.style.cssText = 'font-size:9px;padding:2px 8px;border-radius:3px;border:1px solid rgba(110,168,200,.3);background:rgba(110,168,200,.1);color:#85b7eb;cursor:pointer;';
         editBtn.textContent = '📝 대본 편집';
         editBtn.onclick = () => {
-          switchTab('script');
-          const inp = document.getElementById('script-prompt-inp');
-          if (inp) { inp.value = adv.scene + ' — ' + adv.fix; inp.focus(); }
           document.querySelector('.drawer-overlay')?.click();
+          document.getElementById('conflict-modal')?.remove();
+          setTimeout(() => {
+            switchTab('script');
+            // 씬 번호 파싱 → 자동 선택
+            const sceneNums = [];
+            const scPat = /SC\s*(\d+)/gi;
+            let m;
+            while ((m = scPat.exec(adv.scene||'')) !== null) sceneNums.push(parseInt(m[1]));
+            if (sceneNums.length > 0 && S.cur) {
+              S.selectedIds.clear();
+              sceneNums.forEach(num => {
+                const found = (S.cur.scenes||[]).find(s => getSceneLabel(s, S.cur.scenes) === 'SC ' + num);
+                if (found) { S.selectedIds.add(found.id); }
+              });
+              save(true); renderScriptBody(); renderNavSceneList();
+              // 첫 번째 씬으로 스크롤
+              const firstNum = sceneNums[0];
+              const firstSc = (S.cur.scenes||[]).find(s => getSceneLabel(s, S.cur.scenes) === 'SC ' + firstNum);
+              if (firstSc) setTimeout(() => scrollToScene(firstSc.id), 200);
+            }
+            const inp = document.getElementById('script-prompt-inp');
+            if (inp) {
+              inp.value = (adv.scene ? '['+adv.scene+'] ' : '') + adv.message + (adv.fix ? ' — ' + adv.fix : '');
+              inp.focus();
+            }
+          }, 150);
         };
         btns.append(brainBtn, editBtn);
         card.appendChild(btns);
@@ -5646,7 +5678,7 @@ function renderConflictBody(body, data) {
 }
 
 function buildConflictChartSVG(scenes, w, h, mini) {
-  const pad = mini ? {l:20,r:8,t:8,b:16} : {l:32,r:16,t:16,b:24};
+  const pad = mini ? {l:24,r:20,t:10,b:18} : {l:32,r:24,t:16,b:24};
   const cw = w - pad.l - pad.r;
   const ch = h - pad.t - pad.b;
   const n = scenes.length;
@@ -5849,9 +5881,13 @@ function openConflictModal(data) {
         if (S.cur.conflictData) { S.cur.conflictData.aiCurve = curve; data.aiCurve = curve; save(true); }
         toggleState.ai = true;
         rebuildChart();
-        document.getElementById('cf-line-ai').style.display='';
-        toggleBtns.ai.style.opacity='1';
-        toast('✓ AI 맞춤 곡선 생성됨');
+        // 재빌드 후 ai 라인 강제 표시
+        setTimeout(() => {
+          const aiLine = chartArea.querySelector('#cf-line-ai');
+          if (aiLine) aiLine.style.display = '';
+          if (toggleBtns.ai) { toggleBtns.ai.style.opacity='1'; toggleBtns.ai.style.background='rgba(168,158,221,.2)'; }
+        }, 50);
+        toast('✓ AI 맞춤 곡선이 생성됐습니다');
       }
     } catch(e) { toast('오류: '+e.message); }
     finally { aiBtn.textContent='✦ AI 맞춤 곡선 생성'; aiBtn.disabled=false; }
