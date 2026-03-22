@@ -5446,20 +5446,16 @@ async function checkConflictWithPrompt(text) {
   const CHUNK = 20;
   const totalChunks = Math.ceil(scenes.length / CHUNK);
   let allConflictScenes = [];
-  let allAdvice = [];
-  let summary = '';
 
-  const sys = '대본 씬들의 갈등 강도와 유형을 분석하세요. 정확한 한국어 맞춤법을 반드시 사용하세요.\n' +
-    '각 씬의 갈등 강도(1~5)와 유형을 반드시 다음 형식으로만 응답하세요:\n' +
-    '<conflict>[{"sceneId":"씬id","label":"SC번호","intensity":1~5,"type":"인물vs인물|인물vs내면|인물vs운명|인물vs사회","chars":["인물1","인물2"]}]</conflict>\n' +
-    (totalChunks === 1
-      ? '<advice>[{"level":"error|warn|ok","scene":"씬범위","message":"조언","fix":"해결방법"}]</advice>\n<summary>전체 갈등 흐름 한 줄 요약</summary>'
-      : '이 청크에 한해서만 분석하세요. advice와 summary는 마지막 청크에서만 생성합니다.');
+  // ── 1단계: 청크별 강도 분석 ───────────────────────────────────────
+  const chunkSys = '대본 씬들의 갈등 강도와 유형을 분석하세요. 정확한 한국어 맞춤법을 사용하세요.\n' +
+    '반드시 다음 형식으로만 응답하세요 (다른 텍스트 없이):\n' +
+    '<conflict>[{"sceneId":"씬id","label":"SC번호","intensity":1~5,"type":"인물vs인물|인물vs내면|인물vs운명|인물vs사회","chars":["인물1","인물2"]}]</conflict>';
 
   try {
     for (let ci = 0; ci < totalChunks; ci++) {
       const chunk = scenes.slice(ci * CHUNK, (ci + 1) * CHUNK);
-      toast('⚔ 갈등 분석 중... (' + (ci+1) + '/' + totalChunks + ')', 8000);
+      toast('⚔ 강도 분석 중... (' + (ci+1) + '/' + totalChunks + ')', 8000);
 
       const sceneList = chunk.map((s, i) => {
         const globalIdx = ci * CHUNK + i;
@@ -5468,10 +5464,6 @@ async function checkConflictWithPrompt(text) {
         return (globalIdx+1)+'. "'+s.title+'" ['+slug+']: '+lines;
       }).join('\n');
       const sceneIds = chunk.map((s,i) => '씬'+(ci*CHUNK+i+1)+'(id:'+s.id+')').join(', ');
-
-      const isLast = ci === totalChunks - 1;
-      const chunkSys = totalChunks === 1 ? sys :
-        sys + (isLast ? '\n마지막 청크입니다. <advice>...</advice>\n<summary>...</summary>도 생성하세요.' : '');
 
       const raw = await callClaude(
         [{role:'user', content:'씬 목록:\n'+sceneList+'\n\n씬ID: '+sceneIds}],
@@ -5485,22 +5477,43 @@ async function checkConflictWithPrompt(text) {
       }
       let chunkScenes = [];
       try { chunkScenes = JSON.parse(conflictRaw); } catch {}
-      // sceneId 실제 매핑
       chunkScenes = chunkScenes.map((c, i) => {
         const sc = chunk[i];
         return { ...c, sceneId: sc?.id || c.sceneId, label: getSceneLabel(sc, S.cur.scenes) };
       });
       allConflictScenes = allConflictScenes.concat(chunkScenes);
-
-      if (isLast) {
-        const adviceRaw = extractTag(raw, 'advice');
-        const summaryRaw = extractTag(raw, 'summary');
-        try { allAdvice = JSON.parse(adviceRaw||'[]'); } catch {}
-        summary = summaryRaw || '';
-      }
     }
 
-    S.cur.conflictData = { scenes: allConflictScenes, advice: allAdvice, summary, updatedAt: Date.now(), template: S_conflictTemplate };
+    // ── 2단계: advice + summary 별도 호출 ────────────────────────────
+    toast('⚔ 조언 생성 중...', 6000);
+    const intensitySummary = allConflictScenes.map(s => s.label+':'+s.intensity+'('+s.type+')').join(', ');
+    const proj = S.cur;
+    const projCtx = '제목: '+(proj.title||'')+'\n장르: '+(proj.genreTags||[]).join(', ')+
+      '\n시놉시스: '+(proj.synopsis||'').slice(0,200);
+
+    const advSys = '대본 갈등 흐름을 분석하여 조언과 요약을 생성하세요. 정확한 한국어 맞춤법을 사용하세요.\n' +
+      '반드시 다음 형식으로만 응답하세요 (마크다운 없이):\n' +
+      '<summary>한 줄 요약 (30자 이내, 핵심 갈등 구조만)</summary>\n' +
+      '<detail>상세 분석 (갈등 유형 분포, 극적 구조, 강점, 보완점 — 3~5문장)</detail>\n' +
+      '<advice>[{"level":"error|warn|ok","scene":"씬범위(예:SC3~SC4)","message":"조언 제목 (20자 이내)","fix":"해결 방법 (30자 이내)"}]</advice>\n' +
+      'advice는 3~5개, 마크다운(**) 절대 사용 금지.';
+
+    const advRaw = await callClaude(
+      [{role:'user', content:projCtx+'\n\n씬별 갈등 강도:\n'+intensitySummary}],
+      advSys, 1500, 'claude-haiku-4-5-20251001'
+    );
+
+    let allAdvice = [], summary = '', detail = '';
+    try { allAdvice = JSON.parse(extractTag(advRaw, 'advice')||'[]'); } catch {}
+    summary = extractTag(advRaw, 'summary') || '';
+    detail = extractTag(advRaw, 'detail') || '';
+
+    // 저장
+    S.cur.conflictData = {
+      scenes: allConflictScenes, advice: allAdvice,
+      summary, detail,
+      updatedAt: Date.now(), template: S_conflictTemplate
+    };
     save(true);
     renderNavSceneList();
     if (document.getElementById('drawer-synopsis')?.classList.contains('open')) renderSynopsisDrawer();
@@ -5592,10 +5605,31 @@ function renderConflictBody(body, data, skipChart) {
 
   // 요약
   if (data.summary) {
-    const sum = document.createElement('div');
-    sum.style.cssText = 'font-size:11px;color:var(--text2);margin-bottom:10px;line-height:1.6;';
-    sum.textContent = data.summary;
-    body.appendChild(sum);
+    // 한 줄 요약 + 상세 펼치기
+    const sumWrap = document.createElement('div');
+    sumWrap.style.cssText = 'margin-bottom:10px;';
+    const sumLine = document.createElement('div');
+    sumLine.style.cssText = 'font-size:11px;color:var(--text2);line-height:1.6;display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;';
+    const sumText = document.createElement('span');
+    sumText.textContent = data.summary || '';
+    const sumArr = document.createElement('span');
+    sumArr.style.cssText = 'font-size:10px;color:var(--text3);flex-shrink:0;';
+    sumArr.textContent = data.detail ? '▶' : '';
+    sumLine.append(sumText, sumArr);
+    sumWrap.appendChild(sumLine);
+
+    if (data.detail) {
+      const detailDiv = document.createElement('div');
+      detailDiv.style.cssText = 'display:none;font-size:11px;color:var(--text3);line-height:1.7;margin-top:8px;padding:10px;background:var(--bg3);border-radius:var(--r);border:1px solid var(--border);';
+      detailDiv.textContent = data.detail;
+      sumWrap.appendChild(detailDiv);
+      sumLine.onclick = () => {
+        const open = detailDiv.style.display !== 'none';
+        detailDiv.style.display = open ? 'none' : 'block';
+        sumArr.textContent = open ? '▶' : '▼';
+      };
+    }
+    body.appendChild(sumWrap);
   }
 
   // 미니 차트 (SVG) — skipChart=true면 건너뜀
@@ -5710,11 +5744,17 @@ function buildConflictChartSVG(scenes, w, h, mini) {
     // 이슈 마커
     const hasIssue = (S.cur.conflictData?.advice||[]).some(a => a.scene && a.scene.includes(s.label) && a.level!=='ok');
     if (hasIssue) svg += '<circle cx="'+x+'" cy="'+y+'" r="'+(mini?6:9)+'" fill="none" stroke="#f09595" stroke-width="1" stroke-dasharray="2,2"/>';
-    // X 라벨
-    if (!mini || n <= 8) {
-      svg += '<text x="'+x+'" y="'+(h-2)+'" text-anchor="middle" fill="#555" font-size="'+(mini?7:9)+'">'+escH(s.label||'')+'</text>';
-    }
   });
+  // X 라벨 — 씬 수에 따라 간격 자동 조정
+  const labelInterval = n <= 10 ? 1 : n <= 30 ? 5 : 10;
+  if (!mini || n <= 8) {
+    scenes.forEach((s, i) => {
+      if (i % labelInterval === 0 || i === n-1) {
+        const lx = pad.l + i*xStep;
+        svg += '<text x="'+lx+'" y="'+(h-2)+'" text-anchor="middle" fill="#555" font-size="'+(mini?7:9)+'">'+escH(s.label||'')+'</text>';
+      }
+    });
+  }
   svg += '</svg>';
   return svg;
 }
