@@ -554,6 +554,14 @@ textarea, input { font-family:var(--fb); }
 /* 갈등 강도 세로 바 */
 .nav-sc-item { border-left: 3px solid transparent; transition: border-color .2s, border-width .2s; }
 .nav-sc-item.conflict-1 { border-left: 2px solid rgba(93,202,165,.4); }
+.nav-sc-item .diff-badge { width:7px;height:7px;border-radius:50%;background:var(--accent);flex-shrink:0;margin-left:auto; }
+.nav-filter-btn { font-size:10px;padding:2px 8px;border-radius:var(--r);border:1px solid var(--border2);background:none;color:var(--text3);cursor:pointer;white-space:nowrap;transition:all .15s; }
+.nav-filter-btn.active { background:var(--accent3);color:var(--accent);border-color:var(--accent2); }
+#chunk-progress { position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:var(--bg4);border:1px solid var(--border2);border-radius:var(--r2);padding:12px 18px;z-index:500;min-width:260px;max-width:90vw;box-shadow:0 8px 24px rgba(0,0,0,.5);display:none;flex-direction:column;gap:8px; }
+#chunk-progress .cp-msg { font-size:11px;color:var(--accent);font-family:var(--fm); }
+#chunk-progress .cp-bar-wrap { background:var(--bg3);border-radius:3px;height:4px;overflow:hidden; }
+#chunk-progress .cp-bar { height:100%;background:var(--accent);border-radius:3px;transition:width .3s; }
+#chunk-progress .cp-hint { font-size:10px;color:var(--text3); }
 .nav-sc-item.conflict-2 { border-left: 3px solid rgba(93,202,165,.6); }
 .nav-sc-item.conflict-3 { border-left: 4px solid rgba(193,156,79,.7); }
 .nav-sc-item.conflict-4 { border-left: 5px solid rgba(240,149,121,.8); }
@@ -722,10 +730,13 @@ textarea, input { font-family:var(--fb); }
 .choice-intro { font-size:12px; color:var(--text2); line-height:1.6; margin-bottom:6px; }
 .choice-list { display:flex; flex-direction:column; gap:5px; }
 .choice-option {
-  text-align:left; background:var(--bg3); border:1px solid var(--border2);
-  border-radius:var(--r); padding:8px 11px; font-size:12px; color:var(--text);
-  transition:all .15s; line-height:1.5;
+  display:flex;align-items:flex-start;gap:10px;width:100%;text-align:left;
+  background:var(--bg3);border:1px solid var(--border2);margin-bottom:5px;
+  border-radius:var(--r);padding:10px 14px;font-size:12px;color:var(--text);
+  transition:all .15s;line-height:1.5;cursor:pointer;
 }
+.choice-option:hover { border-color:var(--accent2);background:var(--bg4); }
+.choice-option.selected { border-color:var(--accent);background:var(--accent3); }
 .choice-option:hover { border-color:var(--accent2); background:var(--accent3); color:var(--accent); }
 .choice-key { font-size:10px; color:var(--text3); font-family:var(--fm); margin-right:6px; }
 
@@ -1171,6 +1182,16 @@ textarea, input { font-family:var(--fb); }
           <span class="nav-scene-label">씬 목록</span>
           <button class="nav-sel-all" id="nav-sel-all" onclick="toggleSelectAll()">전체선택</button>
           <button class="nav-sel-all" onclick="checkConflictWithPrompt('갈등 분석')" style="color:#5dcaa5;border-color:rgba(29,158,117,.3);">⚔ 갈등</button>
+          <div style="position:relative;display:inline-block;">
+            <button class="nav-sel-all" id="nav-filter-btn" onclick="toggleNavFilterMenu()" style="color:var(--accent);border-color:var(--accent2);">🔍 필터 ▾</button>
+            <div id="nav-filter-menu" style="display:none;position:absolute;right:0;top:100%;margin-top:4px;background:var(--bg4);border:1px solid var(--border2);border-radius:var(--r2);z-index:300;min-width:150px;overflow:hidden;box-shadow:0 8px 20px rgba(0,0,0,.5);">
+              <button class="nav-filter-item active" data-filter="all" onclick="setNavFilter('all')">전체 보기</button>
+              <button class="nav-filter-item" data-filter="diff" onclick="setNavFilter('diff')">● 수정 제안만</button>
+              <button class="nav-filter-item" data-filter="locked" onclick="setNavFilter('locked')">★ 중요 장면만</button>
+              <button class="nav-filter-item" id="nav-filter-conflict" data-filter="conflict" onclick="setNavFilter('conflict')">⚔ 갈등 높음 (4~5)</button>
+              <button class="nav-filter-item" data-filter="draft" onclick="setNavFilter('draft')">📝 대안 장면만</button>
+            </div>
+          </div>
         </div>
         <div class="nav-search-wrap">
           <input class="nav-search-inp" id="nav-search-inp" placeholder="🔍 씬 검색..." oninput="filterNavScenes(this.value)">
@@ -1721,9 +1742,15 @@ async function callClaude(messages, system, maxTokens = 2000, model = 'claude-so
 
 function buildProjectContext() {
   if (!S.cur) return '';
-  const chars = (S.cur.characters || []).map(c => `${c.name}(${c.role}): ${c.description}`).join('; ');
-  const scenes = (S.cur.scenes || []).map((s,i) => `SC${i+1}. ${s.title}`).join(', ');
-  return `작품: ${S.cur.title} (${S.cur.medium})\n장르: ${(S.cur.genreTags||[]).join(', ')}\n등장인물: ${chars || '없음'}\n씬 목록: ${scenes || '없음'}\n시놉시스: ${S.cur.synopsis || '없음'}`;
+  const chars = (S.cur.characters||[]).map(c => c.name+'('+c.role+'): '+c.description+(c.traits?.length?' ['+c.traits.join(',')+']':'')).join('; ');
+  const scenes = (S.cur.scenes||[]).map(s => {
+    const lbl = getSceneLabel(s, S.cur.scenes);
+    const slug = (s.lines||[]).find(l=>l.type==='slug')?.text||'';
+    return lbl+'. '+s.title+(slug?' ['+slug+']':'');
+  }).join(', ');
+  const synopsis = S.cur.synopsis ? '\n시놉시스: '+S.cur.synopsis.slice(0,300) : '';
+  const conflictSummary = S.cur.conflictData?.summary ? '\n갈등 구조: '+S.cur.conflictData.summary : '';
+  return '작품: '+S.cur.title+' ('+S.cur.medium+')\n장르: '+(S.cur.genreTags||[]).join(', ')+synopsis+conflictSummary+'\n등장인물: '+chars+'\n씬 목록: '+scenes;
 }
 
 // Parse XML tags from AI response
@@ -2154,6 +2181,49 @@ function getSceneLabel(sc, scenes) {
   return origLabel + '-' + suffix;
 }
 
+let _navFilter = 'all';
+
+function toggleNavFilterMenu() {
+  const menu = document.getElementById('nav-filter-menu');
+  if (!menu) return;
+  const open = menu.style.display !== 'none';
+  menu.style.display = open ? 'none' : 'block';
+  if (!open) {
+    setTimeout(() => {
+      const close = (e) => {
+        if (!menu.contains(e.target) && e.target.id !== 'nav-filter-btn') {
+          menu.style.display = 'none';
+          document.removeEventListener('mousedown', close);
+        }
+      };
+      document.addEventListener('mousedown', close);
+    }, 50);
+    // 갈등 데이터 없으면 갈등 필터 비활성화
+    const conflictBtn = document.getElementById('nav-filter-conflict');
+    if (conflictBtn) {
+      const hasConflict = (S.cur?.conflictData?.scenes||[]).length > 0;
+      conflictBtn.style.opacity = hasConflict ? '1' : '0.4';
+      conflictBtn.style.cursor = hasConflict ? 'pointer' : 'default';
+    }
+  }
+}
+
+function setNavFilter(filter) {
+  _navFilter = filter;
+  document.getElementById('nav-filter-menu').style.display = 'none';
+  document.querySelectorAll('.nav-filter-item').forEach(b => {
+    b.classList.toggle('active', b.dataset.filter === filter);
+  });
+  const btn = document.getElementById('nav-filter-btn');
+  if (btn) {
+    const labels = {all:'🔍 필터 ▾', diff:'● 수정제안 ▾', locked:'★ 중요장면 ▾', conflict:'⚔ 갈등높음 ▾', draft:'📝 대안장면 ▾'};
+    btn.textContent = labels[filter] || '🔍 필터 ▾';
+    btn.style.color = filter === 'all' ? 'var(--accent)' : '#fff';
+    btn.style.background = filter === 'all' ? 'none' : 'var(--accent)';
+  }
+  renderNavSceneList();
+}
+
 function filterNavScenes(query) {
   const q = (query || '').trim().toLowerCase();
   const items = document.querySelectorAll('#nav-scene-list .nav-sc-item');
@@ -2186,6 +2256,16 @@ function renderNavSceneList() {
       (sc.draft ? ' draft' : '') +
       (sc.collapsed ? ' collapsed' : '') +
       conflictClass;
+    // 필터 적용
+    let show = true;
+    if (_navFilter === 'diff') show = !!sc.diff;
+    else if (_navFilter === 'locked') show = !!sc.locked;
+    else if (_navFilter === 'conflict') show = (conflictEntry?.intensity || 0) >= 4;
+    else if (_navFilter === 'draft') {
+      const draftOfIds = new Set((S.cur.scenes||[]).filter(s=>s.draft).map(s=>s.draftOf));
+      show = sc.draft || draftOfIds.has(sc.id);
+    }
+    item.style.display = show ? '' : 'none';
     item.dataset.id = sc.id;
     item.dataset.title = (sc.title || '').toLowerCase();
     // 대사+지문 내용도 검색 가능하게 저장
@@ -2215,7 +2295,8 @@ function renderNavSceneList() {
     const slugTxt = slugLine ? slugLine.text : '';
     const draftBadge = sc.draft ? '<span class="draft-badge">대안</span>' : '';
     const navLabel = getSceneLabel(sc, S.cur.scenes || []);
-    info.innerHTML = '<div class="sc-nav-num" style="' + (sc.draft ? 'color:var(--accent);' : '') + '">' + escH(navLabel) + draftBadge + '</div><div class="sc-nav-name">' + escH(sc.title) + '</div>' + (slugTxt ? '<div class="sc-nav-slug">' + escH(slugTxt) + '</div>' : '');
+    const diffDot = sc.diff ? '<span class="diff-badge" title="수정 제안 있음"></span>' : '';
+    info.innerHTML = '<div class="sc-nav-num" style="' + (sc.draft ? 'color:var(--accent);' : '') + '">' + escH(navLabel) + draftBadge + '</div><div class="sc-nav-name" style="display:flex;align-items:center;gap:4px;">' + escH(sc.title) + diffDot + '</div>' + (slugTxt ? '<div class="sc-nav-slug">' + escH(slugTxt) + '</div>' : '');
     item.appendChild(info);
 
     // ── 잠금 아이콘 ──
@@ -3822,7 +3903,13 @@ function appendMsgEl(msg, scroll = true) {
   const name = document.createElement('div'); name.className = 'msg-name';
   name.textContent = msg.role === 'user' ? '나' : 'Script Studio AI';
   const bubble = document.createElement('div'); bubble.className = 'msg-bubble';
-  bubble.textContent = msg.text;
+  // 가독성 렌더링: 줄바꿈, 볼드, 번호/구분자 색상
+  const formatted = (msg.text||'')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
+    .replace(/(^|\n)(\d+\.|[-*])\s/g, '$1<span style="color:var(--accent);font-weight:600;">$2</span> ')
+    .replace(/\n/g,'<br>');
+  bubble.innerHTML = formatted;
   body.appendChild(name); body.appendChild(bubble);
   if (msg.actions && msg.actions.length) {
     const acts = document.createElement('div'); acts.className = 'msg-actions';
@@ -3849,13 +3936,35 @@ function addMsg(role, text, actions) {
   appendMsgEl(m);
 }
 
+const _typingMsgs = [
+  '대본을 읽고 있습니다...',
+  '작가님의 의도를 파악하는 중...',
+  '더 좋은 이야기를 위해 생각 중...',
+  '인물의 감정을 들여다보는 중...',
+  '씬의 흐름을 분석하고 있습니다...',
+  '좋은 제안을 준비하고 있습니다...',
+  '대사 하나하나를 살펴보는 중...',
+];
+let _typingInterval = null;
 function showTyping() {
   const container = document.getElementById('chat-msgs');
+  if (!container) return;
   const wrap = document.createElement('div'); wrap.className = 'msg'; wrap.id = 'typing-indicator';
-  wrap.innerHTML = `<div class="msg-av ai">AI</div><div class="msg-body"><div class="typing-dots"><span></span><span></span><span></span></div></div>`;
+  wrap.innerHTML = '<div class="msg-av ai">AI</div><div class="msg-body"><div class="msg-bubble" id="typing-msg" style="color:var(--text3);font-size:11px;font-style:italic;"></div></div>';
   container.appendChild(wrap); container.scrollTop = container.scrollHeight;
+  let idx = Math.floor(Math.random() * _typingMsgs.length);
+  const msgEl = document.getElementById('typing-msg');
+  if (msgEl) msgEl.textContent = '✦ ' + _typingMsgs[idx];
+  _typingInterval = setInterval(() => {
+    idx = (idx + 1) % _typingMsgs.length;
+    const el = document.getElementById('typing-msg');
+    if (el) el.textContent = '✦ ' + _typingMsgs[idx];
+  }, 2500);
 }
-function hideTyping() { document.getElementById('typing-indicator')?.remove(); }
+function hideTyping() {
+  clearInterval(_typingInterval);
+  document.getElementById('typing-indicator')?.remove();
+}
 
 function handleMsgAction(action) {
   if (action.type === 'saveSynopsis') {
@@ -3865,6 +3974,57 @@ function handleMsgAction(action) {
     showSmartSceneAddPanel(action.data);
   } else if (action.type === 'addCharacters') {
     addCharsFromAI(action.data);
+  } else if (action.type === 'gotoScriptEdit') {
+    // 씬 수정하기 → 대본 에디터 + 씬 선택 + 프롬프터 입력
+    const { scNums, prompt } = action.data;
+    const allSc = S.cur?.scenes || [];
+    S.selectedIds.clear();
+    scNums.forEach(lbl => {
+      const found = allSc.find(s => getSceneLabel(s, allSc) === lbl || getSceneLabel(s, allSc).replace('SC ','SC') === lbl);
+      if (found) S.selectedIds.add(found.id);
+    });
+    save(true); renderScriptBody(); renderNavSceneList();
+    switchTab('script');
+    const firstLbl = scNums[0];
+    const firstSc = allSc.find(s => getSceneLabel(s, allSc) === firstLbl || getSceneLabel(s, allSc).replace('SC ','SC') === firstLbl);
+    if (firstSc) setTimeout(() => scrollToScene(firstSc.id), 200);
+    setTimeout(() => {
+      const inp = document.getElementById('prompter-inp');
+      if (inp) { inp.value = prompt; inp.dispatchEvent(new Event('input')); inp.focus(); }
+    }, 250);
+  } else if (action.type === 'deleteSceneSuggest') {
+    // 씬 삭제 확인
+    const lbl = action.data;
+    const sc = (S.cur?.scenes||[]).find(s => getSceneLabel(s, S.cur.scenes) === lbl || getSceneLabel(s, S.cur.scenes).replace('SC ','SC') === lbl);
+    if (!sc) { toast(lbl + ' 씬을 찾을 수 없습니다.'); return; }
+    if (confirm('"' + sc.title + '" 씬을 삭제할까요?')) {
+      S.cur.scenes = S.cur.scenes.filter(s => s.id !== sc.id);
+      save(); renderScriptBody(); renderNavSceneList();
+      toast('✓ ' + lbl + ' 삭제됨');
+    }
+  } else if (action.type === 'moveSceneSuggest') {
+    // 씬 이동 — 대본 에디터로 이동 후 안내
+    switchTab('script');
+    toast('네비게이터에서 씬을 드래그하여 이동하세요: ' + action.data, 4000);
+  } else if (action.type === 'showMultiChoices') {
+    showMultiChoicesPanel(action.data.prompt, action.data.choices);
+  } else if (action.type === 'suggestAnalysis') {
+    const _origPrompt = action.originalPrompt || '';
+    const _afterAnalysis = () => {
+      if (_origPrompt) {
+        setTimeout(() => {
+          toast('✦ 분석 완료 — 다시 제안합니다...', 2000);
+          setTimeout(() => handleChatPrompt(_origPrompt), 600);
+        }, 800);
+      }
+    };
+    if (action.data === 'conflict') {
+      checkConflictWithPrompt('갈등 분석').then(_afterAnalysis);
+    } else if (action.data === 'synopsis') {
+      regenSynopsis().then(_afterAnalysis);
+    } else if (action.data === 'characters') {
+      extractCharsFromScript().then(_afterAnalysis);
+    }
   } else if (action.type === 'gotoScriptFlow') {
     const sceneNums = action.data;
     S.selectedIds.clear();
@@ -3999,19 +4159,69 @@ async function handleChatPrompt(text) {
     }
     const ctx = buildProjectContext();
     const history = (S.cur.messages || []).slice(-10).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
-    const sys = `당신은 창작 대본 작업을 돕는 전문 작가 AI입니다.
-${ctx}
 
-응답 규칙:
-- 항상 자연스러운 한국어 대화체로 먼저 답변하세요.
-- 시놉시스를 작성할 경우: 자연어 설명 뒤에 <synopsis>내용만</synopsis> 태그를 붙이세요. 태그 안에는 순수 텍스트만, JSON이나 코드 없이.
-- 씬/대본을 생성할 경우: 자연어 설명 뒤에 <scenes>[JSON]</scenes> 태그를 붙이세요.
-  씬 JSON: [{"title":"씬 제목","slug":"INT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]
-- 등장인물 목록을 정리하거나 소개할 경우: 자연어 설명 뒤에 <characters>[JSON]</characters> 태그를 붙이세요.
-  인물 JSON: [{"name":"이름","role":"역할","description":"설명 1~2문장","traits":["특성1","특성2"]}]
-- 태그는 응답 맨 끝에만 붙이세요. 태그가 대화 중간에 섞이지 않게 하세요.
-- 일반 대화나 아이디어 토론은 태그 없이 자연스럽게만 답하세요.
-- JSON이나 코드를 대화 본문에 직접 출력하지 마세요.`;
+    // 동적 씬 컨텍스트 — 인물 이름/SC번호 감지
+    let dynamicCtx = '';
+    const allScenes = S.cur.scenes || [];
+    // SC번호 감지
+    const scPat2 = /SC\s*(\d+)/gi;
+    const mentionedScIds = new Set();
+    let scM2;
+    while ((scM2 = scPat2.exec(text)) !== null) {
+      const num = parseInt(scM2[1]);
+      const found = allScenes.find(s => getSceneLabel(s, allScenes) === 'SC ' + num);
+      if (found) mentionedScIds.add(found.id);
+    }
+    // 인물 이름 감지 → 갈등 높고 대사 많은 씬 최대 5개
+    const charNames3 = (S.cur.characters||[]).map(c=>c.name).filter(Boolean);
+    const mentionedChars = charNames3.filter(name => text.includes(name));
+    if (mentionedChars.length > 0) {
+      const charScenes = allScenes
+        .filter(s => !s.draft && (s.lines||[]).some(l=>l.type==='character' && mentionedChars.some(n=>l.text.includes(n))))
+        .map(s => {
+          const conflictEntry = (S.cur.conflictData?.scenes||[]).find(c=>c.sceneId===s.id);
+          const intensity = conflictEntry?.intensity || 0;
+          const dialogueCount = (s.lines||[]).filter(l=>l.type==='dialogue').length;
+          return { s, score: intensity * 3 + dialogueCount };
+        })
+        .sort((a,b) => b.score - a.score)
+        .slice(0, 5)
+        .map(x => x.s);
+      charScenes.forEach(s => mentionedScIds.add(s.id));
+    }
+    // "이 씬", "이 장면" → 선택된 씬
+    if (/이 씬|이 장면|현재 씬/.test(text)) {
+      S.selectedIds.forEach(id => mentionedScIds.add(id));
+    }
+    if (mentionedScIds.size > 0) {
+      const sceneDetails = [...mentionedScIds].map(id => {
+        const s = allScenes.find(x=>x.id===id);
+        if (!s) return '';
+        const lbl = getSceneLabel(s, allScenes);
+        const lines = (s.lines||[]).map(l=>l.type+': '+l.text).join(' | ').slice(0,400);
+        return lbl+'. "'+s.title+'"\n'+lines;
+      }).filter(Boolean).join('\n\n');
+      if (sceneDetails) dynamicCtx = '\n\n[참조 씬 상세 데이터]\n' + sceneDetails;
+    }
+
+    const sys = '당신은 창작 대본 작업을 돕는 전문 작가 AI입니다.\n' + ctx + dynamicCtx + '\n\n' +
+      '응답 규칙:\n' +
+      '- 자연스러운 한국어 대화체로 답변하세요.\n' +
+      '- 항목이 여러 개면 번호(1. 2. 3.) 또는 대시(-)로 구분하세요.\n' +
+      '- 단락 사이는 빈 줄로 구분하세요.\n' +
+      '- **볼드** 마크다운, ### 소제목 사용 금지.\n' +
+      '- 명확화가 필요하면: 단일 선택은 <choices>["1. 선택지","2. 선택지"]</choices>, 복수 선택은 <multichoices>["1. 선택지","2. 선택지"]</multichoices>\n' +
+      '- 특정 씬 수정이 필요하면 응답 마지막에 <editscenes>SC번호들(쉼표구분)</editscenes> 태그 추가\n' +
+      '- 씬 삭제 제안: <deletescene>SC번호</deletescene>\n' +
+      '- 씬 이동 제안: <movescene>SC번호→위치설명</movescene>\n' +
+      '- 시놉시스: <synopsis>내용</synopsis>\n' +
+      '- 씬 생성: <scenes>[JSON]</scenes>\n' +
+      '- 등장인물: <characters>[JSON]</characters>\n' +
+      '- 태그는 응답 맨 끝에만, JSON을 본문에 직접 출력 금지.\n' +
+      '- 갈등 분석 데이터가 없거나 부족할 때: <suggest>conflict</suggest>\n' +
+      '- 시놉시스가 없거나 부족할 때: <suggest>synopsis</suggest>\n' +
+      '- 등장인물 정보가 부족할 때: <suggest>characters</suggest>\n' +
+      '- suggest 태그는 꼭 필요할 때만, 응답 맨 끝에 붙이세요.';
     // 씬 재구성 요청이면 토큰 더 많이
     const needsMore = /씬.*다시|재구성|전체.*씬|씬.*구성|씬.*만들/.test(text);
     const raw = await callClaude([...history, { role:'user', content:text }], sys, needsMore ? 6000 : 3000);
@@ -4021,6 +4231,11 @@ ${ctx}
     const synopsisData = extractTag(raw, 'synopsis');
     const scenesRaw = extractTag(raw, 'scenes');
     const charsRaw = extractTag(raw, 'characters');
+    const editScenesRaw = extractTag(raw, 'editscenes');
+    const deleteSceneRaw = extractTag(raw, 'deletescene');
+    const moveSceneRaw = extractTag(raw, 'movescene');
+    const multichoicesRaw = extractTag(raw, 'multichoices');
+    const suggestRaw = extractTag(raw, 'suggest');
     let scenesData = null;
     if (scenesRaw) { try { scenesData = JSON.parse(scenesRaw); } catch {} }
     let charsData = null;
@@ -4033,10 +4248,44 @@ ${ctx}
     const actions = [];
     if (synopsisData) actions.push({ type:'saveSynopsis', data:synopsisData, label:'📋 시놉시스로 저장', style:'green' });
     if (scenesData && Array.isArray(scenesData) && scenesData.length > 0) {
-      actions.push({ type:'addScenes', data:scenesData, label:`🎬 씬 ${scenesData.length}개 대본에 추가`, style:'purple' });
+      actions.push({ type:'addScenes', data:scenesData, label:'🎬 씬 '+scenesData.length+'개 대본에 추가', style:'purple' });
     }
     if (charsData && Array.isArray(charsData) && charsData.length > 0) {
-      actions.push({ type:'addCharacters', data:charsData, label:`👥 등장인물 ${charsData.length}명 추가`, style:'purple' });
+      actions.push({ type:'addCharacters', data:charsData, label:'👥 등장인물 '+charsData.length+'명 추가', style:'purple' });
+    }
+    // 씬 수정하기 버튼
+    if (editScenesRaw) {
+      const scNums = editScenesRaw.split(',').map(s=>s.trim()).filter(Boolean);
+      if (scNums.length === 1) {
+        actions.push({ type:'gotoScriptEdit', data:{scNums, prompt:text}, label:'✦ '+scNums[0]+' 수정하기 →', style:'amber' });
+      } else if (scNums.length > 1) {
+        actions.push({ type:'gotoScriptEdit', data:{scNums, prompt:text}, label:'✦ 해당 씬들 수정하기 →', style:'amber' });
+      }
+    }
+    // 씬 삭제 제안
+    if (deleteSceneRaw) {
+      actions.push({ type:'deleteSceneSuggest', data:deleteSceneRaw.trim(), label:'🗑 '+deleteSceneRaw.trim()+' 삭제', style:'red' });
+    }
+    // 씬 이동 제안
+    if (moveSceneRaw) {
+      actions.push({ type:'moveSceneSuggest', data:moveSceneRaw.trim(), label:'↕ '+moveSceneRaw.trim()+' 이동', style:'blue' });
+    }
+    // 복수 선택지
+    if (multichoicesRaw) {
+      let mchoices = null;
+      try { mchoices = JSON.parse(multichoicesRaw); } catch {}
+      if (mchoices?.length) actions.push({ type:'showMultiChoices', data:{prompt:text, choices:mchoices}, label:'선택하기', style:'purple' });
+    }
+    // 분석 제안 버튼
+    if (suggestRaw) {
+      const suggestMap = {
+        conflict:    { label:'⚔ 갈등 분석', type:'suggestAnalysis', data:'conflict' },
+        synopsis:    { label:'📋 시놉시스 분석', type:'suggestAnalysis', data:'synopsis' },
+        characters:  { label:'👥 등장인물 분석', type:'suggestAnalysis', data:'characters' },
+      };
+      suggestRaw.split(',').map(s=>s.trim()).forEach(key => {
+        if (suggestMap[key]) actions.push({ ...suggestMap[key], style:'amber', originalPrompt: text });
+      });
     }
     addMsg('assistant', displayText, actions);
   } catch(e) {
@@ -4423,6 +4672,31 @@ async function handleScriptPrompt(text) {
 
   // ── 브레인스토밍 판단 (2단계) — _skipBrainCheck면 건너뜀 ────────────
   if (!S._skipBrainCheck) {
+    // 단순 삭제/이동 요청 (SC번호 명확) → 직접 처리
+    const simpleDelete = /SC\s*\d+.*삭제|SC\s*\d+.*지워/.test(text);
+    const simpleMove = /SC\s*\d+.*이동|SC\s*\d+.*옮겨|SC\s*\d+.*뒤로|SC\s*\d+.*앞으로/.test(text);
+    if (simpleDelete) {
+      const m = text.match(/SC\s*(\d+)/i);
+      if (m) {
+        const num = parseInt(m[1]);
+        const sc = (S.cur?.scenes||[]).find(s => getSceneLabel(s, S.cur.scenes) === 'SC ' + num);
+        if (sc && confirm('"' + sc.title + '" 씬을 삭제할까요?')) {
+          S.cur.scenes = S.cur.scenes.filter(s => s.id !== sc.id);
+          save(); renderScriptBody(); renderNavSceneList();
+          toast('✓ SC' + num + ' 삭제됨'); return;
+        }
+      }
+    }
+    if (simpleMove) {
+      switchTab('script');
+      toast('네비게이터에서 씬을 드래그하여 이동하세요', 3000); return;
+    }
+    // 구조적 요청 → 브레인스토밍 안내
+    const structuralRequest = /씬.*전체.*삭제|순서.*재배치|구조.*변경|씬.*순서.*바꿔|전체.*구성.*바꿔/.test(text);
+    if (structuralRequest) {
+      showBrainstormSuggestion(text, '브레인스토밍에서 함께 검토하면 더 세심하게 살펴볼 수 있어요 😊');
+      return;
+    }
     const definiteBrain = /어떻게.*하면 좋|어떻게.*바꿔야|왜.*이상|방향.*맞는지|어떤.*방법이 좋|어떻게.*생각|어떤.*게 좋|어떻게 해야|조언.*해줘|어떻게 하지/.test(text);
     const definiteEdit = /바꿔줘|수정해줘|고쳐줘|추가해줘|삭제해줘|써줘|넣어줘|만들어줘|바꿔$|수정$/.test(text);
 
@@ -4483,10 +4757,33 @@ async function handleScriptPrompt(text) {
     const SCHUNK = 3;
     const totalSChunks = Math.ceil(selectedScenes.length / SCHUNK);
     setWaiting(true);
+    const cpMsgs = [
+      '더 좋은 대본을 위해 생각하고 있습니다...',
+      '장면의 긴장감을 높이는 중...',
+      '대사 하나하나를 다듬고 있습니다...',
+      '작가님의 의도를 살리고 있습니다...',
+      '인물의 감정을 깊이 들여다보는 중...',
+      '씬의 흐름을 정교하게 조율하고 있습니다...',
+    ];
+    const showProgress = (cur, total) => {
+      const el = document.getElementById('chunk-progress');
+      const bar = document.getElementById('cp-bar');
+      const msg = document.getElementById('cp-msg');
+      const hint = document.getElementById('cp-hint');
+      if (!el) return;
+      el.style.display = 'flex';
+      if (bar) bar.style.width = Math.round((cur/total)*100) + '%';
+      if (msg) msg.textContent = '✦ 씬 편집 중... (' + cur + '/' + total + ')';
+      if (hint) hint.textContent = cpMsgs[cur % cpMsgs.length];
+    };
+    const hideProgress = () => {
+      const el = document.getElementById('chunk-progress');
+      if (el) el.style.display = 'none';
+    };
     try {
       for (let ci = 0; ci < totalSChunks; ci++) {
         const chunk = selectedScenes.slice(ci * SCHUNK, (ci + 1) * SCHUNK);
-        toast('✦ 씬 편집 중... (' + (ci+1) + '/' + totalSChunks + ')', 6000);
+        showProgress(ci + 1, totalSChunks);
         // 청크 전용 요청 — 현재 함수 재귀 대신 직접 API 호출
         const chunkAllScenes = S.cur.scenes || [];
         const chunkFullList = chunkAllScenes.map(s => {
@@ -4530,11 +4827,24 @@ async function handleScriptPrompt(text) {
           }
         }
       }
-      save(); renderScriptBody();
-      toast('✓ 전체 편집 완료 — diff를 확인하세요', 4000);
+      save(); renderScriptBody(); renderNavSceneList();
+      hideProgress();
+      // diff 있는 씬 수 계산 → 자동 필터
+      const diffCount = (S.cur.scenes||[]).filter(s => s.diff).length;
+      if (diffCount >= 2) {
+        setNavFilter('diff');
+        toast('✓ ' + diffCount + '개 장면에 수정 제안이 있습니다 — 필터가 자동으로 켜졌습니다', 5000);
+      } else if (diffCount === 1) {
+        const sc = (S.cur.scenes||[]).find(s => s.diff);
+        if (sc) setTimeout(() => scrollToScene(sc.id), 100);
+        toast('✓ 1개 장면에 수정 제안이 있습니다', 3000);
+      } else {
+        toast('✓ 편집 완료', 2500);
+      }
     } catch(e) {
+      hideProgress();
       if (e.name !== 'AbortError') toast('편집 오류: ' + e.message);
-    } finally { setWaiting(false); }
+    } finally { setWaiting(false); hideProgress(); }
     return;
   }
 
@@ -4985,7 +5295,7 @@ function selectChoice(btn, choice) {
   inp.focus();
 }
 
-function showBrainstormSuggestion(originalText) {
+function showBrainstormSuggestion(originalText, customMsg) {
   // 기존 안내 바 제거
   document.getElementById('brain-suggest-bar')?.remove();
   const bar = document.createElement('div');
@@ -4996,8 +5306,8 @@ function showBrainstormSuggestion(originalText) {
     'min-width:300px;max-width:90vw;box-shadow:0 8px 24px rgba(0,0,0,.5);';
   const msg = document.createElement('div');
   msg.style.cssText = 'font-size:12px;color:var(--text);line-height:1.6;';
-  msg.innerHTML = '<span style="color:#afa9ec;">💬</span> 방향을 함께 정하는 게 좋을 것 같습니다.<br>' +
-    '<span style="font-size:10px;color:var(--text3);">브레인스토밍에서 이야기해볼까요?</span>';
+  const defaultMsg = '방향을 함께 정하는 게 좋을 것 같습니다.<br><span style="font-size:10px;color:var(--text3);">브레인스토밍에서 이야기해볼까요?</span>';
+  msg.innerHTML = '<span style="color:#afa9ec;">💬</span> ' + (customMsg ? escH(customMsg) : defaultMsg);
   const btns = document.createElement('div');
   btns.style.cssText = 'display:flex;gap:6px;';
   const goBtn = document.createElement('button');
@@ -6789,6 +7099,15 @@ function cleanDisplayText(raw) {
     .replace(/<themes[\s\S]*?<\/themes>/gi, '')
     .replace(/<loglines[\s\S]*?<\/loglines>/gi, '')
     .replace(/<suggestion[\s\S]*?<\/suggestion>/gi, '')
+    .replace(/<editscenes[\s\S]*?<\/editscenes>/gi, '')
+    .replace(/<deletescene[\s\S]*?<\/deletescene>/gi, '')
+    .replace(/<movescene[\s\S]*?<\/movescene>/gi, '')
+    .replace(/<multichoices[\s\S]*?<\/multichoices>/gi, '')
+    .replace(/<suggest[\s\S]*?<\/suggest>/gi, '')
+    .replace(/<editscenes>[\s\S]*/gi, '')
+    .replace(/<deletescene>[\s\S]*/gi, '')
+    .replace(/<movescene>[\s\S]*/gi, '')
+    .replace(/<suggest>[\s\S]*/gi, '')
     .replace(/<flowissues[\s\S]*?<\/flowissues>/gi, '')
     .replace(/```[\s\S]*?```/g, '')
     .replace(/\[[\s\S]{200,}\]/g, '')
@@ -7215,5 +7534,10 @@ if ('serviceWorker' in navigator) {
   });
 }
 </script>
+<div id="chunk-progress">
+  <div class="cp-msg" id="cp-msg">✦ 씬 편집 중...</div>
+  <div class="cp-bar-wrap"><div class="cp-bar" id="cp-bar" style="width:0%"></div></div>
+  <div class="cp-hint" id="cp-hint"></div>
+</div>
 </body>
 </html>
