@@ -1428,12 +1428,10 @@ async function syncFromSupabase(force = false) {
       remoteTime = new Date(rows[0].updated_at || 0).getTime();
     }
     if (!Array.isArray(remote) || !remote.length) return false;
-    const localTime = parseInt(localStorage.getItem('ss_last_saved_' + USER_ID) || '0');
-    if (IS_ADMIN || force || remoteTime > localTime) {
+    if (IS_ADMIN || force) {
       // admin은 로컬 저장 없이 메모리에만
       if (!IS_ADMIN) {
-        localStorage.setItem('ss_projects', JSON.stringify(remote));
-        localStorage.setItem('ss_last_saved_' + USER_ID, remoteTime.toString());
+        localStorage.setItem(_storageKey('ss_projects'), JSON.stringify(remote));
       }
       S.projects = remote;
       _syncReady = true; // pull 완료 — 이제 save() 허용
@@ -1445,9 +1443,6 @@ async function syncFromSupabase(force = false) {
       const msg = IS_ADMIN ? '✓ ADMIN — 전체 ' + remote.length + '개 프로젝트 (읽기 전용)' : '✓ 클라우드에서 불러옴 (' + remote.length + '개)';
       updateSyncStatus(msg);
       toast(msg, 3000);
-    } else {
-      updateSyncStatus('로컬이 최신');
-      toast('로컬이 최신입니다', 2000);
     }
     return true;
   } catch(e) {
@@ -1567,7 +1562,6 @@ let _syncReady = false;
 function save(skipUndo = false) {
   if (!_syncReady) return; // pull 완료 전 차단
   if (!skipUndo && S.cur) pushUndo();
-  localStorage.setItem('ss_last_saved_' + USER_ID, Date.now().toString());
   storage.set('ss_projects', S.projects);
   storage.set('ss_api', { key: S.apiKey, proxy: S.useProxy });
 }
@@ -4827,7 +4821,7 @@ load();
 // 앱 시작 시 Supabase에서 최신 데이터 pull (admin은 수동만)
 if (!IS_ADMIN) {
   setTimeout(() => {
-    syncFromSupabase().catch(e => console.warn('Initial sync failed', e));
+    syncFromSupabase(true).catch(e => console.warn('Initial sync failed', e));
   }, 500);
 }
 
