@@ -741,7 +741,7 @@ textarea, input { font-family:var(--fb); }
 .choice-option:hover { border-color:var(--accent2);background:var(--bg4); }
 .choice-option.selected { border-color:var(--accent);background:var(--accent3); }
 .choice-option:hover { border-color:var(--accent2); background:var(--accent3); color:var(--accent); }
-.choice-key { font-size:10px; color:var(--text3); font-family:var(--fm); margin-right:6px; }
+.choice-key { font-size:16px;font-weight:700;color:var(--accent);min-width:22px;flex-shrink:0;padding-top:0px;line-height:1; }
 
 /* AI comment */
 .ai-comment-txt { font-size:12px; color:var(--text2); line-height:1.7; background:var(--bg3); border-radius:var(--r); padding:10px 12px; border-left:2px solid var(--accent2); }
@@ -3959,8 +3959,9 @@ function appendMsgEl(msg, scroll = true) {
     const likeBtn = document.createElement('button');
     likeBtn.className = 'msg-like-btn';
     likeBtn.title = '핵심 결정사항으로 저장';
-    likeBtn.textContent = '👍';
+    likeBtn.innerHTML = '<span style="font-size:13px;opacity:.4;border:1.5px solid currentColor;border-radius:50%;padding:1px 3px;line-height:1;">👍</span>';
     likeBtn.onclick = () => {
+      likeBtn.innerHTML = '<span style="font-size:13px;opacity:1;">👍</span>';
       likeBtn.classList.add('liked');
       likeBtn.disabled = true;
       addChatMemoFromText(msg.text);
@@ -4052,6 +4053,19 @@ function handleMsgAction(action) {
     toast('네비게이터에서 씬을 드래그하여 이동하세요: ' + action.data, 4000);
   } else if (action.type === 'reorderScenes') {
     showReorderPreviewModal(action.data);
+  } else if (action.type === 'showChoices') {
+    // 단일 선택 — 씬 구간 선택에 사용
+    const choices = action.data.choices;
+    const uid = 'sc-' + Date.now();
+    const bodyHTML = '<div class="choice-intro">작업할 구간을 선택하세요:</div>' +
+      '<div class="choice-list" id="' + uid + '">' +
+      choices.map((c, i) =>
+        '<button class="choice-option" onclick="selectSceneChunk(this,\'' + uid + '\')" data-val="' + escH(c).replace(/"/g,'&quot;') + '">' +
+        '<span class="choice-key">' + (i+1) + '</span>' + escH(c) + '</button>'
+      ).join('') + '</div>';
+    showResponsePanel('choice', '작업 구간 선택', bodyHTML,
+      '<button class="rp-btn" onclick="confirmSceneChunk(\'' + uid + '\')">✓ 선택</button>' +
+      '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
   } else if (action.type === 'showMultiChoices') {
     showMultiChoicesPanel(action.data.prompt, action.data.choices);
   } else if (action.type === 'suggestAnalysis') {
@@ -4430,7 +4444,7 @@ async function handleChatPrompt(text) {
         addMsg('assistant',
           '씬이 ' + estimatedScenes + '개라 한 번에 재구성하면 품질이 떨어질 수 있습니다.\n어느 구간부터 작업할까요?',
           [{
-            type: 'showMultiChoices',
+            type: 'showChoices',
             data: { prompt: text, choices: chunks.concat('전체 구조만 제안') },
             label: '구간 선택',
             style: 'purple'
@@ -4887,6 +4901,134 @@ ${charList}`}],
 // ═══════════════════════════════════════════
 // SCRIPT PROMPT (with diff)
 // ═══════════════════════════════════════════
+// ── 대안 장면 교체 ──────────────────────────────────────────────────
+async function handleDraftReplace(text) {
+  if (!S.cur) return;
+  const scenes = S.cur.scenes || [];
+  // SC번호-알파벳 패턴 추출 (예: SC3-A)
+  const draftPat = /SC\s*(\d+)-([A-Z])/gi;
+  let m;
+  const draftLabels = [];
+  while ((m = draftPat.exec(text)) !== null) {
+    draftLabels.push({ num: parseInt(m[1]), letter: m[2] });
+  }
+  // 대안 장면 찾기
+  let draftSc = null;
+  if (draftLabels.length > 0) {
+    const { num, letter } = draftLabels[0];
+    draftSc = scenes.find(s => {
+      const lbl = getSceneLabel(s, scenes);
+      return lbl === 'SC ' + num + '-' + letter;
+    });
+  } else {
+    // 선택된 씬 중 draft씬
+    draftSc = scenes.find(s => s.draft && S.selectedIds.has(s.id));
+  }
+  if (!draftSc) { toast('대안 장면을 찾을 수 없습니다. SC번호-알파벳(예: SC3-A)을 명시해주세요.'); return; }
+
+  // 원본 씬 찾기
+  const originSc = scenes.find(s => s.id === draftSc.draftOf);
+  if (!originSc) { toast('원본 장면을 찾을 수 없습니다.'); return; }
+
+  // diff 생성 — 원본 씬에 대안 내용 적용
+  const oldLines = originSc.lines || [];
+  const newLines = draftSc.lines || [];
+  const diffLines = [];
+  const maxLen = Math.max(oldLines.length, newLines.length);
+  for (let i = 0; i < maxLen; i++) {
+    const o = oldLines[i], n = newLines[i];
+    if (o && n && o.text === n.text && o.type === n.type) {
+      diffLines.push({ type:'ctx', text: o.text });
+    } else {
+      if (o) diffLines.push({ type:'del', text: o.text });
+      if (n) diffLines.push({ type:'add', text: n.text });
+    }
+  }
+  originSc.diff = {
+    prompt: text,
+    lines: diffLines,
+    newLines: newLines.map(l => ({ ...l })),
+    comment: '"' + draftSc.title + '" 대안 장면으로 교체'
+  };
+  S.selectedIds.clear();
+  S.selectedIds.add(originSc.id);
+  save(true); renderScriptBody(); renderNavSceneList();
+  setTimeout(() => scrollToScene(originSc.id), 150);
+  toast('✓ "' + draftSc.title + '" 대안 장면 교체 제안이 준비됐습니다. diff를 확인하세요.', 4000);
+}
+
+// ── 등장인물 특성 추가 ────────────────────────────────────────────────
+async function handleTraitAdd(text) {
+  if (!S.cur) return;
+  const chars = S.cur.characters || [];
+  // 등장인물 이름 감지
+  const foundChar = chars.find(c => c.name && text.includes(c.name));
+  if (!foundChar) { toast('등장인물 이름을 찾을 수 없습니다.'); return; }
+
+  // 특성 추출 — Haiku에게 부탁
+  const traitRaw = await callClaude(
+    [{role:'user', content:'"' + foundChar.name + '"에게 추가할 특성을 다음 요청에서 추출하세요: "' + text + '"'}],
+    '반드시 <trait>특성명(10자 이내)</trait> 형식으로만 응답하세요.',
+    30, 'claude-haiku-4-5-20251001'
+  );
+  const trait = extractTag(traitRaw, 'trait');
+  if (!trait) { toast('특성을 추출할 수 없습니다.'); return; }
+
+  if (!foundChar.traits) foundChar.traits = [];
+  if (foundChar.traits.includes(trait)) { toast('"' + trait + '"은 이미 있는 특성입니다.'); return; }
+  foundChar.traits.push(trait.trim());
+  save(true);
+  // 캐릭터 편집 창 열려있으면 pill 갱신
+  if (document.getElementById('ce-name-' + foundChar.id)) renderCharTraitPills(foundChar.id);
+  toast('✓ ' + foundChar.name + ' — "' + trait + '" 특성 추가됨');
+}
+
+// ── diff 적용 ─────────────────────────────────────────────────────────
+async function handleDiffApply(text) {
+  if (!S.cur) return;
+  const scenes = S.cur.scenes || [];
+  // SC번호 감지
+  const scPat = /SC\s*(\d+)/gi;
+  const scNums = [];
+  let m;
+  while ((m = scPat.exec(text)) !== null) scNums.push(parseInt(m[1]));
+
+  const isAll = /전체|모두|all/.test(text) || scNums.length === 0;
+  const targets = isAll
+    ? scenes.filter(s => s.diff)
+    : scNums.map(n => scenes.find(s => getSceneLabel(s, scenes) === 'SC ' + n)).filter(s => s?.diff);
+
+  if (targets.length === 0) { toast('적용할 수정 제안이 없습니다.'); return; }
+  targets.forEach(sc => {
+    if (sc.diff?.newLines) {
+      sc.lines = sc.diff.newLines.map(l => ({ ...l }));
+      sc.diff = null;
+    }
+  });
+  save(); renderScriptBody(); renderNavSceneList();
+  toast('✓ ' + targets.length + '개 씬 수정 제안이 적용됐습니다.');
+}
+
+// ── diff 취소 ─────────────────────────────────────────────────────────
+async function handleDiffCancel(text) {
+  if (!S.cur) return;
+  const scenes = S.cur.scenes || [];
+  const scPat = /SC\s*(\d+)/gi;
+  const scNums = [];
+  let m;
+  while ((m = scPat.exec(text)) !== null) scNums.push(parseInt(m[1]));
+
+  const isAll = /전체|모두|all/.test(text) || scNums.length === 0;
+  const targets = isAll
+    ? scenes.filter(s => s.diff)
+    : scNums.map(n => scenes.find(s => getSceneLabel(s, scenes) === 'SC ' + n)).filter(s => s?.diff);
+
+  if (targets.length === 0) { toast('취소할 수정 제안이 없습니다.'); return; }
+  targets.forEach(sc => { sc.diff = null; });
+  save(true); renderScriptBody(); renderNavSceneList();
+  toast('↩ ' + targets.length + '개 씬 수정 제안이 취소됐습니다.');
+}
+
 async function handleScriptPrompt(text) {
   const selectedScenes = S.selectedIds.size > 0
     ? (S.cur?.scenes||[]).filter(s => S.selectedIds.has(s.id) && !s.locked)
@@ -4900,6 +5042,43 @@ async function handleScriptPrompt(text) {
   if (/연결|매끄럽|흐름|자연스럽|전환.*어색|어색.*전환/.test(text)) { await checkSceneFlowWithPrompt(text); return; }
   if (/감정|심리|내면|감정.*흐름|심리.*변화/.test(text)) { await checkEmotionFlowWithPrompt(text); return; }
   if (/설정.*충돌|모순|설정.*오류|설정.*검사|충돌.*설정/.test(text)) { await checkSettingConflictWithPrompt(text); return; }
+
+  // ── 1단계 키워드 감지 ────────────────────────────────────────────────
+  // 대안 장면 교체
+  const defReplace = /대안.*교체|교체.*대안|대안.*원본|원본.*대안|draft.*교체|SC\s*\d+-[A-Z].*교체|교체.*SC\s*\d+-[A-Z]|이 버전.*교체|대안.*적용/.test(text);
+  // 특성 추가
+  const defTrait = /특성.*추가|속성.*추가|traits.*추가|추가.*특성|추가.*속성/.test(text);
+  // diff 적용/취소
+  const defDiffApply = /수정.*적용|diff.*적용|제안.*적용|전체.*적용/.test(text);
+  const defDiffCancel = /수정.*취소|diff.*취소|제안.*취소|전체.*취소|전체.*되돌/.test(text);
+
+  if (defReplace) { await handleDraftReplace(text); return; }
+  if (defTrait) { await handleTraitAdd(text); return; }
+  if (defDiffApply) { await handleDiffApply(text); return; }
+  if (defDiffCancel) { await handleDiffCancel(text); return; }
+
+  // ── 2단계 Haiku 판단 (애매한 경우) ──────────────────────────────────
+  const maybeReplace = /교체|바꿔|대안|이 버전|저 버전|-[A-Z]/.test(text);
+  const maybeTrait = /추가|특성|속성|성격/.test(text) && (S.cur?.characters||[]).some(c => text.includes(c.name));
+  const maybeDiff = /적용|취소|되돌|수정|제안/.test(text);
+
+  if (maybeReplace || maybeTrait || maybeDiff) {
+    const intentRaw = await callClaude(
+      [{role:'user', content:'대본 편집 요청: "' + text + '"'}],
+      '다음 중 하나로만 응답하세요:\n' +
+      '<intent>replace</intent> — 대안 장면을 원본으로 교체하는 요청\n' +
+      '<intent>trait</intent> — 등장인물 특성/속성 추가 요청\n' +
+      '<intent>apply</intent> — diff/수정 제안 적용 요청\n' +
+      '<intent>cancel</intent> — diff/수정 제안 취소/되돌리기 요청\n' +
+      '<intent>edit</intent> — 일반 대본 편집 요청',
+      40, 'claude-haiku-4-5-20251001'
+    );
+    const intent = extractTag(intentRaw, 'intent');
+    if (intent === 'replace') { await handleDraftReplace(text); return; }
+    if (intent === 'trait') { await handleTraitAdd(text); return; }
+    if (intent === 'apply') { await handleDiffApply(text); return; }
+    if (intent === 'cancel') { await handleDiffCancel(text); return; }
+  }
 
   // ── 브레인스토밍 판단 (2단계) — _skipBrainCheck면 건너뜀 ────────────
   if (!S._skipBrainCheck) {
@@ -5480,16 +5659,47 @@ function showMultiChoicesPanel(prompt, choices) {
     '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
 }
 
+function selectSceneChunk(btn, uid) {
+  // 단일 선택 — 기존 선택 해제 후 현재만 선택
+  const container = document.getElementById(uid);
+  if (!container) return;
+  container.querySelectorAll('.choice-option').forEach(b => {
+    b.classList.remove('selected');
+    b.style.borderColor = ''; b.style.background = '';
+    const k = b.querySelector('.choice-key');
+    if (k) k.style.fontWeight = '';
+  });
+  btn.classList.add('selected');
+  btn.style.borderColor = 'var(--accent)';
+  btn.style.background = 'var(--accent3)';
+  const k = btn.querySelector('.choice-key');
+  if (k) k.style.fontWeight = '700';
+}
+
+function confirmSceneChunk(uid) {
+  const container = document.getElementById(uid);
+  if (!container) return;
+  const selected = container.querySelector('.choice-option.selected');
+  if (!selected) { toast('구간을 선택해주세요.'); return; }
+  const val = selected.dataset.val;
+  closeResponsePanel();
+  const inp = document.getElementById('prompter-inp');
+  if (inp) {
+    inp.value = val === '전체 구조만 제안' ? '전체 씬 구조만 제안해줘 (씬 생성 없이)' : val + ' 구간 씬들을 재구성해줘';
+    inp.dispatchEvent(new Event('input')); inp.focus();
+  }
+}
+
 function toggleMultiChoiceBtn(btn) {
   const key = btn.querySelector('.choice-key');
   if (btn.classList.contains('selected')) {
     btn.classList.remove('selected');
     btn.style.borderColor = ''; btn.style.background = '';
-    if (key) key.textContent = '☐';
+    if (key) { key.textContent = '☐'; key.style.fontSize = '16px'; }
   } else {
     btn.classList.add('selected');
     btn.style.borderColor = 'var(--accent)'; btn.style.background = 'var(--accent3)';
-    if (key) key.textContent = '☑';
+    if (key) { key.textContent = '☑'; key.style.fontSize = '16px'; }
   }
 }
 
