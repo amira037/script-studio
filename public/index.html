@@ -1297,9 +1297,16 @@ textarea, input { font-family:var(--fb); }
     </div>
     <div class="proj-edit-row">
       <div class="proj-edit-label">장르 태그</div>
-      <div class="genre-tags-wrap" id="pe-tags-wrap">
-        <input class="genre-tag-add-inp" id="pe-tag-inp" placeholder="+ 태그 추가"
-          onkeydown="onTagInpKey(event)">
+      <div style="display:flex;flex-direction:column;gap:6px;flex:1;">
+        <div class="genre-tags-wrap" id="pe-tags-wrap">
+          <input class="genre-tag-add-inp" id="pe-tag-inp" placeholder="+ 태그 추가"
+            onkeydown="onTagInpKey(event)">
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button id="pe-tag-ai-btn" onclick="aiSuggestTags()"
+            style="font-size:10px;background:var(--purple2);color:var(--purple);border:1px solid rgba(168,158,221,.3);border-radius:var(--r);padding:3px 10px;cursor:pointer;white-space:nowrap;">✦ AI 추천</button>
+          <span id="pe-tag-ai-msg" style="font-size:10px;color:var(--text3);font-family:var(--fm);"></span>
+        </div>
       </div>
     </div>
     <div class="proj-edit-acts">
@@ -1860,6 +1867,54 @@ function openProjEdit() {
   renderPeTags();
   document.getElementById('proj-edit-overlay').classList.add('show');
   setTimeout(() => document.getElementById('pe-title').select(), 50);
+}
+
+async function aiSuggestTags() {
+  const btn = document.getElementById('pe-tag-ai-btn');
+  const msg = document.getElementById('pe-tag-ai-msg');
+  if (!btn) return;
+  const title = document.getElementById('pe-title')?.value || S.cur?.title || '';
+  const medium = document.getElementById('pe-medium')?.value || S.cur?.medium || '';
+  const synopsis = S.cur?.synopsis || '';
+  const hasSynopsis = synopsis.trim().length > 0;
+  msg.textContent = hasSynopsis
+    ? '제목·매체·시놉시스 참조 중...'
+    : '제목·매체 참조 중 (시놉시스 없음)...';
+  btn.disabled = true; btn.textContent = '...';
+  try {
+    const context = '제목: ' + title + '\n매체: ' + medium +
+      (hasSynopsis ? '\n시놉시스: ' + synopsis.slice(0, 300) : '');
+    const sys = '창작 작품의 장르 태그를 추천해주세요. ' +
+      '반드시 <tags>["태그1","태그2","태그3"]</tags> 형식으로만 응답하세요. ' +
+      '태그는 3~5개, 한국어, 5자 이내로 작성하세요.';
+    const raw = await callClaude(
+      [{role:'user', content:context}], sys, 200, 'claude-haiku-4-5-20251001'
+    );
+    const tagsRaw = extractTag(raw, 'tags');
+    if (!tagsRaw) { msg.textContent = '추천 실패'; return; }
+    const suggested = JSON.parse(tagsRaw);
+    if (!Array.isArray(suggested)) return;
+    // 기존 태그에 없는 것만 추가
+    const wrap = document.getElementById('pe-tags-wrap');
+    const inp = document.getElementById('pe-tag-inp');
+    suggested.forEach(tag => {
+      const existing = [...wrap.querySelectorAll('.genre-tag-pill')]
+        .map(el => el.dataset.tag);
+      if (!existing.includes(tag)) {
+        const pill = document.createElement('span');
+        pill.className = 'genre-tag-pill';
+        pill.dataset.tag = tag;
+        pill.innerHTML = tag + ' <span class="genre-tag-del" onclick="this.parentElement.remove()">×</span>';
+        wrap.insertBefore(pill, inp);
+      }
+    });
+    msg.textContent = '✓ ' + suggested.length + '개 추천됨' +
+      (hasSynopsis ? ' (시놉시스 참조)' : ' (제목·매체 참조)');
+  } catch(e) {
+    msg.textContent = '오류: ' + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = '✦ AI 추천';
+  }
 }
 
 function closeProjEdit() {
@@ -2572,8 +2627,9 @@ function buildSceneBlock(sc, i) {
     setTimeout(() => titleInp.scrollIntoView({ block:'nearest', behavior:'smooth' }), 150);
   });
   titleInp.addEventListener('blur', () => save());
-  titleInp.addEventListener('focus', () => {
-    setTimeout(() => titleInp.scrollIntoView({ block:'nearest', behavior:'smooth' }), 150);
+  titleInp.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229) return; // IME 조합 중 무시
+    if (e.key === 'Enter') { e.preventDefault(); titleInp.blur(); }
   });
   const acts = document.createElement('div'); acts.className = 'scene-hdr-acts';
   const lockBtn = document.createElement('button');
@@ -2639,6 +2695,20 @@ function buildSceneBlock(sc, i) {
       el.style.flex = '1';
       let charDetectTimer;
       el.addEventListener('focusout', () => {
+        // parenthetical 줄 — 포커스 나갈 때 괄호 자동 보완
+        if (line.type === 'parenthetical' && !sc.locked && !line.locked) {
+          const txt = el.textContent.trim();
+          if (txt && txt !== '()') {
+            let fixed = txt;
+            if (!fixed.startsWith('(')) fixed = '(' + fixed;
+            if (!fixed.endsWith(')')) fixed = fixed + ')';
+            if (fixed !== txt) {
+              line.text = fixed;
+              el.textContent = fixed;
+              save(true);
+            }
+          }
+        }
         // 빈 줄이고 slug가 아니면 자동 삭제 (포커스가 같은 씬 내부로 이동하는 경우는 제외)
         if (line.type !== 'slug' && el.textContent.trim() === '' && !sc.locked) {
           // 짧은 지연 후 씬 내부로 포커스가 갔는지 확인
@@ -2790,7 +2860,28 @@ function buildSceneBlock(sc, i) {
           if (line.type === t) { btn.style.color='var(--accent)'; btn.style.background='var(--accent3)'; }
           btn.textContent = label;
           btn.addEventListener('touchstart', (te) => { te.stopPropagation(); }, {passive:true});
-          btn.onclick = (ev) => { ev.stopPropagation(); line.type = t; save(); renderAllLines(); menu.remove(); menuOpen=false; };
+          btn.onclick = (ev) => {
+            ev.stopPropagation();
+            const prevType = line.type;
+            line.type = t;
+            // parenthetical로 변경 시 괄호 자동 추가
+            if (t === 'parenthetical') {
+              const txt = line.text.trim();
+              if (txt && !txt.startsWith('(')) {
+                line.text = '(' + (txt.endsWith(')') ? txt : txt + ')');
+              } else if (!txt) {
+                line.text = '()';
+              }
+            }
+            // parenthetical에서 다른 타입으로 변경 시 괄호 제거
+            if (prevType === 'parenthetical' && t !== 'parenthetical') {
+              const txt = line.text.trim();
+              if (txt.startsWith('(') && txt.endsWith(')')) {
+                line.text = txt.slice(1, -1).trim();
+              }
+            }
+            save(); renderAllLines(); menu.remove(); menuOpen=false;
+          };
           menu.appendChild(btn);
         });
         // Divider + insert above/below + delete
@@ -4823,12 +4914,10 @@ function downloadText(text, filename) {
 // INIT
 // ═══════════════════════════════════════════
 load();
-// 앱 시작 시 Supabase에서 최신 데이터 pull (admin은 수동만)
-if (!IS_ADMIN) {
-  setTimeout(() => {
-    syncFromSupabase(true).catch(e => console.warn('Initial sync failed', e));
-  }, 500);
-}
+// 앱 시작 시 Supabase에서 최신 데이터 강제 pull (admin 포함)
+setTimeout(() => {
+  syncFromSupabase(true).catch(e => console.warn('Initial sync failed', e));
+}, 500);
 
 // Demo project
 if (!S.projects.length) {
