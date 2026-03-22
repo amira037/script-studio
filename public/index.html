@@ -2640,7 +2640,7 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
       let insertAfter = afterId;
       scenesData.forEach(s => {
         const newSc = {
-          id: Date.now() + Math.random(),
+          id: Date.now() + Math.floor(Math.random() * 100000),
           title: s.title || '새 씬',
           locked: false,
           lines: [
@@ -2753,7 +2753,7 @@ function addSceneAtEnd() {
 }
 function makeScene(title, slug) {
   return {
-    id: Date.now() + Math.random(),
+    id: Date.now() + Math.floor(Math.random() * 100000),
     title: title,
     locked: false,
     lines: [
@@ -2875,7 +2875,7 @@ function buildSceneBlock(sc, i) {
   cloneBtn.title = '이 씬을 복제합니다';
   cloneBtn.onclick = () => {
     const cloned = JSON.parse(JSON.stringify(sc));
-    cloned.id = Date.now() + Math.random();
+    cloned.id = Date.now() + Math.floor(Math.random() * 100000);
     cloned.title = sc.title + ' (복제)';
     cloned.diff = null;
     cloned.draft = true;
@@ -3433,7 +3433,7 @@ function saveAsDraft(id) {
   if (!sc || !sc.diff) return;
   // 대안 씬 생성 — 원본 바로 뒤에 삽입
   const draftSc = {
-    id: Date.now() + Math.random(),
+    id: Date.now() + Math.floor(Math.random() * 100000),
     title: sc.title + ' (대안)',
     locked: false,
     draft: true,
@@ -3489,7 +3489,7 @@ async function suggestTraitFromDiff(sceneId, prompt) {
       okBtn.onclick = () => {
         if (!S.cur.characters) S.cur.characters = [];
         const newChar = {
-          id: Date.now() + Math.random(),
+          id: Date.now() + Math.floor(Math.random() * 100000),
           name: result.char,
           role: '',
           description: '',
@@ -3759,7 +3759,7 @@ function openSceneTextEditor(sc, block) {
       if (parsed.length > 1) {
         const scIdx = S.cur.scenes.findIndex(x => x.id === sc.id);
         const extraScenes = parsed.slice(1).map(s => ({
-          id: Date.now() + Math.random(),
+          id: Date.now() + Math.floor(Math.random() * 100000),
           title: s.title || '새 씬',
           locked: false,
           lines: [
@@ -4154,7 +4154,7 @@ async function showSmartSceneAddPanel(scenesData) {
 
     // 새 씬 객체 생성
     const newScenes = scenesData.map(s => ({
-      id: Date.now() + Math.random(),
+      id: Date.now() + Math.floor(Math.random() * 100000),
       title: s.title || '새 씬',
       locked: false,
       lines: [
@@ -4213,7 +4213,7 @@ async function showSmartSceneAddPanel(scenesData) {
 function addScenesFromAI(scenesData) {
   if (!S.cur) return;
   const newScenes = scenesData.map(s => ({
-    id: Date.now() + Math.random(),
+    id: Date.now() + Math.floor(Math.random() * 100000),
     title: s.title || '새 씬',
     slug: s.slug || 'INT. 장소 - 시간대',
     locked: false,
@@ -4236,7 +4236,7 @@ function addCharsFromAI(charsData) {
     if (!c.name) return;
     if (existing.includes(c.name.toLowerCase())) return; // 중복 제거
     S.cur.characters.push({
-      id: Date.now() + Math.random(),
+      id: Date.now() + Math.floor(Math.random() * 100000),
       name: c.name || '새 인물',
       role: c.role || '',
       description: c.description || '',
@@ -4367,7 +4367,7 @@ ${charList}`}],
         const exists = (S.cur.characters || []).find(x => x.name.toLowerCase() === c.name.toLowerCase());
         if (exists) return;
         S.cur.characters.push({
-          id: Date.now() + Math.random(),
+          id: Date.now() + Math.floor(Math.random() * 100000),
           name: c.name, role: c.role || '',
           description: c.description || '',
           traits: Array.isArray(c.traits) ? c.traits : [],
@@ -4815,7 +4815,7 @@ function showChoicesPanel(prompt, choices) {
 
 function showNewSceneInsertPanel(scenesData, comment, refSc, refLabel) {
   const makeSceneObjs = () => scenesData.map(s => ({
-    id: Date.now() + Math.random(),
+    id: Date.now() + Math.floor(Math.random() * 100000),
     title: s.title || '새 씬',
     locked: false,
     lines: [
@@ -4947,7 +4947,7 @@ function confirmOrphanDelete(deleteOrphans) {
     const exists = (S.cur.characters || []).find(x => x.name.toLowerCase() === c.name.toLowerCase());
     if (exists) return;
     S.cur.characters.push({
-      id: Date.now() + Math.random(),
+      id: Date.now() + Math.floor(Math.random() * 100000),
       name: c.name, role: c.role || '',
       description: c.description || '',
       traits: Array.isArray(c.traits) ? c.traits : [],
@@ -5256,6 +5256,25 @@ async function aiCharUnified(id) {
   if (!c) return;
   const name = document.getElementById('ce-name-'+id)?.value || c.name;
 
+  // 등장 씬 수 + 대사 줄 수 계산
+  const sceneSet = new Set();
+  let dialogueCount = 0;
+  (S.cur.scenes||[]).forEach((sc, si) => {
+    let capturing = false;
+    sc.lines.forEach(l => {
+      if (l.type === 'character' && l.text.includes(name)) { capturing = true; return; }
+      if (capturing && l.type === 'dialogue') {
+        dialogueCount++;
+        sceneSet.add(si);
+        capturing = false;
+      } else if (capturing && l.type === 'parenthetical') {
+        capturing = true;
+      } else { capturing = false; }
+      if (l.type === 'action' && l.text.includes(name)) sceneSet.add(si);
+    });
+  });
+  const sceneCount = sceneSet.size;
+
   // 대사 수집 — 우선순위: 1.중요대사(keyline) 2.중요장면(sc.locked) 3.긴 대사 순
   const allLines = [];
   (S.cur.scenes||[]).forEach((sc, si) => {
@@ -5270,7 +5289,7 @@ async function aiCharUnified(id) {
         });
         capturing = false;
       } else if (capturing && l.type === 'parenthetical') {
-        capturing = true; // parenthetical은 캡처 유지
+        capturing = true;
       } else if (l.type === 'action' && l.text.includes(name)) {
         allLines.push({ text: 'SC'+(si+1)+' 지문: '+l.text, priority: 2, len: l.text.length });
       } else { capturing = false; }
@@ -5303,7 +5322,8 @@ async function aiCharUnified(id) {
 
     if (charLines.length > 0) {
       const sys = '대본 인물의 대사와 행동을 분석해서 캐릭터 정보와 유형을 추출하세요.\n' +
-        '반드시 <chardata>{"description":"설명 2-3문장","traits":["특성1","특성2","특성3"],"types":[{"type":"유형명","reason":"이유 한 줄","traits":["속성1","속성2"]}]}</chardata> 형식으로만 응답하세요.\n' +
+        'description에는 인물의 성격과 역할만 2-3문장으로 작성하세요. 등장 씬 수나 대사 줄 수는 절대 포함하지 마세요.\n' +
+        '반드시 <chardata>{"description":"성격과 역할 설명","traits":["특성1","특성2","특성3"],"types":[{"type":"유형명","reason":"이유 한 줄","traits":["속성1","속성2"]}]}</chardata> 형식으로만 응답하세요.\n' +
         'types는 MBTI, 장르 클리셰(에겐남/츤데레/얀데레/퐁퐁남 등) 포함 3개 추천.';
       dataRaw = await callWithRetry(
         [{role:'user', content:'인물: '+name+'\n대사/행동:\n'+charLines.join('\n')}],
@@ -5332,6 +5352,18 @@ async function aiCharUnified(id) {
     // 설명 업데이트
     const descInp = document.getElementById('ce-desc-'+id);
     if (descInp && data.description) descInp.value = data.description;
+
+    // 역할 필드에 통계 추가 (대본 있을 때만)
+    if (sceneCount > 0) {
+      const roleInp = document.getElementById('ce-role-'+id);
+      if (roleInp) {
+        const currentRole = roleInp.value || c.role || '';
+        // 기존 통계 제거 후 새 통계 추가
+        const cleanRole = currentRole.replace(/\s*\(\d+씬 등장[^)]*\)/g, '').trim();
+        const stats = '('+sceneCount+'씬 등장, '+dialogueCount+'줄 대사)';
+        roleInp.value = cleanRole ? cleanRole + ' ' + stats : stats;
+      }
+    }
 
     // traits — pill UI 업데이트
     if (data.traits && data.traits.length > 0) {
@@ -6501,13 +6533,13 @@ function confirmImport(overwrite) {
   const projects = _importPending;
   _importPending = null;
   projects.forEach(p => {
-    if (!p.id) p.id = Date.now() + Math.random();
+    if (!p.id) p.id = Date.now() + Math.floor(Math.random() * 100000);
     const existing = S.projects.find(x => x.title === p.title);
     if (existing) {
       if (overwrite) {
         Object.assign(existing, { ...p, id: existing.id });
       } else {
-        S.projects.push({ ...p, id: Date.now() + Math.random() });
+        S.projects.push({ ...p, id: Date.now() + Math.floor(Math.random() * 100000) });
       }
     } else {
       S.projects.push(p);
@@ -6568,7 +6600,7 @@ function importProject(e) {
         setTimeout(() => bar?.remove(), 8000);
       } else {
         projects.forEach(p => {
-          if (!p.id) p.id = Date.now() + Math.random();
+          if (!p.id) p.id = Date.now() + Math.floor(Math.random() * 100000);
           S.projects.push(p);
         });
         save(); renderHome();
@@ -6749,7 +6781,7 @@ async function handleFileAttach(e) {
                 } else {
                   // 새 씬으로 등록
                   const newSc = {
-                    id: Date.now() + Math.random(),
+                    id: Date.now() + Math.floor(Math.random() * 100000),
                     title: sc.title || '새 씬',
                     locked: false,
                     lines: [
@@ -6828,7 +6860,7 @@ async function handleFileAttach(e) {
       actions.push({ label:'✨ "' + suggestedTitle + '" 새 프로젝트로 저장', cls:'amber', fn: () => {
         // 새 프로젝트 생성
         const newProj = {
-          id: Date.now() + Math.random(),
+          id: Date.now() + Math.floor(Math.random() * 100000),
           title: suggestedTitle,
           medium: S.cur?.medium || '기타',
           genreTags: [],
@@ -6843,7 +6875,7 @@ async function handleFileAttach(e) {
         // 씬 데이터가 있으면 추가
         if (scenesData && Array.isArray(scenesData)) {
           newProj.scenes = scenesData.map(s => ({
-            id: Date.now() + Math.random(),
+            id: Date.now() + Math.floor(Math.random() * 100000),
             title: s.title || '새 씬',
             locked: false,
             lines: [
