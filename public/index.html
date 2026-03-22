@@ -5877,7 +5877,16 @@ function openConflictModal(data) {
     scenes.forEach((s,i) => {
       const x=pad.l+i*xStep, y=yFromV(s.intensity);
       svg += '<circle cx="'+x+'" cy="'+y+'" r="5" fill="'+typeColor(s.type)+'"/>';
-      svg += '<text x="'+x+'" y="'+(H-2)+'" text-anchor="middle" fill="#555" font-size="8">'+escH(s.label||'')+'</text>';
+    });
+    // X 라벨 — 최대 6개, 숫자만
+    const _maxL = 6;
+    const _intv = Math.max(1, Math.ceil(n / _maxL));
+    scenes.forEach((s,i) => {
+      if (i % _intv === 0 || i === n-1) {
+        const lx = pad.l+i*xStep;
+        const short = (s.label||'').replace(/^SC\s*/i,'');
+        svg += '<text x="'+lx+'" y="'+(H-2)+'" text-anchor="middle" fill="#555" font-size="8">'+escH(short)+'</text>';
+      }
     });
     svg += '</g>';
 
