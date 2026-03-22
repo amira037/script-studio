@@ -711,6 +711,8 @@ textarea, input { font-family:var(--fb); }
 .rp-type-badge.comment { background:var(--blue2); color:var(--blue); border-color:rgba(110,168,200,.3); }
 .rp-title { font-size:11px; color:var(--text2); flex:1; }
 .rp-close-btn { background:none; border:none; color:var(--text3); font-size:12px; padding:2px 6px; cursor:pointer; }
+.ai-comment-txt br + br { display:none; }
+.ai-comment-txt strong { color:var(--text); }
 #rp-collapse-btn { font-size:10px; transition:transform .2s; }
 .rp-close-btn:hover { color:var(--text2); }
 .rp-body { flex:1; overflow-y:auto; padding:8px 12px; display:flex; flex-direction:column; gap:4px; max-height:30dvh; }
@@ -746,7 +748,7 @@ textarea, input { font-family:var(--fb); }
 .choice-key { font-size:16px;font-weight:700;color:var(--accent);min-width:22px;flex-shrink:0;padding-top:0px;line-height:1; }
 
 /* AI comment */
-.ai-comment-txt { font-size:12px; color:var(--text2); line-height:1.5; background:var(--bg3); border-radius:var(--r); padding:10px 12px; border-left:2px solid var(--accent2); }
+.ai-comment-txt { font-size:12px; color:var(--text2); line-height:1.5; margin-bottom:0; background:var(--bg3); border-radius:var(--r); padding:10px 12px; border-left:2px solid var(--accent2); }
 
 /* ═══════════════════════════════════════════
    PROMPTER (bottom, always visible)
@@ -1253,7 +1255,7 @@ textarea, input { font-family:var(--fb); }
           <span class="rp-type-badge" id="rp-badge">AI</span>
           <span class="rp-title" id="rp-title">응답</span>
           <div style="display:flex;gap:4px;margin-left:auto;">
-            <button class="rp-close-btn" id="rp-collapse-btn" onclick="toggleResponsePanel()" title="접기">▼</button>
+            <button class="rp-close-btn" id="rp-collapse-btn" onclick="event.stopPropagation();toggleResponsePanel();" title="접기/펼치기" style="font-size:10px;min-width:24px;">▼</button>
             <button class="rp-close-btn" onclick="closeResponsePanel()">✕</button>
           </div>
         </div>
@@ -5085,6 +5087,7 @@ function formatRpText(text) {
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
     .replace(/(^|\n)(\d+\.|[-•])\s/g,'$1<span style="color:var(--accent);font-weight:600;">$2</span> ')
+    .replace(/\n\n/g,'<br>')
     .replace(/\n/g,'<br>');
 }
 
@@ -5307,10 +5310,35 @@ async function handleSceneConnection(text) {
     600
   );
   const result = cleanDisplayText(raw) || raw;
-  showResponsePanel('comment', '🔗 씬 연결 분석 — ' + getSceneLabel(sc, scenes),
+  const scLbl = getSceneLabel(sc, scenes);
+
+  // 브레인스토밍 히스토리에 공유
+  if (S.cur) {
+    if (!S.cur.messages) S.cur.messages = [];
+    S.cur.messages.push({ role:'assistant', text:'[씬 연결 분석 — ' + scLbl + ']\n' + result });
+    save(true);
+    const container = document.getElementById('chat-msgs');
+    if (container) appendMsgEl(S.cur.messages[S.cur.messages.length-1], false);
+  }
+
+  // SC번호 감지 → 수정하기 버튼 생성
+  const scNums = [];
+  const sp = /SC\s*(\d+)/gi; let sm;
+  while ((sm = sp.exec(result)) !== null) scNums.push(parseInt(sm[1]));
+  const uniqueNums = [...new Set(scNums)].slice(0,4);
+
+  let fixBtns = '';
+  uniqueNums.forEach(n => {
+    fixBtns += '<button class="rp-btn" onclick="selectFlowScenesWithFix(\'SC'+n+'\',\''+scLbl+' 씬 연결을 자연스럽게 수정해줘\')">✦ SC'+n+' 수정하기</button>';
+  });
+
+  const brainPrompt = scLbl + ' 씬 연결 분석 결과:\n' + result.slice(0,300) + '\n\n어떻게 개선하면 좋을까요?';
+
+  showResponsePanel('comment', '🔗 씬 연결 분석 — ' + scLbl,
     '<div class="ai-comment-txt">' + formatRpText(result) + '</div>',
-    '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>' +
-    '<button class="rp-btn to-chat" onclick="takeToBrainstorm(\'\',\'' + escH(getSceneLabel(sc,scenes)) + ' 씬 연결 개선 방법을 논의하고 싶어\')">💬 브레인스토밍 →</button>');
+    fixBtns +
+    '<button class="rp-btn" onclick="flowPanelToBrainstorm(' + JSON.stringify(brainPrompt) + ')">💬 브레인스토밍 →</button>' +
+    '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
 }
 
 // showChoicesPanel 콜백 버전 (제목 선택용)
