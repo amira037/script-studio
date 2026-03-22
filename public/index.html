@@ -6424,36 +6424,32 @@ function buildCharStatsHTML(c) {
 
   let html = '<div style="padding:10px 12px;display:flex;flex-direction:column;gap:10px;">';
 
-  // 등장 씬 목록
+  // 등장 씬 — 클릭으로 이동 (→ 버튼 없음)
   html += '<div>';
-  html += '<div style="font-size:10px;color:var(--accent);font-weight:600;margin-bottom:5px;">등장 씬 (' + sceneAppearances.length + '개)</div>';
+  html += '<div style="font-size:10px;color:var(--accent);font-weight:600;margin-bottom:6px;">등장 씬 (' + sceneAppearances.length + '개)</div>';
   if (sceneAppearances.length === 0) {
     html += '<div style="font-size:10px;color:var(--text3);">등장 씬 없음</div>';
   } else {
-    sceneAppearances.forEach(({sc, si}) => {
+    sceneAppearances.forEach(({sc}) => {
       const lbl = getSceneLabel(sc, scenes);
-      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:3px 0;">' +
-        '<span style="font-size:11px;color:var(--text2);">' + escH(lbl + '. ' + sc.title) + '</span>' +
-        '<button onclick="event.stopPropagation();switchTab(\'script\');setTimeout(()=>scrollToScene(\'' + sc.id + '\'),100);closeDrawer();" ' +
-        'style="font-size:9px;padding:1px 6px;border-radius:3px;border:1px solid var(--border2);background:none;color:var(--text3);cursor:pointer;">→</button>' +
-        '</div>';
+      html += '<div onclick="event.stopPropagation();switchTab(\'script\');setTimeout(()=>scrollToScene(\'' + sc.id + '\'),100);closeDrawer();" ' +
+        'style="font-size:11px;color:var(--text2);padding:4px 8px;border-radius:var(--r);cursor:pointer;transition:background .15s;" ' +
+        'onmouseover="this.style.background=\'var(--bg4)\'" onmouseout="this.style.background=\'\'">' +
+        '<span style="color:var(--accent);font-size:10px;font-weight:600;margin-right:6px;">' + escH(lbl) + '</span>' +
+        escH(sc.title) + '</div>';
     });
   }
   html += '</div>';
 
-  // 주요 대사 목록
+  // 주요 대사
   if (displayDialogues.length > 0) {
     html += '<div>';
-    html += '<div style="font-size:10px;color:var(--accent);font-weight:600;margin-bottom:5px;">' +
-      (isAutoSelected ? '대사 샘플 (갈등도+길이 기준)' : '★ 주요 대사 (' + displayDialogues.length + '개)') + '</div>';
-    if (isAutoSelected) {
-      html += '<div style="font-size:9px;color:var(--text3);margin-bottom:4px;">★ 중요 대사 지정하면 여기에 표시됩니다</div>';
-    }
-    displayDialogues.forEach(({sc, si, text}) => {
+    html += '<div style="font-size:10px;color:var(--accent);font-weight:600;margin-bottom:6px;">주요 대사</div>';
+    displayDialogues.forEach(({sc, text}) => {
       const lbl = getSceneLabel(sc, scenes);
-      html += '<div style="padding:4px 8px;background:var(--bg3);border-radius:var(--r);margin-bottom:3px;border-left:2px solid ' + (isAutoSelected ? 'var(--border2)' : 'var(--accent)') + ';">' +
-        '<div style="font-size:9px;color:var(--text3);margin-bottom:2px;">' + escH(lbl) + '</div>' +
-        '<div style="font-size:11px;color:var(--text2);line-height:1.5;">"' + escH(text.slice(0,80)) + (text.length>80?'...':'') + '"</div>' +
+      html += '<div style="padding:5px 8px;background:var(--bg3);border-radius:var(--r);margin-bottom:4px;border-left:2px solid ' + (isAutoSelected ? 'var(--border2)' : 'var(--accent)') + ';">' +
+        '<span style="font-size:12px;color:var(--text);line-height:1.6;">"' + escH(text.slice(0,100)) + (text.length>100?'...':'') + '"</span>' +
+        '<span style="font-size:9px;color:var(--text3);margin-left:8px;">' + escH(lbl) + '</span>' +
         '</div>';
     });
     html += '</div>';
