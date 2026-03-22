@@ -467,6 +467,9 @@ textarea, input { font-family:var(--fb); }
   background:var(--bg2); border:1px solid var(--border);
   border-radius:0 var(--r2) var(--r2) var(--r2); padding:10px 13px;
 }
+.msg-like-btn { font-size:11px;background:none;border:none;color:var(--text3);cursor:pointer;padding:2px 4px;border-radius:3px;transition:all .15s;margin-top:4px; }
+.msg-like-btn:hover { color:#f4c430;background:rgba(244,196,48,.1); }
+.msg-like-btn.liked { color:#f4c430; }
 .msg.usr .msg-bubble { background:var(--bg3); border-color:var(--border2); border-radius:var(--r2) 0 var(--r2) var(--r2); }
 .msg-actions { display:flex; gap:5px; margin-top:6px; flex-wrap:wrap; }
 .msg-action-btn {
@@ -1210,6 +1213,19 @@ textarea, input { font-family:var(--fb); }
 
       <!-- Brainstorm tab -->
       <div class="app-tc show" id="tc-chat">
+        <div id="chat-memo-wrap" style="display:none;border-bottom:1px solid var(--border);background:var(--bg3);">
+          <div id="chat-memo-hdr" style="display:flex;align-items:center;justify-content:space-between;padding:7px 14px;cursor:pointer;" onclick="toggleChatMemo()">
+            <span style="font-size:11px;color:var(--accent);font-weight:500;">📌 핵심 결정사항</span>
+            <span id="chat-memo-arr" style="font-size:10px;color:var(--text3);">▼</span>
+          </div>
+          <div id="chat-memo-body" style="padding:0 14px 10px;display:none;">
+            <div id="chat-memo-list" style="margin-bottom:8px;"></div>
+            <div style="display:flex;gap:6px;">
+              <input id="chat-memo-inp" type="text" placeholder="직접 메모 추가..." style="flex:1;font-size:11px;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);padding:4px 8px;color:var(--text);outline:none;" onkeydown="if(event.key==='Enter')addChatMemoManual()">
+              <button onclick="addChatMemoManual()" style="font-size:10px;padding:3px 8px;border-radius:var(--r);border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;">추가</button>
+            </div>
+          </div>
+        </div>
         <div class="chat-msgs" id="chat-msgs"></div>
       </div>
 
@@ -3904,6 +3920,7 @@ function renderChatMsgs() {
   container.innerHTML = '';
   (S.cur.messages || []).forEach(m => appendMsgEl(m, false));
   container.scrollTop = container.scrollHeight;
+  renderChatMemoWrap();
 }
 
 function appendMsgEl(msg, scroll = true) {
@@ -3936,6 +3953,19 @@ function appendMsgEl(msg, scroll = true) {
       acts.appendChild(btn);
     });
     body.appendChild(acts);
+  }
+  // AI 메시지에 👍 버튼
+  if (msg.role !== 'user' && msg.text && msg.text.length > 20) {
+    const likeBtn = document.createElement('button');
+    likeBtn.className = 'msg-like-btn';
+    likeBtn.title = '핵심 결정사항으로 저장';
+    likeBtn.textContent = '👍';
+    likeBtn.onclick = () => {
+      likeBtn.classList.add('liked');
+      likeBtn.disabled = true;
+      addChatMemoFromText(msg.text);
+    };
+    body.appendChild(likeBtn);
   }
   if (msg.role === 'user') { wrap.append(body, av); } else { wrap.append(av, body); }
   container.appendChild(wrap);
@@ -4155,6 +4185,140 @@ async function sendPrompt() {
 // ═══════════════════════════════════════════
 // BRAINSTORM CHAT
 // ═══════════════════════════════════════════
+// ═══════════════════════════════════════════
+// CHAT MEMO (핵심 결정사항)
+// ═══════════════════════════════════════════
+
+function getChatMemos() { return S.cur?.chatMemos || []; }
+
+function renderChatMemoWrap() {
+  const memos = getChatMemos();
+  const wrap = document.getElementById('chat-memo-wrap');
+  if (!wrap) return;
+  wrap.style.display = memos.length > 0 ? '' : 'none';
+  const list = document.getElementById('chat-memo-list');
+  if (!list) return;
+  list.innerHTML = '';
+  memos.forEach((m, i) => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:flex-start;gap:6px;padding:3px 0;';
+    const dot = document.createElement('span');
+    dot.style.cssText = 'color:var(--accent);font-size:10px;flex-shrink:0;padding-top:2px;';
+    dot.textContent = '•';
+    const txt = document.createElement('span');
+    txt.style.cssText = 'font-size:11px;color:var(--text2);flex:1;line-height:1.5;';
+    txt.textContent = m;
+    const del = document.createElement('button');
+    del.style.cssText = 'font-size:9px;background:none;border:none;color:var(--text3);cursor:pointer;flex-shrink:0;';
+    del.textContent = '✕';
+    del.onclick = () => {
+      S.cur.chatMemos.splice(i, 1);
+      save(true); renderChatMemoWrap();
+    };
+    row.append(dot, txt, del);
+    list.appendChild(row);
+  });
+}
+
+function toggleChatMemo() {
+  const body = document.getElementById('chat-memo-body');
+  const arr = document.getElementById('chat-memo-arr');
+  if (!body) return;
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  if (arr) arr.textContent = open ? '▼' : '▲';
+}
+
+function addChatMemo(text) {
+  if (!S.cur) return;
+  if (!S.cur.chatMemos) S.cur.chatMemos = [];
+  if (S.cur.chatMemos.includes(text)) return;
+  S.cur.chatMemos.push(text);
+  save(true); renderChatMemoWrap();
+  // 메모 영역 자동 펼치기
+  const body = document.getElementById('chat-memo-body');
+  const arr = document.getElementById('chat-memo-arr');
+  if (body) body.style.display = 'block';
+  if (arr) arr.textContent = '▲';
+}
+
+function addChatMemoManual() {
+  const inp = document.getElementById('chat-memo-inp');
+  if (!inp || !inp.value.trim()) return;
+  addChatMemo(inp.value.trim());
+  inp.value = '';
+  toast('📌 메모 추가됨');
+}
+
+async function addChatMemoFromText(text) {
+  // Haiku로 핵심 1줄 추출
+  toast('📌 핵심 내용 추출 중...', 2000);
+  try {
+    const raw = await callClaude(
+      [{role:'user', content:'다음 AI 응답에서 창작 결정사항을 1줄(30자 이내)로 요약하세요. 핵심 내용만:\n\n' + text.slice(0, 500)}],
+      '반드시 <memo>핵심 결정사항 1줄</memo> 형식으로만 응답하세요. 다른 텍스트 없이.',
+      80, 'claude-haiku-4-5-20251001'
+    );
+    const memo = extractTag(raw, 'memo');
+    if (memo) {
+      addChatMemo(memo.trim());
+      toast('📌 핵심 결정사항 저장됨: ' + memo.trim());
+    }
+  } catch(e) { toast('메모 추출 실패'); }
+}
+
+async function autoExtractMemoFromHistory() {
+  if (!S.cur) return;
+  const msgs = (S.cur.messages||[]).slice(-15);
+  const aiMsgs = msgs.filter(m => m.role === 'assistant' && m.text?.length > 50);
+  if (aiMsgs.length < 3) return;
+  const combined = aiMsgs.map(m => m.text).join('\n\n').slice(0, 1500);
+  try {
+    const raw = await callClaude(
+      [{role:'user', content:'다음 대화에서 창작 결정사항을 최대 3개 추출하세요:\n\n' + combined}],
+      '반드시 <memos>["결정사항1","결정사항2"]</memos> 형식으로만 응답하세요. 각 항목 30자 이내.',
+      150, 'claude-haiku-4-5-20251001'
+    );
+    const memosRaw = extractTag(raw, 'memos');
+    if (memosRaw) {
+      let memos = [];
+      try { memos = JSON.parse(memosRaw); } catch {}
+      memos.forEach(m => { if (m && m.trim()) addChatMemo(m.trim()); });
+      if (memos.length > 0) toast('📌 ' + memos.length + '개 핵심 결정사항이 자동 저장됐습니다', 3000);
+    }
+  } catch(e) { console.warn('auto memo failed', e); }
+}
+
+// ═══════════════════════════════════════════
+// HISTORY COMPRESSION
+// ═══════════════════════════════════════════
+
+async function buildCompressedHistory() {
+  if (!S.cur) return [];
+  const msgs = S.cur.messages || [];
+  if (msgs.length <= 15) {
+    return msgs.slice(-10).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
+  }
+  // 오래된 메시지 압축
+  const old = msgs.slice(0, msgs.length - 10);
+  const recent = msgs.slice(-10);
+  const oldText = old.map(m => (m.role === 'user' ? '사용자: ' : 'AI: ') + m.text).join('\n').slice(0, 2000);
+  let summary = '';
+  try {
+    const raw = await callClaude(
+      [{role:'user', content:'다음 대화를 3줄로 요약하세요:\n\n' + oldText}],
+      '창작 대화 내용을 핵심만 간결하게 요약하세요. 결정사항 위주로.',
+      150, 'claude-haiku-4-5-20251001'
+    );
+    summary = raw.replace(/<[^>]+>/g, '').trim();
+  } catch(e) { summary = '(이전 대화 참조)'; }
+  const compressed = [
+    { role: 'assistant', content: '[이전 대화 요약] ' + summary },
+    ...recent.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }))
+  ];
+  return compressed;
+}
+
 async function handleChatPrompt(text) {
   addMsg('user', text);
   switchTab('chat');
@@ -4178,7 +4342,11 @@ async function handleChatPrompt(text) {
       await reorderByConflict(text); return;
     }
     const ctx = buildProjectContext();
-    const history = (S.cur.messages || []).slice(-10).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
+    const history = await buildCompressedHistory();
+
+    // 핵심 결정사항 메모 컨텍스트
+    const memos = getChatMemos();
+    const memoCtx = memos.length > 0 ? '\n\n[핵심 결정사항 — 반드시 준수]\n' + memos.map(m=>'• '+m).join('\n') : '';
 
     // 동적 씬 컨텍스트 — 인물 이름/SC번호 감지
     let dynamicCtx = '';
@@ -4224,7 +4392,7 @@ async function handleChatPrompt(text) {
       if (sceneDetails) dynamicCtx = '\n\n[참조 씬 상세 데이터]\n' + sceneDetails;
     }
 
-    const sys = '당신은 창작 대본 작업을 돕는 전문 작가 AI입니다.\n' + ctx + dynamicCtx + '\n\n' +
+    const sys = '당신은 창작 대본 작업을 돕는 전문 작가 AI입니다.\n' + ctx + memoCtx + dynamicCtx + '\n\n' +
       '응답 규칙:\n' +
       '- 자연스러운 한국어 대화체로 답변하세요.\n' +
       '- 항목이 여러 개면 번호(1. 2. 3.) 또는 대시(-)로 구분하세요.\n' +
@@ -4318,6 +4486,12 @@ async function handleChatPrompt(text) {
       });
     }
     addMsg('assistant', displayText, actions);
+    // 대화 10개 단위로 자동 메모 추출
+    const msgCount = (S.cur.messages||[]).length;
+    if (msgCount > 0 && msgCount % 10 === 0) {
+      setTimeout(() => autoExtractMemoFromHistory(), 1000);
+    }
+    renderChatMemoWrap();
   } catch(e) {
     hideTyping();
     if (e.name !== 'AbortError') addMsg('assistant', '오류: ' + e.message);
@@ -4825,7 +4999,10 @@ async function handleScriptPrompt(text) {
           const label = getSceneLabel(s, S.cur.scenes);
           return label+'[id:'+s.id+'] "'+s.title+'": '+JSON.stringify(s.lines.map(l=>({type:l.type,text:l.text,locked:l.locked})));
         }).join('\n');
-        const chunkSys = '당신은 대본 편집 AI입니다.\n\n[전체 씬 목록 — 참조용]\n'+chunkFullList+'\n\n[편집 가능한 씬 데이터]\n' +
+        const chunkMemoCtx = getChatMemos().length > 0
+          ? '[핵심 결정사항 — 반드시 준수]\n' + getChatMemos().map(m=>'• '+m).join('\n') + '\n\n'
+          : '';
+        const chunkSys = '당신은 대본 편집 AI입니다.\n\n' + chunkMemoCtx + '[전체 씬 목록 — 참조용]\n'+chunkFullList+'\n\n[편집 가능한 씬 데이터]\n' +
           '잠금(locked:true)된 줄과 중요 대사(keyline:true)는 절대 수정하지 마세요.\n' +
           '편집 시 반드시 <r>[{"sceneId":숫자,"title":"씬제목","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용","locked":false}],"comment":"변경사항 한 줄"}]</r> 형식으로 응답하세요.\n' +
           'sceneId를 모를 때는 title 필드에 씬 제목을 정확히 적으면 자동 매칭됩니다.';
@@ -4903,7 +5080,12 @@ async function handleScriptPrompt(text) {
     return label + '[id:' + s.id + '] "' + s.title + '": ' + JSON.stringify(s.lines.map(l=>({type:l.type,text:l.text,locked:l.locked})));
   }).join('\n');
 
+  const memoCtxScript = getChatMemos().length > 0
+    ? '\n[핵심 결정사항 — 반드시 준수]\n' + getChatMemos().map(m=>'• '+m).join('\n') + '\n\n'
+    : '';
+
   const sys = '당신은 대본 편집 AI입니다.\n\n' +
+    memoCtxScript +
     '[전체 씬 목록 — 참조용]\n' + fullSceneList + '\n\n' +
     '[편집 가능한 씬 데이터]\n' +
     '잠금(locked:true)된 줄과 중요 대사(keyline:true)는 절대 수정하지 마세요.\n' +
