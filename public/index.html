@@ -4411,16 +4411,39 @@ async function handleScriptPrompt(text) {
     if (!confirmed) return;
   }
 
-  const sceneSummary = selectedScenes.map((s,i) => {
-    const idx = S.cur.scenes.indexOf(s)+1;
-    return `SC${idx}[id:${s.id}] "${s.title}": ${JSON.stringify(s.lines.map(l=>({type:l.type,text:l.text,locked:l.locked})))}`;
+  // 전체 씬 목록 요약 (참조용)
+  const allScenes = S.cur.scenes || [];
+  const fullSceneList = allScenes.map((s) => {
+    const lbl2 = getSceneLabel(s, allScenes);
+    const slug2 = (s.lines||[]).find(l => l.type === 'slug')?.text || '';
+    return lbl2 + '. "' + s.title + '"' + (slug2 ? ' [' + slug2 + ']' : '');
   }).join('\n');
 
-  const sys = `당신은 대본 편집 AI입니다. 다음 씬들을 사용자 지시에 따라 수정하세요.
-잠금(locked:true)된 줄과 중요 대사(keyline:true)는 절대 수정하지 마세요.
-반드시 다음 JSON 형식으로만 응답하세요 (설명 불필요):
-<result>[{"sceneId":숫자,"title":"씬제목(내용 변경 시 적절히 수정, 변경 없으면 원래 제목 유지)","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용","locked":false}],"comment":"변경사항 한 줄 설명"}]</result>
-만약 방향을 선택해야 한다면 <choices>["선택지1","선택지2","선택지3"]</choices> 태그도 추가하세요.`;
+  // 프롬프트 씬 번호 감지 → 자동 포함
+  const _scPat = /SC\s*(\d+)(?:-([A-Z]))?/gi;
+  let _scM;
+  while ((_scM = _scPat.exec(text)) !== null) {
+    const _n = parseInt(_scM[1]), _s = _scM[2];
+    const _found = allScenes.find(s => {
+      const _l = getSceneLabel(s, allScenes);
+      return _s ? _l === 'SC ' + _n + '-' + _s : _l === 'SC ' + _n;
+    });
+    if (_found && !selectedScenes.includes(_found) && !_found.locked) selectedScenes.push(_found);
+  }
+
+  const sceneSummary = selectedScenes.map((s) => {
+    const label = getSceneLabel(s, S.cur.scenes);
+    return label + '[id:' + s.id + '] "' + s.title + '": ' + JSON.stringify(s.lines.map(l=>({type:l.type,text:l.text,locked:l.locked})));
+  }).join('\n');
+
+  const sys = '당신은 대본 편집 AI입니다.\n\n' +
+    '[전체 씬 목록 — 참조용]\n' + fullSceneList + '\n\n' +
+    '[편집 가능한 씬 데이터]\n' +
+    '잠금(locked:true)된 줄과 중요 대사(keyline:true)는 절대 수정하지 마세요.\n' +
+    '편집 시 반드시 <r>[{"sceneId":숫자,"title":"씬제목","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용","locked":false}],"comment":"변경사항 한 줄"}]</r> 형식으로 응답하세요.\n' +
+    '편집 없이 제안/질문에 답할 때는 자연어로만 응답하세요.\n' +
+    '방향 선택이 필요하면 <choices>["선택지1","선택지2"]</choices>도 추가하세요.\n' +
+    'sceneId를 모를 때는 title 필드에 씬 제목을 정확히 적으면 자동 매칭됩니다.';
 
   try {
     const raw = await callClaude([{role:'user', content:`지시: ${text}\n\n씬 데이터:\n${sceneSummary}`}], sys, 3000);
@@ -4450,7 +4473,10 @@ async function handleScriptPrompt(text) {
     if (updates && Array.isArray(updates)) {
       let applied = 0;
       updates.forEach(u => {
-        const sc = S.cur.scenes.find(s => s.id === u.sceneId);
+        // id로 먼저 찾고, 없으면 제목으로 폴백
+        const sc = S.cur.scenes.find(s => s.id === u.sceneId)
+          || S.cur.scenes.find(s => s.title === u.title)
+          || S.cur.scenes.find(s => u.title && s.title.includes(u.title.slice(0, 6)));
         if (!sc) return;
         // 제목 즉시 반영 (diff 없이)
         if (u.title && u.title !== sc.title) {
@@ -4475,8 +4501,9 @@ async function handleScriptPrompt(text) {
       save(); renderScriptBody();
       // 대본 편집 내역을 브레인스토밍 히스토리에도 기록
       const summary = updates.map(u => {
-        const sc = S.cur.scenes.find(s => s.id === u.sceneId);
-        return sc ? `[대본편집] ${sc.title}: ${u.comment||'수정됨'}` : '';
+        const sc = S.cur.scenes.find(s => s.id === u.sceneId)
+          || S.cur.scenes.find(s => s.title === u.title);
+        return sc ? '[대본편집] ' + sc.title + ': ' + (u.comment||'수정됨') : '';
       }).filter(Boolean).join(' / ');
       if (summary) {
         if (!S.cur.messages) S.cur.messages = [];
