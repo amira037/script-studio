@@ -1126,6 +1126,24 @@ textarea, input { font-family:var(--fb); }
 /* Utility */
 .hidden { display:none !important; }
 </style>
+<script>
+function toggleResponsePanel() {
+  const col = document.getElementById('rp-collapsible');
+  const btn = document.getElementById('rp-collapse-btn');
+  if (!col) return;
+  const isCollapsed = col.style.display === 'none';
+  col.style.display = isCollapsed ? '' : 'none';
+  if (btn) btn.textContent = isCollapsed ? '▼' : '▲';
+}
+function closeResponsePanel() {
+  const p = document.getElementById('response-panel');
+  if (p) p.classList.remove('show');
+  const col = document.getElementById('rp-collapsible');
+  const btn = document.getElementById('rp-collapse-btn');
+  if (col) col.style.display = '';
+  if (btn) btn.textContent = '▼';
+}
+</script>
 </head>
 <body>
 
@@ -5347,7 +5365,7 @@ async function handleSceneConnection(text) {
     focusLabel = targetScenes.map(s => getSceneLabel(s,scenes)).join(', ');
   }
 
-  toast('✦ 씬 연결 분석 중...', 4000);
+  showTyping();
 
   const sysPrompt = targetScenes.length === 0
     ? '대본 전체 흐름을 분석하세요. 어색한 씬 전환, 감정 흐름 단절, 시간 순서 혼란 등을 찾아주세요.\n문제마다 구체적인 개선 제안을 포함하세요. 마크다운 없이.'
@@ -5357,8 +5375,9 @@ async function handleSceneConnection(text) {
     [{role:'user', content:'씬 연결 분석 (중심: '+focusLabel+'):\n\n'+combined+'\n\n질문: '+text}],
     sysPrompt, 800
   );
+  hideTyping();
   const result = cleanDisplayText(raw) || raw;
-  const scLbl = getSceneLabel(sc, scenes);
+  const scLbl = focusLabel;
 
   // 브레인스토밍 히스토리에 공유
   if (S.cur) {
@@ -6133,7 +6152,23 @@ function showResponsePanel(type, title, bodyHTML, actsHTML) {
   if (col) col.style.display = '';
   if (btn) btn.textContent = '▼';
 }
-function closeResponsePanel() { document.getElementById('response-panel').classList.remove('show'); }
+function closeResponsePanel() {
+  const p = document.getElementById('response-panel');
+  if (p) p.classList.remove('show');
+  const col = document.getElementById('rp-collapsible');
+  const btn = document.getElementById('rp-collapse-btn');
+  if (col) col.style.display = '';
+  if (btn) btn.textContent = '▼';
+}
+
+function toggleResponsePanel() {
+  const col = document.getElementById('rp-collapsible');
+  const btn = document.getElementById('rp-collapse-btn');
+  if (!col) return;
+  const isCollapsed = col.style.display === 'none';
+  col.style.display = isCollapsed ? '' : 'none';
+  if (btn) btn.textContent = isCollapsed ? '▼' : '▲';
+}
 
 function showCheckPanel(issues, prompt, title) {
   title = title || '일관성 검사';
@@ -6640,7 +6675,7 @@ async function handleCharDialogueAnalysis(text) {
 
   if (!allDialogues.length) { toast(foundChar + '의 대사가 없습니다.'); return; }
 
-  toast('✦ ' + foundChar + ' 대사 분석 중...', 4000);
+  showTyping();
 
   // Haiku가 중요 대사 선별
   const dlgList = allDialogues.sort((a,b)=>b.score-a.score).slice(0,15)
@@ -6648,10 +6683,11 @@ async function handleCharDialogueAnalysis(text) {
 
   const raw = await callClaude(
     [{role:'user', content: foundChar + '의 대사 목록:\n' + dlgList + '\n\n가장 극적으로 중요한 대사 3~5개를 선별하고 이유를 설명하세요.'}],
-    '반드시 <selected>[인덱스,인덱스,...]</selected> 태그와 함께 각 대사가 중요한 이유를 간략히 설명하세요. 한국어로.',
+    '먼저 각 대사가 중요한 이유를 간략히 설명하고, 마지막에 <selected>[인덱스,인덱스,...]</selected> 태그를 붙이세요. 한국어로. **볼드** 마크다운 사용 금지.',
     400, 'claude-haiku-4-5-20251001'
   );
 
+  hideTyping();
   const selectedRaw = extractTag(raw, 'selected');
   let selectedIdxs = [];
   if (selectedRaw) { try { selectedIdxs = JSON.parse(selectedRaw); } catch {} }
@@ -6668,7 +6704,7 @@ async function handleCharDialogueAnalysis(text) {
       bodyHTML += '<div style="padding:5px 8px;background:var(--bg3);border-radius:var(--r);border-left:2px solid var(--accent);">' +
         '<span style="font-size:12px;color:var(--text);">"' + escH(d.text.slice(0,100)) + (d.text.length>100?'...':'') + '"</span>' +
         '<span style="font-size:9px;color:var(--text3);margin-left:8px;">' + escH(lbl) + '</span>' +
-        '<button onclick="markSingleKeyline(event,' + JSON.stringify({scId:d.sc.id, text:d.text}) + ')" ' +
+        '<button onclick="markSingleKeylineById(this)" data-scid="' + d.sc.id + '" data-text="' + escH(d.text).replace(/"/g,'&quot;') + '" ' +
         'style="margin-left:8px;font-size:9px;padding:1px 6px;border-radius:3px;border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;">★ 지정</button>' +
         '</div>';
     });
@@ -6686,8 +6722,10 @@ async function handleCharDialogueAnalysis(text) {
     if (container) appendMsgEl(S.cur.messages[S.cur.messages.length-1], false);
   }
 
+  // markAll 데이터를 window에 임시 저장
+  window._markAllData = selectedDlgs.map(d=>({scId:d.sc.id, text:d.text}));
   const markAllBtn = selectedDlgs.length > 0
-    ? '<button class="rp-btn" onclick="markAllKeylines(' + JSON.stringify(selectedDlgs.map(d=>({scId:d.sc.id,text:d.text}))) + ')">★ 전체 중요 대사 지정</button>'
+    ? '<button class="rp-btn" onclick="markAllKeylines(window._markAllData)">★ 전체 중요 대사 지정</button>'
     : '';
   const brainBtn = '<button class="rp-btn" onclick="flowPanelToBrainstorm(' + JSON.stringify(foundChar + ' 주요 대사 분석 결과를 바탕으로 캐릭터 arc를 논의하고 싶어') + ')">💬 브레인스토밍 →</button>';
 
@@ -6702,6 +6740,17 @@ function markSingleKeyline(e, data) {
   (sc.lines||[]).forEach(l => { if (l.type==='dialogue' && l.text===data.text) { l.keyline=true; l.locked=true; } });
   save(true); renderScriptBody();
   e.target.textContent = '★ 완료'; e.target.disabled = true;
+  toast('★ 중요 대사 지정됨');
+}
+
+function markSingleKeylineById(btn) {
+  const scId = parseInt(btn.dataset.scid);
+  const text = btn.dataset.text;
+  const sc = S.cur?.scenes?.find(s=>s.id===scId);
+  if (!sc) return;
+  (sc.lines||[]).forEach(l => { if (l.type==='dialogue' && l.text===text) { l.keyline=true; l.locked=true; } });
+  save(true); renderScriptBody();
+  btn.textContent = '★ 완료'; btn.disabled = true;
   toast('★ 중요 대사 지정됨');
 }
 
@@ -8716,6 +8765,8 @@ function cleanDisplayText(raw) {
     .replace(/<reorderscenes>[\s\S]*?<\/reorderscenes>/gi, '')
     .replace(/<reorderscenes>[\s\S]*/gi, '')
     .replace(/<suggest>[\s\S]*/gi, '')
+    .replace(/<selected>[\s\S]*?<\/selected>/gi, '')
+    .replace(/<selected>[\s\S]*/gi, '')
     .replace(/<flowissues[\s\S]*?<\/flowissues>/gi, '')
     .replace(/```[\s\S]*?```/g, '')
     .replace(/\[[\s\S]{200,}\]/g, '')
