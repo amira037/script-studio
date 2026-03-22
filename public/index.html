@@ -280,7 +280,7 @@ textarea, input { font-family:var(--fb); }
 }
 .nav-sc-item:hover { background:var(--bg3); }
 .nav-sc-item.selected { background:rgba(232,168,74,.12); border-color:rgba(232,168,74,.3); }
-.nav-sc-item.locked { opacity:.5; }
+.nav-sc-item.locked { }
 .sc-nav-cb {
   width:13px; height:13px; border-radius:3px; flex-shrink:0;
   accent-color:var(--amber); cursor:pointer;
@@ -507,7 +507,7 @@ textarea, input { font-family:var(--fb); }
 /* Scene block */
 .scene-block { margin-bottom:8px; border-radius:var(--r2); border:1px solid var(--border); overflow:hidden; transition:border-color .15s; flex-shrink:0; }
 .scene-block.selected { border-color:rgba(232,168,74,.4); }
-.scene-block.locked { opacity:.6; }
+.scene-block.locked { }
 
 .scene-hdr {
   display:flex; align-items:center; gap:8px;
@@ -549,7 +549,7 @@ textarea, input { font-family:var(--fb); }
 .line-action { color:var(--text2); font-style:italic; }
 .line-character { text-align:center; font-weight:500; color:var(--text); }
 .line-parenthetical { text-align:center; color:var(--text3); font-style:italic; }
-.line-dialogue { max-width:320px; margin:0 auto; text-align:center; color:var(--text2); }
+.line-dialogue { max-width:320px; margin:0 auto; text-align:center; color:var(--text2); word-break:keep-all; overflow-wrap:break-word; }
 .line-slug { color:var(--accent); font-weight:600; letter-spacing:.08em; font-size:13px; text-transform:uppercase; border-bottom:1px solid rgba(200,169,110,.2); padding-bottom:6px; margin-bottom:4px; display:block; }
 .line-slug:empty:before { content:attr(data-placeholder); color:var(--text3); font-weight:400; letter-spacing:0; text-transform:none; font-style:italic; pointer-events:none; }
 
@@ -861,13 +861,39 @@ textarea, input { font-family:var(--fb); }
 }
 .char-card-view:hover .char-quick-del { opacity:1; }
 .char-quick-del:hover { color:var(--red) !important; }
-.char-quick-del {
-  background:none; border:none; color:var(--text3); font-size:10px;
-  padding:1px 3px; cursor:pointer; opacity:0; transition:opacity .15s, color .15s;
-  line-height:1;
+/* 중요 대사 */
+/* 중요 대사 ★ 버튼 — absolute, 오른쪽 */
+.line-wrap { position:relative; }
+.keyline-btn {
+  position:absolute; right:0; top:0;
+  background:none; border:none; color:var(--text3); font-size:15px;
+  padding:2px 4px; cursor:pointer; transition:all .15s; opacity:.25;
+  line-height:1; z-index:1;
 }
-.char-card-view:hover .char-quick-del { opacity:1; }
-.char-quick-del:hover { color:var(--red) !important; }
+.keyline-btn.active { color:#f5c842; opacity:1; }
+.keyline-btn:hover { opacity:.7; }
+.line-el.line-character.keyline { color:#f5c842 !important; font-weight:700; }
+.line-el.line-dialogue.keyline {
+  color:#f0e6c0 !important;
+  box-shadow: inset 2px 0 0 #f5c842;
+}
+/* 중요 장면 — 청록 */
+.scene-block.keyscene {
+  border:1.5px solid #1d9e75 !important;
+  background:#0a1410;
+}
+.scene-block.keyscene .scene-hdr {
+  background:#0c1812;
+  border-bottom-color:#1d9e75;
+}
+.scene-block.keyscene .scene-lines {
+  background:#080f0c;
+}
+.scene-block.keyscene .line-el {
+  color:var(--text) !important;
+}
+.scene-block.keyscene .scene-title-inp { color:#5dcaa5; font-weight:600; }
+.scene-block.keyscene .scene-num { color:#1d9e75; }
 .char-drag-handle {
   color:var(--text3); font-size:14px; cursor:grab; padding:0 4px;
   flex-shrink:0; opacity:.4; transition:opacity .15s; align-self:center;
@@ -2048,7 +2074,7 @@ function renderNavSceneList() {
     handle.className = 'sc-drag-handle';
     handle.title = '드래그하여 순서 변경';
     for (let k = 0; k < 3; k++) handle.appendChild(document.createElement('span'));
-    if (sc.locked) handle.style.opacity = '0';
+    // handle opacity not changed for keyscene
     item.appendChild(handle);
 
     // ── 체크박스 ──
@@ -2608,7 +2634,7 @@ function makeScene(title, slug) {
 
 function buildSceneBlock(sc, i) {
   const block = document.createElement('div');
-  block.className = 'scene-block' + (S.selectedIds.has(sc.id) ? ' selected' : '') + (sc.locked ? ' locked' : '');
+  block.className = 'scene-block' + (S.selectedIds.has(sc.id) ? ' selected' : '') + (sc.locked ? ' locked keyscene' : '');
   block.id = 'sb-' + sc.id;
 
   // Header
@@ -2633,9 +2659,17 @@ function buildSceneBlock(sc, i) {
   });
   const acts = document.createElement('div'); acts.className = 'scene-hdr-acts';
   const lockBtn = document.createElement('button');
-  lockBtn.className = 'sc-hdr-btn locked-btn';
-  lockBtn.textContent = sc.locked ? '🔒 잠김' : '🔓 잠금';
-  lockBtn.onclick = () => { sc.locked = !sc.locked; save(); renderScriptBody(); renderNavSceneList(); toast(sc.locked ? '씬 잠금됨' : '씬 잠금 해제'); };
+  lockBtn.className = 'sc-hdr-btn' + (sc.locked ? ' active' : '');
+  lockBtn.style.cssText = sc.locked
+    ? 'font-size:11px;color:#5dcaa5;border-color:#1d9e75;background:rgba(13,24,18,.6);'
+    : 'font-size:11px;';
+  lockBtn.textContent = sc.locked ? '★ 중요 장면' : '☆ 중요 장면';
+  lockBtn.title = sc.locked ? '중요 장면 해제' : '중요 장면으로 표시 (AI 편집 보호)';
+  lockBtn.onclick = () => {
+    sc.locked = !sc.locked;
+    save(); renderScriptBody(); renderNavSceneList();
+    toast(sc.locked ? '★ 중요 장면으로 표시됨' : '중요 장면 해제됨');
+  };
   // 텍스트 입력 버튼
   const txtEditBtn = document.createElement('button');
   txtEditBtn.className = 'sc-hdr-btn';
@@ -2650,6 +2684,8 @@ function buildSceneBlock(sc, i) {
   titleAiBtn.title = 'AI가 씬 내용을 읽고 제목을 제안합니다';
   titleAiBtn.onclick = async () => {
     titleAiBtn.textContent = '...'; titleAiBtn.disabled = true;
+    setWaiting(true);
+    toast('✦ AI 제목 작성 중...', 10000);
     try {
       const sceneText = sc.lines.map(l => l.text).join(' ').slice(0, 300);
       const ctx = buildProjectContext();
@@ -2663,7 +2699,7 @@ function buildSceneBlock(sc, i) {
         toast('✓ 제목 생성됨: ' + suggested);
       }
     } catch(e) { toast('오류: ' + e.message); }
-    finally { titleAiBtn.textContent = '✦ 제목'; titleAiBtn.disabled = false; }
+    finally { titleAiBtn.textContent = '✦ 제목'; titleAiBtn.disabled = false; setWaiting(false); }
   };
   acts.appendChild(titleAiBtn);
   acts.appendChild(txtEditBtn);
@@ -2685,12 +2721,36 @@ function buildSceneBlock(sc, i) {
     linesWrap.innerHTML = '';
     sc.lines.forEach((line, li) => {
       const lw = document.createElement('div'); lw.className = 'line-wrap';
-      lw.style.cssText = 'display:flex;align-items:flex-start;gap:4px;';
+      lw.style.cssText = 'display:flex;align-items:flex-start;position:relative;';
+
+      // 중요 대사 버튼 (character 줄에만, absolute 우측)
+      if (line.type === 'character' && !sc.locked) {
+        const klBtn = document.createElement('button');
+        klBtn.className = 'keyline-btn' + (line.keyline ? ' active' : '');
+        klBtn.textContent = '★';
+        klBtn.title = line.keyline ? '중요 대사 해제' : '중요 대사로 표시';
+        klBtn.onclick = (e) => {
+          e.stopPropagation();
+          const newVal = !line.keyline;
+          line.keyline = newVal;
+          line.locked = newVal;
+          // 바로 다음 dialogue 줄도 함께 처리
+          const nextLine = sc.lines[li + 1];
+          if (nextLine && nextLine.type === 'dialogue') {
+            nextLine.keyline = newVal;
+            nextLine.locked = newVal;
+          }
+          save(); renderAllLines();
+          toast(newVal ? '★ 중요 대사로 표시됨' : '중요 대사 해제됨');
+        };
+        lw.appendChild(klBtn);
+      }
 
       const el = document.createElement('div');
-      el.className = `line-el line-${line.type}`;
-      el.contentEditable = sc.locked || line.locked ? 'false' : 'true';
-      el.dataset.locked = sc.locked || line.locked;
+      el.className = 'line-el line-' + line.type + (line.keyline ? ' keyline' : '');
+      // 중요 장면(sc.locked)은 수동 편집 허용, 줄 잠금(line.locked)만 차단
+      el.contentEditable = line.locked ? 'false' : 'true';
+      el.dataset.locked = line.locked;
       el.textContent = line.text;
       el.style.flex = '1';
       let charDetectTimer;
@@ -2943,17 +3003,17 @@ function buildSceneBlock(sc, i) {
       linesWrap.appendChild(lw);
     });
 
-    // Add line button at bottom
-    if (!sc.locked) {
+    // Add line button at bottom — 중요 장면도 표시 (수동 편집 허용)
+    if (true) {
       const addRow = document.createElement('div');
       addRow.style.cssText = 'display:flex;gap:4px;padding:6px 0 2px;flex-wrap:wrap;';
       const lineTypes = [['action','지문'],['character','배역명'],['dialogue','대사'],['parenthetical','괄호 지문']];
       lineTypes.forEach(([t, label]) => {
         const btn = document.createElement('button');
-        btn.style.cssText = 'font-size:9px;padding:2px 8px;border-radius:3px;border:1px dashed var(--border2);background:none;color:var(--text3);cursor:pointer;';
+        btn.style.cssText = 'font-size:9px;padding:2px 8px;border-radius:3px;border:1px dashed var(--border2);background:none;color:var(--text2);cursor:pointer;';
         btn.textContent = '+ ' + label;
         btn.onmouseenter = () => { btn.style.borderColor='var(--accent2)'; btn.style.color='var(--accent)'; };
-        btn.onmouseleave = () => { btn.style.borderColor='var(--border2)'; btn.style.color='var(--text3)'; };
+        btn.onmouseleave = () => { btn.style.borderColor='var(--border2)'; btn.style.color='var(--text2)'; };
         btn.onclick = () => {
           sc.lines.push({ type:t, text:'', locked:false });
           save(); renderAllLines();
@@ -3323,7 +3383,7 @@ function handleMsgAction(action) {
     if (S.cur) { S.cur.synopsis = action.data; save(); }
     toast('✓ 시놉시스 저장됨');
   } else if (action.type === 'addScenes') {
-    addScenesFromAI(action.data);
+    showSmartSceneAddPanel(action.data);
   } else if (action.type === 'addCharacters') {
     addCharsFromAI(action.data);
   }
@@ -3474,6 +3534,185 @@ ${ctx}
     hideTyping();
     if (e.name !== 'AbortError') addMsg('assistant', '오류: ' + e.message);
   }
+}
+
+async function showSmartSceneAddPanel(scenesData) {
+  if (!S.cur) return;
+  const scenes = S.cur.scenes || [];
+
+  // Haiku에게 삽입 위치 + 삭제 추천 분석 요청
+  const sceneList = scenes.map((s, i) =>
+    'SC' + (i+1) + '. ' + s.title + (s.lines?.[0] ? ' (' + s.lines[0].text + ')' : '')
+  ).join('\n');
+  const newSceneDesc = scenesData.map(s => s.title + (s.slug ? ' — ' + s.slug : '')).join(', ');
+
+  let suggestion = { insertAt: scenes.length, deleteScenes: [], reason: '' };
+
+  if (scenes.length > 0) {
+    toast('✦ Haiku가 삽입 위치 분석 중...', 2000);
+    try {
+      const sys = '대본 편집 분석 전문가입니다. 새 씬을 추가할 때 최적의 삽입 위치와 삭제할 씬을 추천해주세요.\n' +
+        '반드시 <suggestion>{"insertAt":숫자(0=맨앞),"deleteScenes":[씬번호들],"reason":"이유 한줄"}</suggestion> 형식으로만 응답하세요.';
+      const raw = await callClaude(
+        [{role:'user', content:'새 씬: ' + newSceneDesc + '\n\n기존 씬 목록:\n' + sceneList}],
+        sys, 300, 'claude-haiku-4-5-20251001'
+      );
+      const raw2 = extractTag(raw, 'suggestion');
+      if (raw2) { try { suggestion = JSON.parse(raw2); } catch {} }
+    } catch(e) { console.warn('scene analysis failed', e); }
+  }
+
+  // 패널 UI 생성
+  const overlay = document.createElement('div');
+  overlay.id = 'smart-scene-panel';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;';
+
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);padding:18px;width:100%;max-width:360px;max-height:80vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;';
+
+  // 헤더
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'font-size:13px;font-weight:500;color:var(--text);';
+  hdr.textContent = '🎬 씬 ' + scenesData.length + '개 추가';
+  panel.appendChild(hdr);
+
+  // AI 이유 표시
+  if (suggestion.reason) {
+    const reason = document.createElement('div');
+    reason.style.cssText = 'font-size:11px;color:var(--purple);background:var(--purple2);border-radius:var(--r);padding:6px 10px;font-family:var(--fm);';
+    reason.textContent = '✦ ' + suggestion.reason;
+    panel.appendChild(reason);
+  }
+
+  // 삽입 위치 선택
+  const posWrap = document.createElement('div');
+  posWrap.style.cssText = 'display:flex;flex-direction:column;gap:5px;';
+  const posLabel = document.createElement('div');
+  posLabel.style.cssText = 'font-size:10px;color:var(--text3);font-family:var(--fm);';
+  posLabel.textContent = '삽입 위치';
+  const posSel = document.createElement('select');
+  posSel.style.cssText = 'background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-size:12px;padding:6px 9px;outline:none;';
+  const opt0 = document.createElement('option');
+  opt0.value = '0'; opt0.textContent = '맨 앞 (1번째)';
+  if (suggestion.insertAt === 0) opt0.selected = true;
+  posSel.appendChild(opt0);
+  scenes.forEach((s, i) => {
+    const opt = document.createElement('option');
+    opt.value = String(i + 1);
+    opt.textContent = 'SC' + (i+1) + ' 뒤 (' + (i+2) + '번째)';
+    if (suggestion.insertAt === i + 1) opt.selected = true;
+    posSel.appendChild(opt);
+  });
+  const optEnd = document.createElement('option');
+  optEnd.value = String(scenes.length);
+  optEnd.textContent = '맨 뒤 (' + (scenes.length+1) + '번째)';
+  if (suggestion.insertAt >= scenes.length && suggestion.insertAt !== 0) optEnd.selected = true;
+  if (scenes.length > 0) posSel.appendChild(optEnd);
+  posWrap.append(posLabel, posSel);
+  panel.appendChild(posWrap);
+
+  // 삭제할 씬 체크박스
+  if (scenes.length > 0) {
+    const delWrap = document.createElement('div');
+    delWrap.style.cssText = 'display:flex;flex-direction:column;gap:5px;';
+    const delLabel = document.createElement('div');
+    delLabel.style.cssText = 'font-size:10px;color:var(--text3);font-family:var(--fm);';
+    delLabel.textContent = '삭제할 씬 (선택사항)';
+    delWrap.appendChild(delLabel);
+    scenes.forEach((s, i) => {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:7px;cursor:pointer;padding:4px 0;';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.idx = String(i);
+      cb.style.cssText = 'accent-color:var(--red);width:14px;height:14px;flex-shrink:0;';
+      // Haiku 추천 씬 자동 체크 (1-based → 0-based)
+      if ((suggestion.deleteScenes||[]).includes(i+1)) cb.checked = true;
+      const lbl = document.createElement('span');
+      lbl.style.cssText = 'font-size:11px;color:var(--text2);line-height:1.4;';
+      lbl.textContent = 'SC' + (i+1) + '. ' + s.title;
+      row.append(cb, lbl);
+      delWrap.appendChild(row);
+    });
+    panel.appendChild(delWrap);
+  }
+
+  // 버튼
+  const btns = document.createElement('div');
+  btns.style.cssText = 'display:flex;gap:8px;margin-top:4px;';
+  const applyBtn = document.createElement('button');
+  applyBtn.style.cssText = 'flex:1;background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:8px;font-size:12px;font-weight:600;cursor:pointer;';
+  applyBtn.textContent = '적용';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.style.cssText = 'background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);padding:8px 14px;font-size:12px;cursor:pointer;';
+  cancelBtn.textContent = '취소';
+  cancelBtn.onclick = () => overlay.remove();
+
+  applyBtn.onclick = () => {
+    const insertAt = parseInt(posSel.value);
+    // 삭제할 씬 인덱스 수집 (내림차순으로 삭제해야 인덱스 안 꼬임)
+    const toDelete = [];
+    panel.querySelectorAll('input[type=checkbox]:checked').forEach(cb => {
+      toDelete.push(parseInt(cb.dataset.idx));
+    });
+    toDelete.sort((a, b) => b - a);
+
+    // 새 씬 객체 생성
+    const newScenes = scenesData.map(s => ({
+      id: Date.now() + Math.random(),
+      title: s.title || '새 씬',
+      locked: false,
+      lines: [
+        { type:'slug', text: s.slug || 'INT. 장소 - 시간대', locked:false },
+        ...(s.lines||[]).map(l => ({ type: l.type||'action', text: l.text||'', locked:false }))
+      ],
+      storyboard: [], diff: null,
+    }));
+
+    // 삽입 위치 계산 (삭제 전 기준)
+    let realInsertAt = insertAt;
+
+    // 삭제 실행
+    toDelete.forEach(idx => {
+      if (idx < realInsertAt) realInsertAt--;
+      S.cur.scenes.splice(idx, 1);
+    });
+
+    // 삽입
+    S.cur.scenes.splice(Math.max(0, Math.min(realInsertAt, S.cur.scenes.length)), 0, ...newScenes);
+    save(); renderScriptBody(); renderNavSceneList();
+    overlay.remove();
+    switchTab('script');
+
+    // 연결 다듬기 제안
+    const nextScene = S.cur.scenes[realInsertAt + newScenes.length];
+    if (toDelete.length > 0 && nextScene) {
+      setTimeout(() => {
+        toast(
+          '"' + nextScene.title + '"과의 연결을 다듬어 드릴까요?',
+          6000,
+          () => {
+            // 새 씬들 + 다음 씬 선택 후 프롬프터로
+            S.selectedIds.clear();
+            newScenes.forEach(ns => S.selectedIds.add(ns.id));
+            S.selectedIds.add(nextScene.id);
+            renderScriptBody();
+            const inp = document.getElementById('prompter-inp');
+            if (inp) inp.value = '앞 씬과 연결이 자연스럽도록 다음 씬의 시작 부분을 다듬어줘';
+            toast('✓ 씬 선택됨 — 전송 버튼을 눌러주세요', 3000);
+          },
+          '✓ 다듬기'
+        );
+      }, 500);
+    } else {
+      toast('✓ 씬 ' + newScenes.length + '개 추가됨' + (toDelete.length > 0 ? ', ' + toDelete.length + '개 삭제됨' : ''));
+    }
+  };
+
+  btns.append(applyBtn, cancelBtn);
+  panel.appendChild(btns);
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
 }
 
 function addScenesFromAI(scenesData) {
@@ -3669,13 +3908,45 @@ async function handleScriptPrompt(text) {
   // Special commands
   if (/일관성|검사/.test(text)) { await checkConsistencyWithPrompt(text); return; }
 
+  // 중요 장면 포함 시 확인
+  const keyScenes = selectedScenes.filter(s => s.locked);
+  if (keyScenes.length > 0) {
+    const names = keyScenes.map(s => '"' + s.title + '"').join(', ');
+    const confirmed = await new Promise(resolve => {
+      const bar = document.createElement('div');
+      bar.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);' +
+        'background:var(--bg4);border:1.5px solid #1d9e75;border-radius:var(--r2);' +
+        'padding:12px 16px;z-index:500;display:flex;flex-direction:column;gap:8px;' +
+        'min-width:280px;max-width:90vw;box-shadow:0 8px 24px rgba(0,0,0,.5);';
+      const msg = document.createElement('div');
+      msg.style.cssText = 'font-size:12px;color:var(--text);line-height:1.6;';
+      msg.innerHTML = '<span style="color:#5dcaa5;">★ 중요 장면</span>이 포함되어 있습니다.<br>' +
+        '<span style="color:var(--text2);font-size:11px;">' + names + '</span><br>편집하시겠습니까?';
+      const btns = document.createElement('div');
+      btns.style.cssText = 'display:flex;gap:6px;';
+      const okBtn = document.createElement('button');
+      okBtn.textContent = '편집 진행';
+      okBtn.style.cssText = 'flex:1;background:#1d9e75;color:#fff;border:none;border-radius:var(--r);padding:6px;font-size:11px;cursor:pointer;font-weight:600;';
+      okBtn.onclick = () => { bar.remove(); resolve(true); };
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = '취소';
+      cancelBtn.style.cssText = 'background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text3);padding:6px 12px;font-size:11px;cursor:pointer;';
+      cancelBtn.onclick = () => { bar.remove(); resolve(false); };
+      btns.append(okBtn, cancelBtn);
+      bar.append(msg, btns);
+      document.body.appendChild(bar);
+      setTimeout(() => { if (document.body.contains(bar)) { bar.remove(); resolve(false); } }, 8000);
+    });
+    if (!confirmed) return;
+  }
+
   const sceneSummary = selectedScenes.map((s,i) => {
     const idx = S.cur.scenes.indexOf(s)+1;
     return `SC${idx}[id:${s.id}] "${s.title}": ${JSON.stringify(s.lines.map(l=>({type:l.type,text:l.text,locked:l.locked})))}`;
   }).join('\n');
 
   const sys = `당신은 대본 편집 AI입니다. 다음 씬들을 사용자 지시에 따라 수정하세요.
-잠금(locked:true)된 줄은 절대 수정하지 마세요.
+잠금(locked:true)된 줄과 중요 대사(keyline:true)는 절대 수정하지 마세요.
 반드시 다음 JSON 형식으로만 응답하세요 (설명 불필요):
 <result>[{"sceneId":숫자,"title":"씬제목(내용 변경 시 적절히 수정, 변경 없으면 원래 제목 유지)","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용","locked":false}],"comment":"변경사항 한 줄 설명"}]</result>
 만약 방향을 선택해야 한다면 <choices>["선택지1","선택지2","선택지3"]</choices> 태그도 추가하세요.`;
@@ -4393,9 +4664,29 @@ async function regenSynopsis() {
       return 'SC' + (i+1) + '. ' + s.title + ': ' + nonSlug;
     }).join('\n');
     if (!scenes.trim()) { toast('씬이 없습니다. 먼저 대본을 작성해주세요.'); return; }
+
+    // 중요 장면 + 중요 대사 수집
+    const keySceneHints = [];
+    const keylines = [];
+    (S.cur.scenes||[]).forEach((s, si) => {
+      if (s.locked) keySceneHints.push('SC' + (si+1) + '. ' + s.title);
+      let lastChar = '';
+      (s.lines||[]).forEach(l => {
+        if (l.type === 'character') lastChar = l.text;
+        if (l.type === 'dialogue' && l.keyline) {
+          keylines.push('SC' + (si+1) + ' ' + lastChar + ': "' + l.text + '"');
+        }
+      });
+    });
+    const keylineHint = (keySceneHints.length > 0 || keylines.length > 0)
+      ? '\n\n[스토리의 핵심 — 시놉시스에서 비중있게 다뤄주세요]' +
+        (keySceneHints.length > 0 ? '\n핵심 장면: ' + keySceneHints.join(', ') : '') +
+        (keylines.length > 0 ? '\n핵심 대사:\n' + keylines.join('\n') : '')
+      : '';
+
     const ctx = S.cur.title + ' (' + S.cur.medium + '), 장르: ' + (S.cur.genreTags||[]).join(', ');
-        const sys = '당신은 창작 드라마터지 전문가입니다. 대본을 분석해서 다음을 생성하세요.\n반드시 다음 태그들을 응답 끝에 붙이세요:\n<themes>["주제후보1","주제후보2","주제후보3"]</themes>\n<loglines>["로그라인1(1문장)","로그라인2","로그라인3"]</loglines>\n<synopsis>줄거리 3~5문장</synopsis>\n태그 외 본문은 쓰지 마세요. 한국어로 작성하세요.';
-    const raw = await callClaude([{role:'user', content:'작품: ' + ctx + '\n\n대본:\n' + scenes}], sys, 2000, 'claude-haiku-4-5-20251001');
+    const sys = '당신은 창작 드라마터지 전문가입니다. 대본을 분석해서 다음을 생성하세요.\n반드시 다음 태그들을 응답 끝에 붙이세요:\n<themes>["주제후보1","주제후보2","주제후보3"]</themes>\n<loglines>["로그라인1(1문장)","로그라인2","로그라인3"]</loglines>\n<synopsis>줄거리 3~5문장</synopsis>\n태그 외 본문은 쓰지 마세요. 한국어로 작성하세요.';
+    const raw = await callClaude([{role:'user', content:'작품: ' + ctx + '\n\n대본:\n' + scenes + keylineHint}], sys, 2000, 'claude-haiku-4-5-20251001');
     const themesRaw = extractTag(raw, 'themes');
     const loglinesRaw = extractTag(raw, 'loglines');
     const syn = extractTag(raw, 'synopsis');
