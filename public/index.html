@@ -555,11 +555,24 @@ textarea, input { font-family:var(--fb); }
 
 /* Ghost suggestion */
 .ghost-suggestion {
-  font-family:var(--fm); font-size:12px; color:var(--text3);
-  opacity:.45; font-style:italic; padding:0 0 2px;
-  border-bottom:1px dashed var(--border2); pointer-events:none;
+  font-family:var(--fm); font-size:12px;
+  color:var(--accent); opacity:.75; font-style:italic;
+  padding:3px 8px; margin-top:3px;
+  background:var(--accent3); border:1px solid var(--accent2);
+  border-radius:var(--r); pointer-events:none;
+  display:inline-block;
 }
-.ghost-hint { font-size:9px; color:var(--text3); opacity:.5; padding-left:2px; font-family:var(--fm); }
+.ghost-hint {
+  font-size:10px; color:var(--accent); opacity:.8;
+  padding:2px 6px; font-family:var(--fm);
+  display:inline-flex; align-items:center; gap:6px;
+}
+.ghost-accept-btn {
+  font-size:10px; background:var(--accent); color:#0e0e10;
+  border:none; border-radius:var(--r); padding:2px 9px;
+  font-weight:600; cursor:pointer; font-family:var(--fm);
+  touch-action:manipulation;
+}
 
 /* Between-scene add button */
 .scene-add-between {
@@ -1352,15 +1365,20 @@ function getSB() {
 }
 
 // 로컬 우선 storage (로컬에 항상 저장, 백그라운드로 Supabase 동기화)
+// ss_projects는 유저별로 분리 (ss_projects_me, ss_projects_director 등)
+const _storageKey = (key) => {
+  if (key === 'ss_projects') return 'ss_projects_' + USER_ID;
+  return key; // ss_api 등 공용 키는 그대로
+};
 const storage = {
-  get(key) { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } },
+  get(key) { try { return JSON.parse(localStorage.getItem(_storageKey(key))); } catch { return null; } },
   set(key, val) {
     // admin은 로컬 저장 및 Supabase 업로드 안 함
     if (IS_ADMIN) return;
-    try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) { console.warn('Storage error', e); }
+    try { localStorage.setItem(_storageKey(key), JSON.stringify(val)); } catch(e) { console.warn('Storage error', e); }
     if (key === 'ss_projects') syncToSupabase(val).catch(e => console.warn('Supabase sync failed', e));
   },
-  del(key) { localStorage.removeItem(key); }
+  del(key) { localStorage.removeItem(_storageKey(key)); }
 };
 
 // Supabase에 프로젝트 데이터 저장 (Vercel 프록시 경유)
@@ -1407,12 +1425,12 @@ async function syncFromSupabase(force = false) {
       remoteTime = new Date(rows[0].updated_at || 0).getTime();
     }
     if (!Array.isArray(remote) || !remote.length) return false;
-    const localTime = parseInt(localStorage.getItem('ss_last_saved') || '0');
+    const localTime = parseInt(localStorage.getItem('ss_last_saved_' + USER_ID) || '0');
     if (IS_ADMIN || force || remoteTime > localTime) {
       // admin은 로컬 저장 없이 메모리에만
       if (!IS_ADMIN) {
         localStorage.setItem('ss_projects', JSON.stringify(remote));
-        localStorage.setItem('ss_last_saved', remoteTime.toString());
+        localStorage.setItem('ss_last_saved_' + USER_ID, remoteTime.toString());
       }
       S.projects = remote;
       S.cur = null;
@@ -1540,7 +1558,7 @@ function updateUndoUI() {
 
 function save(skipUndo = false) {
   if (!skipUndo && S.cur) pushUndo();
-  localStorage.setItem('ss_last_saved', Date.now().toString());
+  localStorage.setItem('ss_last_saved_' + USER_ID, Date.now().toString());
   storage.set('ss_projects', S.projects);
   storage.set('ss_api', { key: S.apiKey, proxy: S.useProxy });
 }
@@ -2860,54 +2878,101 @@ function buildSceneBlock(sc, i) {
 
 // Ghost suggestion for auto-type detection
 let ghostTimer;
+let _lastEnterTime = 0;
 function handleLineKeydown(e, sc, lineIdx, lw) {
+  // Tab — ghost 수락
   if (e.key === 'Tab' && lw.querySelector('.ghost-suggestion')) {
     e.preventDefault();
-    const ghost = lw.querySelector('.ghost-suggestion');
-    const el = lw.querySelector('.line-el');
-    if (ghost && el) {
-      el.textContent = ghost.dataset.value;
-      sc.lines[lineIdx].text = ghost.dataset.value;
-      const typeGuess = ghost.dataset.type;
-      if (typeGuess) {
-        sc.lines[lineIdx].type = typeGuess;
-        el.className = `line-el line-${typeGuess}`;
-      }
-      ghost.remove(); lw.querySelector('.ghost-hint')?.remove();
-      save();
-    }
+    acceptGhostSuggestion(sc, lineIdx, lw);
     return;
   }
+  // Enter 두 번 (300ms 이내) — ghost 수락
+  if (e.key === 'Enter' && lw.querySelector('.ghost-suggestion')) {
+    const now = Date.now();
+    if (now - _lastEnterTime < 400) {
+      e.preventDefault();
+      acceptGhostSuggestion(sc, lineIdx, lw);
+      _lastEnterTime = 0;
+      return;
+    }
+    _lastEnterTime = now;
+  } else {
+    _lastEnterTime = 0;
+  }
   clearTimeout(ghostTimer);
-  if (e.key === 'Escape') { lw.querySelector('.ghost-suggestion')?.remove(); lw.querySelector('.ghost-hint')?.remove(); return; }
+  if (e.key === 'Escape') {
+    lw.querySelector('.ghost-suggestion')?.remove();
+    lw.querySelector('.ghost-hint-wrap')?.remove();
+    return;
+  }
   ghostTimer = setTimeout(() => suggestLineType(sc, lineIdx, lw), 600);
+}
+
+function acceptGhostSuggestion(sc, lineIdx, lw) {
+  const ghost = lw.querySelector('.ghost-suggestion');
+  const el = lw.querySelector('.line-el');
+  if (!ghost || !el) return false;
+  el.textContent = ghost.dataset.value;
+  sc.lines[lineIdx].text = ghost.dataset.value;
+  const typeGuess = ghost.dataset.type;
+  if (typeGuess) {
+    sc.lines[lineIdx].type = typeGuess;
+    el.className = 'line-el line-' + typeGuess;
+  }
+  lw.querySelector('.ghost-suggestion')?.remove();
+  lw.querySelector('.ghost-hint-wrap')?.remove();
+  save();
+  // 수락 후 포커스 유지
+  setTimeout(() => { el.focus(); const r = document.createRange(); const s = window.getSelection(); r.selectNodeContents(el); r.collapse(false); s.removeAllRanges(); s.addRange(r); }, 10);
+  return true;
 }
 
 function suggestLineType(sc, lineIdx, lw) {
   lw.querySelector('.ghost-suggestion')?.remove();
-  lw.querySelector('.ghost-hint')?.remove();
+  lw.querySelector('.ghost-hint-wrap')?.remove();
   const el = lw.querySelector('.line-el');
   if (!el) return;
   const text = el.textContent.trim();
   if (!text || text.length < 2) return;
   let suggestion = null;
   const chars = (S.cur?.characters||[]).map(c=>c.name);
-  // Check if it looks like a character name (short, uppercase first, matches known chars)
   const isCharLike = text.length <= 12 && /^[가-힣A-Z]/.test(text);
   const matchedChar = chars.find(c => c.startsWith(text) || c.toLowerCase().startsWith(text.toLowerCase()));
   if (matchedChar && matchedChar !== text) {
-    suggestion = { value: matchedChar, type: 'character', hint: '캐릭터명 — Tab으로 수락' };
+    suggestion = { value: matchedChar, type: 'character', label: '배역명' };
   } else if (text.startsWith('(') || text.startsWith('（')) {
-    suggestion = { value: text, type: 'parenthetical', hint: '지시어로 인식됨 — Tab 수락' };
+    suggestion = { value: text, type: 'parenthetical', label: '괄호지문' };
   } else if (isCharLike && sc.lines[lineIdx-1]?.type === 'character') {
-    // After a character line, next is probably dialogue
-    suggestion = { value: text, type: 'dialogue', hint: '대사로 인식됨' };
+    suggestion = { value: text, type: 'dialogue', label: '대사' };
   }
   if (suggestion) {
-    const ghost = document.createElement('div'); ghost.className = 'ghost-suggestion';
-    ghost.textContent = suggestion.value; ghost.dataset.value = suggestion.value; ghost.dataset.type = suggestion.type;
-    const hint = document.createElement('div'); hint.className = 'ghost-hint'; hint.textContent = suggestion.hint;
-    lw.appendChild(ghost); lw.appendChild(hint);
+    const ghost = document.createElement('div');
+    ghost.className = 'ghost-suggestion';
+    ghost.textContent = suggestion.value;
+    ghost.dataset.value = suggestion.value;
+    ghost.dataset.type = suggestion.type;
+
+    const hintWrap = document.createElement('div');
+    hintWrap.className = 'ghost-hint-wrap ghost-hint';
+    hintWrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;';
+
+    const label = document.createElement('span');
+    label.textContent = suggestion.label + '로 변환';
+    label.style.cssText = 'color:var(--accent);font-size:10px;font-family:var(--fm);';
+
+    const acceptBtn = document.createElement('button');
+    acceptBtn.className = 'ghost-accept-btn';
+    acceptBtn.textContent = '✓ 수락';
+    acceptBtn.addEventListener('touchstart', (e) => { e.preventDefault(); acceptGhostSuggestion(sc, lineIdx, lw); }, {passive:false});
+    acceptBtn.onclick = (e) => { e.preventDefault(); acceptGhostSuggestion(sc, lineIdx, lw); };
+
+    const deskHint = document.createElement('span');
+    deskHint.textContent = 'Tab';
+    deskHint.style.cssText = 'font-size:9px;color:var(--text3);font-family:var(--fm);background:var(--bg4);padding:1px 5px;border-radius:3px;';
+
+    hintWrap.append(label, acceptBtn, deskHint);
+    lw.appendChild(ghost);
+    lw.appendChild(hintWrap);
   }
 }
 
@@ -4380,17 +4445,23 @@ async function handleFileAttach(e) {
     const curTitle = S.cur?.title || '';
     const curSynopsis = S.cur?.synopsis ? S.cur.synopsis.slice(0, 200) : '없음';
 
-    const makeSys = (chunkInfo) => `당신은 창작 대본 분석 전문가입니다.
-현재 프로젝트: "${curTitle}" / 시놉시스 요약: ${curSynopsis}
-${chunkInfo ? '[청크 처리 ' + chunkInfo + ']' : ''}
-
-응답 규칙:
-1. 응답 본문은 반드시 자연어 한국어로만 작성하세요. JSON·코드·XML 태그를 본문에 쓰지 마세요.
-2. 태그는 응답 맨 끝에만 붙이세요.
-3. 시놉시스/줄거리가 있으면: <synopsis>내용</synopsis>
-4. 대본/씬이 있으면: <scenes>[{"title":"씬제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes>
-   - type은 action(지문)/character(배역명)/dialogue(대사) 중 하나만 사용
-5. 현재 프로젝트와 전혀 다른 작품이면: <newproject>추천제목</newproject>`;
+    const makeSys = (chunkInfo, prevScene) => {
+      const mergeGuide = prevScene
+        ? '\n[앞 구간 마지막 씬: ' + prevScene + ']\n' +
+          '첫 번째 씬이 위 씬과 이어지는 내용(잘린 장면)이라고 판단되면 해당 씬에 "merge":true 를 추가하세요.'
+        : '';
+      return '당신은 창작 대본 분석 전문가입니다.\n' +
+        '현재 프로젝트: "' + curTitle + '" / 시놉시스 요약: ' + curSynopsis + '\n' +
+        (chunkInfo ? '[청크 처리 ' + chunkInfo + ']' : '') + mergeGuide + '\n\n' +
+        '응답 규칙:\n' +
+        '1. 응답 본문은 반드시 자연어 한국어로만 작성하세요. JSON·코드·XML 태그를 본문에 쓰지 마세요.\n' +
+        '2. 태그는 응답 맨 끝에만 붙이세요.\n' +
+        '3. 시놉시스/줄거리가 있으면: <synopsis>내용</synopsis>\n' +
+        '4. 대본/씬이 있으면: <scenes>[{"title":"씬제목","slug":"INT/EXT. 장소 - 시간","merge":false,"lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes>\n' +
+        '   - type은 action(지문)/character(배역명)/dialogue(대사) 중 하나만 사용\n' +
+        '   - 앞 구간과 이어지는 씬이면 merge:true\n' +
+        '5. 현재 프로젝트와 전혀 다른 작품이면: <newproject>추천제목</newproject>';
+    };
 
     let synopsisData = null;
     let allScenes = [];
@@ -4410,27 +4481,109 @@ ${chunkInfo ? '[청크 처리 ' + chunkInfo + ']' : ''}
       if (sr) { try { const d = JSON.parse(sr); if (Array.isArray(d)) allScenes = d; } catch(pe) { console.warn('parse err', pe); } }
       summaryText = cleanDisplayText(raw);
     } else {
-      // 긴 파일 — 청크 분할 처리
-      const CHUNK = 4000;
-      const chunks = [];
-      for (let i = 0; i < text.length; i += CHUNK) chunks.push(text.slice(i, i + CHUNK));
+      // 긴 파일 — 씬 구분자 기준 스마트 청크 분할
+      // 영문/한글/번호 기반 씬 구분자 모두 포함
+      const isBoundary = (line) => {
+        const t = line.trim();
+        return /^(INT\.|EXT\.|INT\.\/EXT\.|I\.|E\.)\s/i.test(t) ||
+               /^SCENE\s*\d*/i.test(t) ||
+               /^SC\s*\d+/i.test(t) ||
+               /^씬\s*\d*/i.test(t) ||
+               /^장면\s*\d*/i.test(t) ||
+               /^#\s*\d+\s*[막장]?/.test(t) ||
+               /^제?\d+\s*[막장]/.test(t) ||
+               /^[★◆▶●]\s*\d*/.test(t) ||
+               /^-{3,}$/.test(t) ||
+               /^={3,}$/.test(t);
+      };
+
+      const MAX_CHUNK = 4000;
+      const splitTextIntoChunks = (txt) => {
+        const lines = txt.split('\n');
+        const result = [];
+        let current = '';
+        for (const line of lines) {
+          if (current.length > MAX_CHUNK && isBoundary(line)) {
+            if (current.trim()) result.push(current.trim());
+            current = line + '\n';
+          } else {
+            current += line + '\n';
+            if (current.length > 6000) {
+              result.push(current.trim());
+              current = '';
+            }
+          }
+        }
+        if (current.trim()) result.push(current.trim());
+        return result;
+      };
+
+      const chunks = splitTextIntoChunks(text);
       const total = chunks.length;
-      fabStatus.textContent = '청크 분할 처리 중... (총 ' + total + '개 구간)';
+      fabStatus.textContent = '청크 분할: 총 ' + total + '개 구간 (씬 경계 기준)';
+
+      let lastSceneContext = '';
+      setWaiting(true); // 청크 처리 중 AI 요청 차단
 
       for (let ci = 0; ci < chunks.length; ci++) {
-        fabStatus.textContent = '씬 변환 중... ' + (ci + 1) + ' / ' + total + ' 완료';
+        fabStatus.textContent = '씬 변환 중... ' + (ci+1) + ' / ' + total + ' (' + allScenes.length + '개 완료)';
         const raw = await callClaude(
           [{role:'user', content:'다음 텍스트를 분석해주세요 (' + (ci+1) + '/' + total + '):\n\n' + chunks[ci]}],
-          makeSys((ci+1) + '/' + total), 6000, 'claude-haiku-4-5-20251001'
+          makeSys((ci+1) + '/' + total, lastSceneContext), 6000, 'claude-haiku-4-5-20251001'
         );
+        // 시놉시스 — 아직 없을 때만 자동 저장
+        const synChunk = extractTag(raw, 'synopsis');
+        if (synChunk && !synopsisData && !S.cur.synopsis) {
+          synopsisData = synChunk;
+          S.cur.synopsis = synChunk;
+          save(true);
+          renderSynopsisDrawer();
+          toast('✓ 시놉시스 자동 등록됨', 2500);
+        }
         if (ci === 0) {
-          synopsisData = extractTag(raw, 'synopsis');
           newProjectTitle = extractTag(raw, 'newproject');
           summaryText = cleanDisplayText(raw);
         }
         const sr = extractTag(raw, 'scenes');
-        if (sr) { try { const d = JSON.parse(sr); if (Array.isArray(d)) allScenes = allScenes.concat(d); } catch(pe) { console.warn('chunk ' + ci + ' err', pe); } }
+        if (sr) {
+          try {
+            const d = JSON.parse(sr);
+            if (Array.isArray(d) && d.length > 0) {
+              d.forEach((sc, si) => {
+                // merge:true 이고 이미 등록된 씬이 있으면 마지막 씬에 이어붙이기
+                if (sc.merge && S.cur.scenes && S.cur.scenes.length > 0) {
+                  const lastSc = S.cur.scenes[S.cur.scenes.length - 1];
+                  const newLines = (sc.lines||[]).map(l => ({ type: l.type||'action', text: l.text||'', locked:false }));
+                  lastSc.lines.push(...newLines);
+                  allScenes.push(sc);
+                  toast('↕ 앞 씬에 이어붙임: ' + lastSc.title, 2000);
+                } else {
+                  // 새 씬으로 등록
+                  const newSc = {
+                    id: Date.now() + Math.random(),
+                    title: sc.title || '새 씬',
+                    locked: false,
+                    lines: [
+                      { type:'slug', text: sc.slug || 'INT. 장소 - 시간', locked:false },
+                      ...(sc.lines||[]).map(l => ({ type: l.type||'action', text: l.text||'', locked:false }))
+                    ],
+                    storyboard: [], diff: null,
+                  };
+                  if (!S.cur.scenes) S.cur.scenes = [];
+                  S.cur.scenes.push(newSc);
+                  allScenes.push(sc);
+                }
+              });
+              save(true);
+              renderNavSceneList();
+              const last = d[d.length-1];
+              lastSceneContext = (last.title||'') + (last.slug ? ' / ' + last.slug : '');
+            }
+          } catch(pe) { console.warn('chunk ' + ci + ' err', pe); }
+        }
+        await new Promise(r => setTimeout(r, 50));
       }
+      setWaiting(false); // 차단 해제
       if (!summaryText) summaryText = '총 ' + allScenes.length + '개 씬을 추출했습니다.';
     }
 
@@ -4457,11 +4610,27 @@ ${chunkInfo ? '[청크 처리 ' + chunkInfo + ']' : ''}
       }});
     }
     if (scenesData && Array.isArray(scenesData) && scenesData.length > 0) {
-      actions.push({ label:'🎬 씬 ' + scenesData.length + '개 현재 프로젝트에 추가', cls:'purple', fn: () => {
-        addScenesFromAI(scenesData);
-        addMsg('assistant', '파일에서 씬 ' + scenesData.length + '개를 대본에 추가했습니다.');
-        hideBanner();
-      }});
+      if (isLong) {
+        // 긴 파일은 이미 순차 등록 완료 — 확인 버튼만
+        actions.push({ label:'✓ 씬 ' + scenesData.length + '개 추가 완료 — 닫기', cls:'purple', fn: () => {
+          save();
+          renderScriptBody();
+          addMsg('assistant', '파일에서 씬 ' + scenesData.length + '개를 대본에 추가했습니다.');
+          hideBanner();
+        }});
+        // 등장인물 추출 확인 버튼
+        actions.push({ label:'👥 등장인물 추출할까요?', cls:'amber', fn: () => {
+          hideBanner();
+          openDrawer('chars');
+          setTimeout(() => extractCharsFromScript(), 300);
+        }});
+      } else {
+        actions.push({ label:'🎬 씬 ' + scenesData.length + '개 현재 프로젝트에 추가', cls:'purple', fn: () => {
+          addScenesFromAI(scenesData);
+          addMsg('assistant', '파일에서 씬 ' + scenesData.length + '개를 대본에 추가했습니다.');
+          hideBanner();
+        }});
+      }
     }
 
     // 새 프로젝트로 저장 버튼 (AI가 다른 작품으로 판단한 경우)
