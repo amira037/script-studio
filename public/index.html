@@ -550,6 +550,12 @@ textarea, input { font-family:var(--fb); }
 }
 .sc-hdr-btn:hover { color:var(--text2); border-color:var(--border3); }
 .sc-hdr-btn.locked-btn { border-color:rgba(90,88,85,.4); }
+.scene-block.collapsed .scene-lines { display:none; }
+.scene-block.collapsed .diff-block { display:none; }
+.scene-block.collapsed { opacity:.7; }
+.collapse-btn { font-size:11px; color:var(--text3); background:none; border:none; cursor:pointer; padding:0 4px; transition:color .15s; }
+.collapse-btn:hover { color:var(--text); }
+.nav-sc-item.collapsed .sc-nav-name { opacity:.5; }
 .sc-hdr-btn.locked-btn:hover { border-color:var(--accent2); color:var(--accent); }
 
 /* Scene lines */
@@ -1379,6 +1385,10 @@ textarea, input { font-family:var(--fb); }
         <input type="checkbox" id="docx-inc-chars" checked style="accent-color:var(--accent);">
         등장인물 목록
       </label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);padding:4px 0;cursor:pointer;">
+        <input type="checkbox" id="docx-inc-collapsed" style="accent-color:var(--accent);">
+        접힌 장면 포함
+      </label>
     </div>
     <div class="modal-field">
       <div class="modal-label">배역명 정렬</div>
@@ -2114,6 +2124,27 @@ function closeNavMobile() {
 // ─── Nav drag state ───
 let navDragSrc = null;
 
+// 씬 번호 계산 — 대안 장면은 원본 번호 + A/B/C
+function getSceneLabel(sc, scenes) {
+  if (!sc.draft) {
+    // 일반 씬만 세서 번호 부여
+    const realIdx = scenes.filter((s, i) => !s.draft && scenes.indexOf(s) <= scenes.indexOf(sc)).length;
+    return 'SC ' + realIdx;
+  }
+  // 대안 장면 — 원본 번호 찾기
+  const original = scenes.find(s => s.id === sc.draftOf);
+  if (!original) {
+    // 원본 없으면 그냥 대안
+    return '대안';
+  }
+  const origLabel = getSceneLabel(original, scenes);
+  // 같은 원본의 대안이 여러 개면 A, B, C...
+  const siblings = scenes.filter(s => s.draft && s.draftOf === sc.draftOf);
+  const sibIdx = siblings.indexOf(sc);
+  const suffix = String.fromCharCode(65 + sibIdx); // A, B, C...
+  return origLabel + '-' + suffix;
+}
+
 function filterNavScenes(query) {
   const q = (query || '').trim().toLowerCase();
   const items = document.querySelectorAll('#nav-scene-list .nav-sc-item');
@@ -2132,7 +2163,8 @@ function renderNavSceneList() {
     item.className = 'nav-sc-item' +
       (S.selectedIds.has(sc.id) ? ' selected' : '') +
       (sc.locked ? ' locked' : '') +
-      (sc.draft ? ' draft' : '');
+      (sc.draft ? ' draft' : '') +
+      (sc.collapsed ? ' collapsed' : '');
     item.dataset.id = sc.id;
     item.dataset.title = (sc.title || '').toLowerCase();
     item.draggable = !sc.locked;
@@ -2158,7 +2190,8 @@ function renderNavSceneList() {
     const slugLine = (sc.lines||[]).find(l => l.type==='slug');
     const slugTxt = slugLine ? slugLine.text : '';
     const draftBadge = sc.draft ? '<span class="draft-badge">대안</span>' : '';
-    info.innerHTML = '<div class="sc-nav-num">SC ' + (i+1) + draftBadge + '</div><div class="sc-nav-name">' + escH(sc.title) + '</div>' + (slugTxt ? '<div class="sc-nav-slug">' + escH(slugTxt) + '</div>' : '');
+    const navLabel = getSceneLabel(sc, S.cur.scenes || []);
+    info.innerHTML = '<div class="sc-nav-num" style="' + (sc.draft ? 'color:var(--accent);' : '') + '">' + escH(navLabel) + draftBadge + '</div><div class="sc-nav-name">' + escH(sc.title) + '</div>' + (slugTxt ? '<div class="sc-nav-slug">' + escH(slugTxt) + '</div>' : '');
     item.appendChild(info);
 
     // ── 잠금 아이콘 ──
@@ -2276,8 +2309,17 @@ function renderNavSceneList() {
       const [moved] = arr.splice(fromIdx, 1);
       const newTo = arr.findIndex(s => s.id === sc.id);
       arr.splice(insertAfter ? newTo + 1 : newTo, 0, moved);
+      // 대안 장면을 다른 위치로 옮기면 일반 장면으로 전환
+      const originalPos = arr.findIndex(s => s.id === moved.draftOf);
+      if (moved.draft && (originalPos < 0 || Math.abs(arr.indexOf(moved) - originalPos) > 1)) {
+        moved.draft = false;
+        moved.draftOf = null;
+        moved.title = moved.title.replace(' (복제)', '').replace(' (대안)', '');
+        toast('✓ 일반 장면으로 전환됨', 2000);
+      } else {
+        toast('씬 순서 변경됨');
+      }
       save(); renderNavSceneList(); renderScriptBody();
-      toast('씬 순서 변경됨');
     });
 
     // ── 터치 드래그 (모바일) ──
@@ -2703,7 +2745,11 @@ function makeScene(title, slug) {
 
 function buildSceneBlock(sc, i) {
   const block = document.createElement('div');
-  block.className = 'scene-block' + (S.selectedIds.has(sc.id) ? ' selected' : '') + (sc.locked ? ' locked keyscene' : '');
+  block.className = 'scene-block' +
+    (S.selectedIds.has(sc.id) ? ' selected' : '') +
+    (sc.locked ? ' locked keyscene' : '') +
+    (sc.collapsed ? ' collapsed' : '') +
+    (sc.draft ? ' draft' : '');
   block.id = 'sb-' + sc.id;
 
   // Header
@@ -2714,7 +2760,9 @@ function buildSceneBlock(sc, i) {
   cb.dataset.id = sc.id; cb.checked = S.selectedIds.has(sc.id);
   cb.disabled = sc.locked;
   cb.onchange = () => { toggleSceneSelect(sc.id, cb.checked); };
-  const num = document.createElement('span'); num.className = 'scene-num'; num.textContent = `SC ${i+1}`;
+  const sceneLabel = getSceneLabel(sc, S.cur.scenes || []);
+  const num = document.createElement('span'); num.className = 'scene-num'; num.textContent = sceneLabel;
+  if (sc.draft) num.style.cssText = 'color:var(--accent);font-size:10px;';
   const titleInp = document.createElement('input');
   titleInp.className = 'scene-title-inp'; titleInp.value = sc.title; titleInp.placeholder = '씬 제목';
   titleInp.oninput = () => { sc.title = titleInp.value; save(true); renderNavSceneList(); };
@@ -2786,8 +2834,39 @@ function buildSceneBlock(sc, i) {
     acts.appendChild(applyOrigBtn);
     acts.appendChild(delDraftBtn);
   }
+  // 접기/펼치기 버튼
+  const collapseBtn = document.createElement('button');
+  collapseBtn.className = 'collapse-btn';
+  collapseBtn.title = sc.collapsed ? '펼치기' : '접어두기';
+  collapseBtn.textContent = sc.collapsed ? '▶' : '▼';
+  collapseBtn.onclick = () => {
+    sc.collapsed = !sc.collapsed;
+    save(true); renderScriptBody(); renderNavSceneList();
+  };
+  // 복제 버튼
+  const cloneBtn = document.createElement('button');
+  cloneBtn.className = 'sc-hdr-btn';
+  cloneBtn.style.cssText = 'font-size:9px;';
+  cloneBtn.textContent = '⎘ 복제';
+  cloneBtn.title = '이 씬을 복제합니다';
+  cloneBtn.onclick = () => {
+    const cloned = JSON.parse(JSON.stringify(sc));
+    cloned.id = Date.now() + Math.random();
+    cloned.title = sc.title + ' (복제)';
+    cloned.diff = null;
+    cloned.draft = true;
+    cloned.draftOf = sc.id;
+    cloned.collapsed = false;
+    const idx = S.cur.scenes.indexOf(sc);
+    S.cur.scenes.splice(idx + 1, 0, cloned);
+    save(); renderScriptBody(); renderNavSceneList();
+    toast('✓ 대안 장면으로 복제됨', 3000);
+    setTimeout(() => scrollToScene(cloned.id), 100);
+  };
+  acts.appendChild(collapseBtn);
   acts.appendChild(titleAiBtn);
   acts.appendChild(txtEditBtn);
+  acts.appendChild(cloneBtn);
   acts.appendChild(lockBtn);
   hdr.append(cb, num, titleInp, acts);
   block.appendChild(hdr);
@@ -5421,11 +5500,12 @@ async function runDocxExport() {
 
   const includeSynopsis = document.getElementById('docx-inc-synopsis').checked;
   const includeChars = document.getElementById('docx-inc-chars').checked;
+  const includeCollapsed = document.getElementById('docx-inc-collapsed').checked;
   const charAlign = document.querySelector('input[name="docx-align"]:checked')?.value || 'left';
 
   try {
+    const opts = { includeSynopsis, includeChars, includeCollapsed, charAlign };
     // 프로젝트 데이터를 Blob으로 API에 전달
-    const opts = { includeSynopsis, includeChars, charAlign };
     const res = await fetch('/api/export-docx', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -5551,6 +5631,7 @@ async function exportDocxLocal(project, opts) {
   // 대본 본문
   (project.scenes||[]).forEach((sc,si) => {
     if (sc.draft) return;
+    if (sc.collapsed && !opts.includeCollapsed) return;
     if (si>0) children.push(emptyP());
     const slug = (sc.lines||[]).find(l=>l.type==='slug');
     children.push(new Paragraph({
