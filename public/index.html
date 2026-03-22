@@ -6511,28 +6511,70 @@ function buildCharCard(c) {
   const card = document.createElement('div'); card.className = 'char-card'; card.id = 'char-'+c.id;
   const initial = (c.name||'?')[0];
   const traitsHTML = (c.traits||[]).map(t=>`<span class="char-trait">${escH(t)}</span>`).join('');
+
+  // 실시간 통계 계산
+  const scenes = S.cur?.scenes || [];
+  const sceneAppearances = [];
+  let dialogueCount = 0;
+  scenes.forEach(sc => {
+    let lastChar = '', appeared = false;
+    (sc.lines||[]).forEach(l => {
+      if (l.type==='character') lastChar=l.text;
+      if (l.type==='dialogue' && lastChar.includes(c.name)) { dialogueCount++; appeared=true; }
+      if (l.type==='action' && l.text.includes(c.name)) appeared=true;
+    });
+    if (appeared) sceneAppearances.push(sc);
+  });
+  const statsLine = sceneAppearances.length > 0
+    ? ' · ' + sceneAppearances.length + '씬 · ' + dialogueCount + '줄'
+    : '';
+  const sceneChips = sceneAppearances.map(sc => {
+    const lbl = getSceneLabel(sc, scenes);
+    return '<span onclick="event.stopPropagation();switchTab(\'script\');setTimeout(()=>scrollToScene(\''+sc.id+'\'),100);closeDrawer();" ' +
+      'style="font-size:9px;color:var(--accent);cursor:pointer;padding:1px 5px;border-radius:3px;border:1px solid var(--accent2);background:var(--accent3);white-space:nowrap;" ' +
+      'title="'+escH(sc.title)+'">'+escH(lbl)+'</span>';
+  }).join('');
+
   const viewDiv = document.createElement('div'); viewDiv.className = 'char-card-view';
   viewDiv.innerHTML = `
     <div class="char-drag-handle" title="드래그로 순서 변경">⠿</div>
     <div class="char-av">${initial}</div>
     <div class="char-info">
-      <div class="char-role">${escH(c.role||'')}</div>
+      <div class="char-role">${escH((c.role||'').replace(/\s*\(\d+씬[^)]*\)/,'').trim())}${escH(statsLine)}</div>
       <div class="char-name">${escH(c.name)}</div>
       <div class="char-desc">${escH(c.description||'')}</div>
       <div class="char-traits">${traitsHTML}</div>
+      ${sceneChips ? '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;">'+sceneChips+'</div>' : ''}
     </div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">
       <span class="char-edit-hint">편집 →</span>
       <button class="char-quick-del" onclick="event.stopPropagation();deleteChar(${c.id})" title="삭제">✕</button>
     </div>`;
-  // 핸들 클릭은 편집 안 열리게, 카드 본문 클릭만 편집
-  viewDiv.onclick = (e) => { if (!e.target.closest('.char-drag-handle') && !e.target.closest('.char-quick-del')) openCharEdit(c.id); };
+  viewDiv.onclick = (e) => { if (!e.target.closest('.char-drag-handle') && !e.target.closest('.char-quick-del') && !e.target.closest('span[onclick]')) openCharEdit(c.id); };
   card.appendChild(viewDiv);
 
+  // 주요 대사 토글 (카드 뷰 하단)
+  const dlgToggleBtn = document.createElement('button');
+  dlgToggleBtn.style.cssText = 'font-size:9px;padding:2px 8px;border-radius:3px;border:none;background:none;color:var(--text3);cursor:pointer;width:100%;text-align:left;padding:5px 12px;border-top:1px solid var(--border);';
+  dlgToggleBtn.textContent = '▼ 주요 대사';
+  const dlgDiv = document.createElement('div');
+  dlgDiv.style.display = 'none';
+  dlgDiv.id = 'char-stats-' + c.id;
+  dlgToggleBtn.onclick = (e) => {
+    e.stopPropagation();
+    const open = dlgDiv.style.display !== 'none';
+    dlgDiv.style.display = open ? 'none' : 'block';
+    dlgToggleBtn.textContent = open ? '▼ 주요 대사' : '▲ 주요 대사';
+    if (!open) dlgDiv.innerHTML = buildCharDialogueHTML(c);
+  };
+  card.appendChild(dlgToggleBtn);
+  card.appendChild(dlgDiv);
+
+  // 편집창
   const editDiv = document.createElement('div'); editDiv.className = 'char-card-editing'; editDiv.id = 'char-edit-'+c.id; editDiv.style.display='none';
   editDiv.innerHTML = `
     <div class="char-edit-field-wrap"><div class="char-edit-label">이름</div><input class="char-edit-inp" id="ce-name-${c.id}" value="${escH(c.name||'')}"></div>
-    <div class="char-edit-field-wrap"><div class="char-edit-label">역할</div><input class="char-edit-inp" id="ce-role-${c.id}" value="${escH(c.role||'')}"></div>
+    <div class="char-edit-field-wrap"><div class="char-edit-label">역할</div><input class="char-edit-inp" id="ce-role-${c.id}" value="${escH((c.role||'').replace(/\s*\(\d+씬[^)]*\)/,'').trim())}"></div>
     <div class="char-edit-field-wrap"><div class="char-edit-label">설명</div><input class="char-edit-inp" id="ce-desc-${c.id}" value="${escH(c.description||'')}"></div>
     <div class="char-edit-field-wrap">
       <div class="char-edit-label">특성</div>
@@ -6550,27 +6592,39 @@ function buildCharCard(c) {
     </div>`;
   card.appendChild(editDiv);
 
-  // ── 등장 씬 + 주요 대사 섹션 ─────────────────────────────────────
-  const statsDiv = document.createElement('div');
-  statsDiv.id = 'char-stats-' + c.id;
-  statsDiv.style.cssText = 'border-top:1px solid var(--border);padding:0;display:none;';
-  statsDiv.innerHTML = buildCharStatsHTML(c);
-  card.appendChild(statsDiv);
-
-  // 카드 뷰에 통계 토글 버튼 추가
-  const statsBtn = document.createElement('button');
-  statsBtn.style.cssText = 'font-size:9px;padding:2px 7px;border-radius:3px;border:1px solid var(--border2);background:none;color:var(--text3);cursor:pointer;margin-top:4px;';
-  statsBtn.textContent = '▼ 등장 씬 · 대사';
-  statsBtn.onclick = (e) => {
-    e.stopPropagation();
-    const open = statsDiv.style.display !== 'none';
-    statsDiv.style.display = open ? 'none' : 'block';
-    statsBtn.textContent = open ? '▼ 등장 씬 · 대사' : '▲ 등장 씬 · 대사';
-    if (!open) statsDiv.innerHTML = buildCharStatsHTML(c);
-  };
-  viewDiv.querySelector('.char-info').appendChild(statsBtn);
-
   return card;
+}
+
+// 주요 대사 HTML (토글용)
+function buildCharDialogueHTML(c) {
+  const scenes = S.cur?.scenes || [];
+  const keylineDialogues = [];
+  const allDialogues = [];
+  scenes.forEach(sc => {
+    let lastChar = '';
+    (sc.lines||[]).forEach(l => {
+      if (l.type==='character') lastChar=l.text;
+      if (l.type==='dialogue' && lastChar.includes(c.name)) {
+        allDialogues.push({ sc, text:l.text, keyline:l.keyline });
+        if (l.keyline) keylineDialogues.push({ sc, text:l.text });
+      }
+    });
+  });
+  const conflictScenes = S.cur?.conflictData?.scenes || [];
+  const displayDialogues = keylineDialogues.length > 0
+    ? keylineDialogues
+    : [...allDialogues].sort((a,b) => {
+        const aC = conflictScenes.find(x=>x.sceneId===a.sc.id)?.intensity||0;
+        const bC = conflictScenes.find(x=>x.sceneId===b.sc.id)?.intensity||0;
+        return (bC*2+b.text.length/50)-(aC*2+a.text.length/50);
+      }).slice(0,3);
+  const isAuto = keylineDialogues.length === 0;
+  if (!displayDialogues.length) return '<div style="padding:8px 12px;font-size:10px;color:var(--text3);">대사 없음</div>';
+  return '<div style="padding:8px 12px;display:flex;flex-direction:column;gap:5px;">' +
+    displayDialogues.map(({sc,text}) => {
+      const lbl = getSceneLabel(sc, scenes);
+      return '<div style="padding:5px 8px;background:var(--bg3);border-radius:var(--r);border-left:2px solid '+(isAuto?'var(--border2)':'var(--accent)')+';"><span style="font-size:12px;color:var(--text);line-height:1.6;">"'+escH(text.slice(0,100))+(text.length>100?'...':'')+'"</span><span style="font-size:9px;color:var(--text3);margin-left:8px;">'+escH(lbl)+'</span></div>';
+    }).join('') + '</div>';
 }
 
 function removeCharTrait(id, traitVal) {
