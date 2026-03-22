@@ -5655,7 +5655,7 @@ function renderConflictBody(body, data, skipChart) {
         } else {
           // 소제목 없는 줄
           const p = document.createElement('div');
-          p.style.cssText = 'font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:4px;';
+          p.style.cssText = 'font-size:11px;color:var(--text2);line-height:1.6;margin-bottom:4px;padding-left:4px;';
           p.textContent = line;
           detailDiv.appendChild(p);
         }
@@ -5783,16 +5783,17 @@ function buildConflictChartSVG(scenes, w, h, mini) {
     const hasIssue = (S.cur.conflictData?.advice||[]).some(a => a.scene && a.scene.includes(s.label) && a.level!=='ok');
     if (hasIssue) svg += '<circle cx="'+x+'" cy="'+y+'" r="'+(mini?6:9)+'" fill="none" stroke="#f09595" stroke-width="1" stroke-dasharray="2,2"/>';
   });
-  // X 라벨 — 씬 수에 따라 간격 자동 조정
-  const labelInterval = n <= 10 ? 1 : n <= 30 ? 5 : 10;
-  if (!mini || n <= 8) {
-    scenes.forEach((s, i) => {
-      if (i % labelInterval === 0 || i === n-1) {
-        const lx = pad.l + i*xStep;
-        svg += '<text x="'+lx+'" y="'+(h-2)+'" text-anchor="middle" fill="#555" font-size="'+(mini?7:9)+'">'+escH(s.label||'')+'</text>';
-      }
-    });
-  }
+  // X 라벨 — 항상 최대 6개만 표시, 숫자만 출력
+  const maxLabels = 6;
+  const labelInterval = Math.max(1, Math.ceil(n / maxLabels));
+  scenes.forEach((s, i) => {
+    if (i % labelInterval === 0 || i === n-1) {
+      const lx = pad.l + i*xStep;
+      // 숫자만 추출 (SC 1 → 1, SC1-A → 1A)
+      const shortLabel = (s.label||'').replace(/^SC\s*/i, '');
+      svg += '<text x="'+lx+'" y="'+(h-2)+'" text-anchor="middle" fill="#555" font-size="'+(mini?7:9)+'">'+escH(shortLabel)+'</text>';
+    }
+  });
   svg += '</svg>';
   return svg;
 }
