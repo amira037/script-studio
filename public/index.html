@@ -1366,7 +1366,13 @@ textarea, input { font-family:var(--fb); }
       </div>
     </div>
     <div class="setting-group">
-      <div class="setting-group-title">스토리보드 (콘티)</div>
+      <div class="setting-group-title">버전 관리</div>
+      <div class="setting-row">
+        <div class="setting-label">수동 버전 저장<small>현재 상태를 이름 붙여 저장</small></div>
+        <button class="setting-btn" onclick="saveManualVersion()" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);">📸 저장</button>
+      </div>
+      <div id="version-list" style="margin-top:6px;"></div>
+    </div>
       <div class="setting-row">
         <div class="setting-label">콘티 자동생성<small>대본에서 샷·배경·액션 자동 추출</small></div>
         <span class="setting-val" style="color:var(--amber)">준비 중</span>
@@ -1690,8 +1696,17 @@ function updateUndoUI() {
 let _syncReady = false;
 
 function save(skipUndo = false) {
-  if (!_syncReady) return; // pull 완료 전 차단
+  if (!_syncReady) return;
   if (!skipUndo && S.cur) pushUndo();
+  // 하루 1회 자동 버전 저장 (skipUndo=false인 의미있는 변경 시)
+  if (!skipUndo && S.cur) {
+    const today = new Date().toDateString();
+    const lastAutoDate = S.cur._lastAutoVersionDate;
+    if (lastAutoDate !== today) {
+      S.cur._lastAutoVersionDate = today;
+      setTimeout(() => tryAutoVersion(), 500);
+    }
+  }
   storage.set('ss_projects', S.projects);
   storage.set('ss_api', { key: S.apiKey, proxy: S.useProxy });
 }
@@ -4003,9 +4018,10 @@ function handleMsgAction(action) {
       toast('✓ ' + lbl + ' 삭제됨');
     }
   } else if (action.type === 'moveSceneSuggest') {
-    // 씬 이동 — 대본 에디터로 이동 후 안내
     switchTab('script');
     toast('네비게이터에서 씬을 드래그하여 이동하세요: ' + action.data, 4000);
+  } else if (action.type === 'reorderScenes') {
+    showReorderPreviewModal(action.data);
   } else if (action.type === 'showMultiChoices') {
     showMultiChoicesPanel(action.data.prompt, action.data.choices);
   } else if (action.type === 'suggestAnalysis') {
@@ -4157,6 +4173,10 @@ async function handleChatPrompt(text) {
     if (/설정.*충돌|모순|설정.*오류|설정.*검사/.test(text) && (S.cur?.scenes||[]).length > 0) {
       await handleFlowAnalysisInChat(text, 'setting'); return;
     }
+    // 목적 기반 씬 재배치 키워드 감지
+    if (/긴장.*높은.*씬.*모아|갈등.*높은.*씬.*앞|클라이맥스.*앞|씬.*순서.*갈등|강도.*기준.*재배치|갈등.*기준.*순서/.test(text) && (S.cur?.scenes||[]).length > 1) {
+      await reorderByConflict(text); return;
+    }
     const ctx = buildProjectContext();
     const history = (S.cur.messages || []).slice(-10).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
 
@@ -4214,6 +4234,7 @@ async function handleChatPrompt(text) {
       '- 특정 씬 수정이 필요하면 응답 마지막에 <editscenes>SC번호들(쉼표구분)</editscenes> 태그 추가\n' +
       '- 씬 삭제 제안: <deletescene>SC번호</deletescene>\n' +
       '- 씬 이동 제안: <movescene>SC번호→위치설명</movescene>\n' +
+      '- 씬 순서 재배치: <reorderscenes>[{"id":"씬제목또는SC번호","newIndex":0부터시작}]</reorderscenes> — 전체 순서를 바꿀 때만\n' +
       '- 시놉시스: <synopsis>내용</synopsis>\n' +
       '- 씬 생성: <scenes>[JSON]</scenes>\n' +
       '- 등장인물: <characters>[JSON]</characters>\n' +
@@ -4234,6 +4255,7 @@ async function handleChatPrompt(text) {
     const editScenesRaw = extractTag(raw, 'editscenes');
     const deleteSceneRaw = extractTag(raw, 'deletescene');
     const moveSceneRaw = extractTag(raw, 'movescene');
+    const reorderRaw = extractTag(raw, 'reorderscenes');
     const multichoicesRaw = extractTag(raw, 'multichoices');
     const suggestRaw = extractTag(raw, 'suggest');
     let scenesData = null;
@@ -4269,6 +4291,14 @@ async function handleChatPrompt(text) {
     // 씬 이동 제안
     if (moveSceneRaw) {
       actions.push({ type:'moveSceneSuggest', data:moveSceneRaw.trim(), label:'↕ '+moveSceneRaw.trim()+' 이동', style:'blue' });
+    }
+    // 씬 순서 재배치
+    if (reorderRaw) {
+      let reorderData = null;
+      try { reorderData = JSON.parse(reorderRaw); } catch {}
+      if (reorderData?.length) {
+        actions.push({ type:'reorderScenes', data:reorderData, label:'↕ 씬 순서 재배치 미리보기', style:'blue' });
+      }
     }
     // 복수 선택지
     if (multichoicesRaw) {
@@ -5331,6 +5361,160 @@ async function handleScriptPromptDirect(text) {
   S._skipBrainCheck = true;
   await handleScriptPrompt(text);
   S._skipBrainCheck = false;
+}
+
+async function reorderByConflict(text) {
+  if (!S.cur) return;
+  const scenes = (S.cur.scenes||[]).filter(s => !s.draft);
+  const conflictData = S.cur.conflictData;
+
+  // 갈등 분석 없으면 먼저 분석 제안
+  if (!conflictData || (conflictData.scenes||[]).length === 0) {
+    addMsg('assistant',
+      '씬 순서를 갈등 강도 기준으로 재배치하려면 먼저 갈등 분석이 필요합니다.',
+      [{ type:'suggestAnalysis', data:'conflict', label:'⚔ 갈등 분석', style:'amber', originalPrompt: text }]
+    );
+    return;
+  }
+
+  showTyping();
+  try {
+    // 갈등 강도 데이터 수집
+    const sceneList = scenes.map(s => {
+      const lbl = getSceneLabel(s, S.cur.scenes);
+      const entry = conflictData.scenes.find(c => c.sceneId === s.id);
+      const intensity = entry?.intensity || 0;
+      const type = entry?.type || '';
+      return lbl + '(강도:' + intensity + ',유형:' + type + '): "' + s.title + '"';
+    }).join('\n');
+
+    const sys = '대본 씬 목록과 갈등 강도를 분석해서 목적에 맞게 최적의 순서를 제안하세요.\n' +
+      '반드시 <reorderscenes>[{"id":"SC번호","newIndex":0부터시작정수}]</reorderscenes> 형식으로만 응답하세요.\n' +
+      '변경이 필요한 씬만 포함하세요. 설명 텍스트 없이 태그만.';
+
+    const raw = await callClaude(
+      [{role:'user', content:'목적: ' + text + '\n\n씬 목록 (현재 순서):\n' + sceneList}],
+      sys, 1000, 'claude-haiku-4-5-20251001'
+    );
+
+    hideTyping();
+    const reorderRaw = extractTag(raw, 'reorderscenes');
+    if (!reorderRaw) {
+      addMsg('assistant', '재배치 계획을 생성할 수 없습니다. 다시 시도해주세요.');
+      return;
+    }
+
+    let reorderData = null;
+    try { reorderData = JSON.parse(reorderRaw); } catch {}
+    if (!reorderData?.length) {
+      addMsg('assistant', '변경이 필요한 씬이 없습니다. 현재 순서가 이미 최적입니다.');
+      return;
+    }
+
+    // 결과 메시지 + 미리보기 버튼
+    const changedCount = reorderData.length;
+    addMsg('assistant',
+      '갈등 강도 기준으로 ' + changedCount + '개 씬의 순서를 재배치했습니다.\n미리보기에서 확인 후 적용하세요.',
+      [{ type:'reorderScenes', data:reorderData, label:'↕ 순서 재배치 미리보기', style:'blue' }]
+    );
+  } catch(e) {
+    hideTyping();
+    if (e.name !== 'AbortError') addMsg('assistant', '오류: ' + e.message);
+  }
+}
+
+function showReorderPreviewModal(reorderData) {
+  if (!S.cur) return;
+  const scenes = S.cur.scenes || [];
+
+  // 새 순서 계산
+  const newOrder = [...scenes];
+  reorderData.forEach(item => {
+    const sc = scenes.find(s =>
+      getSceneLabel(s, scenes) === item.id ||
+      getSceneLabel(s, scenes).replace('SC ','SC') === item.id ||
+      s.title === item.id ||
+      s.title.includes((item.id||'').slice(0,6))
+    );
+    if (!sc) return;
+    const curIdx = newOrder.findIndex(s => s.id === sc.id);
+    if (curIdx === -1) return;
+    newOrder.splice(curIdx, 1);
+    const targetIdx = Math.max(0, Math.min(item.newIndex, newOrder.length));
+    newOrder.splice(targetIdx, 0, sc);
+  });
+
+  // 모달
+  document.getElementById('reorder-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'reorder-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:600;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.onclick = e => { if(e.target===modal) modal.remove(); };
+
+  const inner = document.createElement('div');
+  inner.style.cssText = 'background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);padding:16px;width:100%;max-width:540px;max-height:85vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;';
+
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;';
+  hdr.innerHTML = '<span style="font-size:13px;color:var(--accent);font-weight:500;">↕ 씬 순서 재배치 미리보기</span>';
+  const closeBtn = document.createElement('button');
+  closeBtn.style.cssText = 'background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;';
+  closeBtn.textContent = '✕'; closeBtn.onclick = () => modal.remove();
+  hdr.appendChild(closeBtn);
+  inner.appendChild(hdr);
+
+  // 변경사항 표시
+  const diffWrap = document.createElement('div');
+  diffWrap.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:12px;';
+
+  const makeList = (title, list, color) => {
+    const col = document.createElement('div');
+    col.innerHTML = '<div style="font-size:10px;color:'+color+';margin-bottom:6px;font-weight:600;">'+title+'</div>';
+    list.forEach((s, i) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'font-size:11px;padding:4px 8px;border-radius:var(--r);margin-bottom:3px;' +
+        'background:var(--bg3);border:1px solid var(--border);color:var(--text2);display:flex;gap:6px;align-items:center;';
+      const num = document.createElement('span');
+      num.style.cssText = 'font-size:9px;color:'+color+';font-weight:600;min-width:28px;flex-shrink:0;';
+      num.textContent = 'SC'+(i+1);
+      const title2 = document.createElement('span');
+      title2.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      title2.textContent = s.title;
+      row.append(num, title2);
+      col.appendChild(row);
+    });
+    return col;
+  };
+
+  diffWrap.append(
+    makeList('현재 순서', scenes, '#555'),
+    makeList('변경 후 순서', newOrder, 'var(--accent)')
+  );
+  inner.appendChild(diffWrap);
+
+  // 버튼
+  const btns = document.createElement('div');
+  btns.style.cssText = 'display:flex;gap:8px;';
+  const applyBtn = document.createElement('button');
+  applyBtn.style.cssText = 'flex:1;background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:8px;font-size:12px;font-weight:600;cursor:pointer;';
+  applyBtn.textContent = '✓ 적용';
+  applyBtn.onclick = () => {
+    // 기존 undo 스택에 현재 상태 저장 (save()가 pushUndo 호출)
+    S.cur.scenes = newOrder;
+    save(); renderScriptBody(); renderNavSceneList();
+    modal.remove();
+    toast('↕ 씬 순서가 변경됐습니다 — 메뉴의 ↩ 버튼으로 되돌릴 수 있습니다', 4000, () => {
+      undo();
+    }, '↩ 되돌리기');
+  };
+  const cancelBtn = document.createElement('button');
+  cancelBtn.style.cssText = 'background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text3);padding:8px 16px;font-size:12px;cursor:pointer;';
+  cancelBtn.textContent = '취소'; cancelBtn.onclick = () => modal.remove();
+  btns.append(applyBtn, cancelBtn);
+  inner.appendChild(btns);
+
+  modal.appendChild(inner);
+  document.body.appendChild(modal);
 }
 
 function takeToBrainstorm(contextText, promptText) {
@@ -6511,6 +6695,142 @@ function openConflictModal(data) {
   document.body.appendChild(modal);
 }
 
+// ═══════════════════════════════════════════
+// VERSION MANAGEMENT
+// ═══════════════════════════════════════════
+
+function getVersions() {
+  return S.cur?.versions || [];
+}
+
+function saveVersionData(name, isAuto) {
+  if (!S.cur) return;
+  if (!S.cur.versions) S.cur.versions = [];
+  const snap = {
+    id: Date.now() + Math.floor(Math.random() * 10000),
+    name,
+    isAuto,
+    savedAt: Date.now(),
+    data: JSON.stringify({
+      scenes: S.cur.scenes,
+      characters: S.cur.characters,
+      synopsis: S.cur.synopsis,
+      synopsisSections: S.cur.synopsisSections,
+      title: S.cur.title,
+      genreTags: S.cur.genreTags,
+      theme: S.cur.theme,
+      conflictData: S.cur.conflictData,
+    })
+  };
+  // 수동: 최대 5개, 자동: 최대 7개
+  const manuals = S.cur.versions.filter(v => !v.isAuto);
+  const autos = S.cur.versions.filter(v => v.isAuto);
+  if (isAuto) {
+    // 같은 날 자동 저장이 이미 있으면 건너뜀
+    const today = new Date().toDateString();
+    if (autos.some(v => new Date(v.savedAt).toDateString() === today)) return;
+    if (autos.length >= 7) autos.shift();
+    S.cur.versions = [...manuals, ...autos, snap];
+  } else {
+    if (manuals.length >= 5) manuals.shift();
+    S.cur.versions = [...manuals, snap, ...autos];
+  }
+  save(true);
+  renderVersionList();
+}
+
+function saveManualVersion() {
+  if (!S.cur) return;
+  const name = prompt('버전 이름을 입력하세요:', '버전 ' + (getVersions().filter(v=>!v.isAuto).length + 1));
+  if (!name) return;
+  saveVersionData(name, false);
+  toast('📸 버전 저장됨: ' + name);
+}
+
+function tryAutoVersion() {
+  if (!S.cur) return;
+  saveVersionData('자동 저장', true);
+}
+
+function restoreVersion(versionId) {
+  if (!S.cur) return;
+  const ver = (S.cur.versions||[]).find(v => v.id === versionId);
+  if (!ver) return;
+  const dateStr = formatVersionDate(ver.savedAt);
+  if (!confirm('"' + ver.name + '" (' + dateStr + ') 버전으로 복원할까요?\n현재 상태는 "복원 전" 버전으로 자동 저장됩니다.')) return;
+
+  // 현재 상태 자동 저장
+  saveVersionData('복원 전 - ' + formatVersionDate(Date.now()), false);
+
+  // 복원
+  try {
+    const restored = JSON.parse(ver.data);
+    const versions = S.cur.versions; // 버전 목록은 유지
+    Object.assign(S.cur, restored);
+    S.cur.versions = versions;
+    save(true);
+    renderScriptBody(); renderNavSceneList(); renderChatMsgs();
+    if (document.getElementById('drawer-synopsis')?.classList.contains('open')) renderSynopsisDrawer();
+    renderVersionList();
+    toast('✓ "' + ver.name + '" 버전으로 복원됐습니다');
+    closeDrawer();
+  } catch(e) {
+    toast('복원 실패: ' + e.message);
+  }
+}
+
+function deleteVersion(versionId) {
+  if (!S.cur) return;
+  S.cur.versions = (S.cur.versions||[]).filter(v => v.id !== versionId);
+  save(true);
+  renderVersionList();
+}
+
+function formatVersionDate(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  const diffDays = Math.floor((now - d) / 86400000);
+  if (diffDays === 0) return '오늘 ' + d.toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'});
+  if (diffDays === 1) return '어제 ' + d.toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'});
+  if (diffDays < 7) return diffDays + '일 전';
+  return d.toLocaleDateString('ko-KR', {month:'short', day:'numeric'});
+}
+
+function renderVersionList() {
+  const el = document.getElementById('version-list');
+  if (!el || !S.cur) return;
+  const versions = [...(S.cur.versions||[])].reverse();
+  if (versions.length === 0) {
+    el.innerHTML = '<div style="font-size:10px;color:var(--text3);padding:8px 0;text-align:center;">저장된 버전이 없습니다</div>';
+    return;
+  }
+  el.innerHTML = '';
+  versions.forEach(ver => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:7px 10px;background:var(--bg3);border-radius:var(--r);margin-bottom:4px;border:1px solid var(--border);';
+    const icon = document.createElement('span');
+    icon.textContent = ver.isAuto ? '📅' : '📸';
+    icon.style.cssText = 'font-size:12px;flex-shrink:0;';
+    const info = document.createElement('div');
+    info.style.cssText = 'flex:1;min-width:0;';
+    info.innerHTML = '<div style="font-size:11px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escH(ver.name) + '</div>' +
+      '<div style="font-size:9px;color:var(--text3);">' + formatVersionDate(ver.savedAt) + '</div>';
+    const btns = document.createElement('div');
+    btns.style.cssText = 'display:flex;gap:4px;flex-shrink:0;';
+    const restoreBtn = document.createElement('button');
+    restoreBtn.style.cssText = 'font-size:9px;padding:2px 7px;border-radius:3px;border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;';
+    restoreBtn.textContent = '복원';
+    restoreBtn.onclick = () => restoreVersion(ver.id);
+    const delBtn = document.createElement('button');
+    delBtn.style.cssText = 'font-size:9px;padding:2px 6px;border-radius:3px;border:1px solid var(--border2);background:none;color:var(--text3);cursor:pointer;';
+    delBtn.textContent = '✕';
+    delBtn.onclick = () => { if(confirm('이 버전을 삭제할까요?')) deleteVersion(ver.id); };
+    btns.append(restoreBtn, delBtn);
+    row.append(icon, info, btns);
+    el.appendChild(row);
+  });
+}
+
 function renderSynopsisDrawer() {
   const body = document.getElementById('synopsis-body');
   if (!body || !S.cur) return;
@@ -6723,6 +7043,7 @@ function openDrawer(name) {
   currentDrawer = name;
   if (name === 'chars') renderCharsDrawer();
   if (name === 'synopsis') renderSynopsisDrawer();
+  if (name === 'settings') renderVersionList();
 }
 function closeDrawer() {
   document.querySelectorAll('.drawer').forEach(d => d.classList.remove('open'));
@@ -7107,6 +7428,8 @@ function cleanDisplayText(raw) {
     .replace(/<editscenes>[\s\S]*/gi, '')
     .replace(/<deletescene>[\s\S]*/gi, '')
     .replace(/<movescene>[\s\S]*/gi, '')
+    .replace(/<reorderscenes>[\s\S]*?<\/reorderscenes>/gi, '')
+    .replace(/<reorderscenes>[\s\S]*/gi, '')
     .replace(/<suggest>[\s\S]*/gi, '')
     .replace(/<flowissues[\s\S]*?<\/flowissues>/gi, '')
     .replace(/```[\s\S]*?```/g, '')
