@@ -5281,6 +5281,52 @@ async function handleKeyline(text, setOn) {
 }
 
 // ── 씬 합치기 ────────────────────────────────────────────────────────
+// ── "또는/혹은" 패턴 — Haiku가 컨텍스트 보고 판단 ──────────────────
+async function handleOrPattern(text) {
+  const scenes = S.cur?.scenes || [];
+
+  // 언급된 SC번호의 씬 내용 수집
+  const scNums = [...new Set((text.match(/SC\s*(\d+)/gi)||[]).map(s=>parseInt(s.replace(/SC\s*/i,''))))];
+  const scContext = scNums.length > 0
+    ? scNums.map(n => {
+        const sc = scenes.find(s => getSceneLabel(s,scenes)==='SC '+n);
+        return sc ? 'SC'+n+'('+sc.title+'): '+(sc.lines||[]).map(l=>l.text).join(' ').slice(0,100) : '';
+      }).filter(Boolean).join('\n')
+    : '';
+
+  showAnalyzing();
+
+  try {
+    const raw = await callClaude(
+      [{role:'user', content:
+        '요청: ' + text + '\n\n' +
+        (scContext ? '씬 내용:\n' + scContext + '\n\n' : '') +
+        '위 요청에서 "또는/혹은"으로 나뉜 방법들 중 대본 흐름상 더 적합한 하나를 선택해서 실행하세요.'}],
+      '반드시 <choice>실행할 방법을 한 문장으로</choice><reason>선택 이유 한 줄</reason> 형식으로만 응답하세요.',
+      80, 'claude-haiku-4-5-20251001'
+    );
+    hideAnalyzing();
+
+    const choice = extractTag(raw, 'choice');
+    const reason = extractTag(raw, 'reason');
+
+    if (!choice) {
+      S._skipOrCheck = true;
+      await handleScriptPrompt(text).finally(() => { S._skipOrCheck = false; });
+      return;
+    }
+
+    toast('💡 ' + (reason || choice), 4000);
+    S._skipOrCheck = true;
+    await handleScriptPrompt(choice).finally(() => { S._skipOrCheck = false; });
+
+  } catch(e) {
+    hideAnalyzing();
+    S._skipOrCheck = true;
+    await handleScriptPrompt(text).finally(() => { S._skipOrCheck = false; });
+  }
+}
+
 function handleSceneMergeFromBtn() {
   // 선택된 씬들로 merge 실행
   handleSceneMerge('선택된 씬들 합쳐줘');
@@ -5690,7 +5736,7 @@ async function handleSceneConnection(text) {
 
   showAnalyzing();
 
-  const _planFmt = '\n\n개선 제안은 반드시 다음 형식으로 작성하세요:\n방안1: [제목]\n- 구체적 내용 (SC번호 포함)\n방안2: [제목]\n- 구체적 내용 (SC번호 포함)\n방안이 없으면 생략 가능. 마크다운 볼드(**) 사용 금지.';
+  const _planFmt = '\n\n개선 제안은 반드시 다음 형식으로 작성하세요:\n방안1: [제목]\n- 구체적 내용 (SC번호 포함)\n방안2: [제목]\n- 구체적 내용 (SC번호 포함)\n방안이 없으면 생략 가능.\n주의: 각 방안은 하나의 구체적인 방법만 포함하세요. "또는", "혹은"으로 대안을 같은 방안 안에 넣지 말고, 대안은 별도 방안으로 분리하세요. 마크다운 볼드(**) 사용 금지.';
   const sysPrompt = targetScenes.length === 0
     ? '대본 전체 흐름을 분석하세요. 어색한 씬 전환, 감정 흐름 단절, 시간 순서 혼란 등을 찾아주세요.' + _planFmt
     : '씬들의 연결이 자연스러운지 분석하세요.\n연결 평가, 문제점, 개선 제안을 구체적으로 작성하세요.' + _planFmt;
@@ -5835,6 +5881,12 @@ async function handleTitleChange(text) {
 
 // ── 빈 핸들러 제거 (위에서 중복 정의된 것) ──────────────────────────
 async function handleScriptPrompt(text) {
+  // "또는/혹은/이거나" 패턴 — Haiku가 컨텍스트 보고 판단
+  if (/또는|혹은|이거나|아니면/.test(text) && !S._skipOrCheck) {
+    await handleOrPattern(text);
+    return;
+  }
+
   const selectedScenes = S.selectedIds.size > 0
     ? (S.cur?.scenes||[]).filter(s => S.selectedIds.has(s.id) && !s.locked)
     : (S.cur?.scenes||[]).filter(s => !s.locked);
@@ -5905,9 +5957,11 @@ async function handleScriptPrompt(text) {
     // 단순 삭제/이동 요청 (SC번호 명확) → 직접 처리
     const simpleDelete = /SC\s*\d+.*삭제|SC\s*\d+.*지워/.test(text);
     const simpleMove = /SC\s*\d+.*이동|SC\s*\d+.*옮겨|SC\s*\d+.*뒤로|SC\s*\d+.*앞으로/.test(text);
-    // SC번호 명확한 순서 재배치 — "SC8→SC7→SC6" 또는 "SC8,SC7,SC6 순으로"
-    const scOrderPat = /SC\s*\d+(?:[→,→\s]+SC\s*\d+){1,}.*(?:순으로|순서로|재배치|재배열)/.test(text);
+    // SC번호 명확한 순서 재배치 — "SC8→SC7→SC6" 또는 괄호 포함 형식
+    // SC번호가 2개 이상 + 재배치/순서 키워드 있으면 직접 처리
     const hasClearScNums = (text.match(/SC\s*\d+/gi)||[]).length >= 2;
+    const hasReorderKw = /순으로|순서로|재배치|재배열|→.*SC|SC.*→/.test(text);
+    const scOrderPat = hasClearScNums && hasReorderKw;
 
     if (simpleDelete) {
       const m = text.match(/SC\s*(\d+)/i);
@@ -5949,7 +6003,7 @@ async function handleScriptPrompt(text) {
       toast('씬이 ' + selCount + '개라 처리에 시간이 걸릴 수 있습니다.', 2500);
     }
     const definiteBrain = /어떻게.*하면 좋|어떻게.*바꿔야|왜.*이상|방향.*맞는지|어떤.*방법이 좋|어떻게.*생각|어떤.*게 좋|어떻게 해야|조언.*해줘|어떻게 하지/.test(text);
-    const definiteEdit = /바꿔줘|수정해줘|고쳐줘|추가해줘|삭제해줘|써줘|넣어줘|만들어줘|바꿔$|수정$|대사.*분석|대사.*어때|대사.*통계|흐름.*어때|연결.*어때|씬.*어때|이 장면/.test(text);
+    const definiteEdit = /바꿔줘|수정해줘|고쳐줘|추가해줘|삭제해줘|써줘|넣어줘|만들어줘|바꿔$|수정$|대사.*분석|대사.*어때|대사.*통계|흐름.*어때|연결.*어때|씬.*어때|이 장면|재배치|재배열|순서로|합쳐|씬.*추가|씬.*삽입/.test(text);
 
     if (definiteBrain) {
       showBrainstormSuggestion(text);
@@ -6238,7 +6292,7 @@ async function handleFlowAnalysisInChat(text, mode) {
       const key = s.lines.filter(l=>l.type==='dialogue').slice(0,2).map(l=>l.text).join(' / ');
       return 'SC'+(i+1)+'. "'+s.title+'"'+(key?' — '+key:'');
     }).join('\n');
-    const _planFmt2 = '\n\n개선 제안은 반드시 다음 형식으로 작성하세요:\n방안1: [제목]\n- 구체적 내용 (SC번호 포함)\n방안2: [제목]\n- 구체적 내용 (SC번호 포함)\n방안이 없으면 생략 가능. 마크다운 볼드(**) 사용 금지.';
+    const _planFmt2 = '\n\n개선 제안은 반드시 다음 형식으로 작성하세요:\n방안1: [제목]\n- 구체적 내용 (SC번호 포함)\n방안2: [제목]\n- 구체적 내용 (SC번호 포함)\n방안이 없으면 생략 가능.\n주의: 각 방안은 하나의 구체적인 방법만 포함하세요. "또는", "혹은"으로 대안을 같은 방안 안에 넣지 말고, 대안은 별도 방안으로 분리하세요. 마크다운 볼드(**) 사용 금지.';
     const sysMap = {
       flow: '당신은 대본 흐름 분석 전문가입니다. 씬 연결이 매끄럽지 않은 부분을 찾아주세요.\n각 문제마다 <issue sc="씬번호">수정 제안 한 줄</issue> 태그를 붙이세요.' + _planFmt2,
       emotion: '당신은 극작 심리 분석 전문가입니다. 감정/심리 흐름의 부자연스러운 변화를 찾아주세요.\n각 문제마다 <issue sc="씬번호">수정 제안 한 줄</issue> 태그를 붙이세요.' + _planFmt2,
@@ -6332,7 +6386,7 @@ async function checkEmotionFlowWithPrompt(text) {
         .map(l => l.text).join(' | ');
       return 'SC' + idx + '. "' + s.title + '": ' + dialogues.slice(0, 200);
     }).join('\n');
-    const _planFmt3 = '\n\n개선 제안은 반드시 다음 형식으로 작성하세요:\n방안1: [제목]\n- 구체적 내용 (SC번호 포함)\n방안2: [제목]\n- 구체적 내용 (SC번호 포함)\n방안이 없으면 생략 가능. 마크다운 볼드(**) 사용 금지.';
+    const _planFmt3 = '\n\n개선 제안은 반드시 다음 형식으로 작성하세요:\n방안1: [제목]\n- 구체적 내용 (SC번호 포함)\n방안2: [제목]\n- 구체적 내용 (SC번호 포함)\n방안이 없으면 생략 가능.\n주의: 각 방안은 하나의 구체적인 방법만 포함하세요. "또는", "혹은"으로 대안을 같은 방안 안에 넣지 말고, 대안은 별도 방안으로 분리하세요. 마크다운 볼드(**) 사용 금지.';
     const sys = '당신은 극작 심리 분석 전문가입니다. 각 인물의 감정/심리 흐름을 씬별로 추적하고 부자연스러운 변화를 찾아주세요.' + _planFmt3 + '\n' +
       '반드시 <issues>[{"level":"error|warn|ok","scene":"SC번호","char":"인물명","message":"감정 상태 및 이슈","fix":"제안"}]</issues> 형식으로 응답하세요.';
     const raw = await callClaude(
@@ -6391,7 +6445,7 @@ async function checkSceneFlowWithPrompt(text) {
         '  끝: ' + lastLine;
     }).join('\n\n');
 
-    const _planFmt4 = '\n\n개선 제안은 반드시 다음 형식으로 작성하세요:\n방안1: [제목]\n- 구체적 내용 (SC번호 포함)\n방안2: [제목]\n- 구체적 내용 (SC번호 포함)\n방안이 없으면 생략 가능. 마크다운 볼드(**) 사용 금지.';
+    const _planFmt4 = '\n\n개선 제안은 반드시 다음 형식으로 작성하세요:\n방안1: [제목]\n- 구체적 내용 (SC번호 포함)\n방안2: [제목]\n- 구체적 내용 (SC번호 포함)\n방안이 없으면 생략 가능.\n주의: 각 방안은 하나의 구체적인 방법만 포함하세요. "또는", "혹은"으로 대안을 같은 방안 안에 넣지 말고, 대안은 별도 방안으로 분리하세요. 마크다운 볼드(**) 사용 금지.';
     const sys = '당신은 대본 흐름 분석 전문가입니다. 인접한 씬들 사이의 연결을 분석해서 어색하거나 매끄럽지 않은 전환을 찾아주세요.' + _planFmt4 + '\n' +
       '반드시 <issues>[{"level":"error|warn|ok","scene":"SC번호→SC번호","message":"이슈 설명","fix":"수정 제안 한 줄"}]</issues> 형식으로 응답하세요.\n' +
       '각 씬 경계마다 분석 결과를 포함하세요. 매끄러우면 level:ok로 표시하세요.';
