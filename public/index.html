@@ -596,6 +596,7 @@ textarea, input { font-family:var(--fb); }
   outline:none; border-radius:3px; min-height:1.4em;
   transition:background .1s; white-space:pre-wrap; word-wrap:break-word;
 }
+.ai-selected-line { background:rgba(232,168,74,0.12) !important; border-left:3px solid var(--accent) !important; padding-left:4px; }
 .line-el:hover:not([data-locked="true"]) { background:rgba(255,255,255,.03); }
 .line-el:focus { background:rgba(200,169,110,.05); outline:1px solid rgba(200,169,110,.2); }
 .line-el[data-locked="true"] { pointer-events:none; opacity:.6; }
@@ -1222,7 +1223,10 @@ function closeResponsePanel() {
           <input class="nav-search-inp" id="nav-search-inp" placeholder="🔍 씬 검색..." oninput="filterNavScenes(this.value)">
         </div>
         <div class="nav-scene-list" id="nav-scene-list"></div>
-        <button class="nav-add-scene" id="nav-add-scene-anchor" onclick="addSceneAtEnd()">+ 씬 추가</button>
+        <div style="display:flex;gap:4px;margin:5px 6px 5px;">
+          <button class="nav-add-scene" id="nav-add-scene-anchor" onclick="addSceneAtEnd()" style="margin:0;flex:1;">+ 씬 추가</button>
+          <button class="nav-add-scene" onclick="showAiSceneAddPanel()" style="margin:0;width:auto;padding:7px 10px;" title="AI가 필요한 씬을 판단해서 추가합니다">✨ AI</button>
+        </div>
       </div>
       <div class="nav-btm">
         <button class="nav-home-btn" onclick="goHome()">← 홈</button>
@@ -1253,12 +1257,18 @@ function closeResponsePanel() {
 
       <!-- Script tab -->
       <div class="app-tc" id="tc-script">
+        <div id="ai-write-banner" style="display:none;background:rgba(232,168,74,0.12);border-bottom:1px solid var(--accent2);padding:6px 12px;display:none;align-items:center;justify-content:space-between;gap:8px;">
+          <span style="font-size:12px;color:var(--accent);">✨ AI 작성 모드 — 줄을 탭해서 추가 선택하세요</span>
+          <button onclick="exitAiWriteMode()" style="font-size:11px;background:none;border:1px solid var(--accent2);color:var(--text3);border-radius:var(--r);padding:2px 8px;cursor:pointer;">취소</button>
+        </div>
         <div class="script-toolbar">
           <button class="toolbar-btn" id="undo-btn" onclick="undo()" disabled title="되돌리기 (Ctrl+Z)">↩ 되돌리기</button>
           <button class="toolbar-btn" id="redo-btn" onclick="redo()" disabled title="다시실행 (Ctrl+Y)">↪ 다시실행</button>
           <span class="toolbar-info" id="toolbar-info"></span>
           <button class="prompter-del-btn" id="del-btn" onclick="confirmDeleteSelected()">✕ 씬 삭제</button>
           <button class="toolbar-btn" id="merge-btn" onclick="handleSceneMergeFromBtn()" style="display:none;background:var(--accent3);color:var(--accent);border-color:var(--accent2);">⚡ AI 합치기</button>
+          <button class="toolbar-btn" id="fill-btn" onclick="handleFillPlaceholders()" style="display:none;background:var(--accent3);color:var(--accent);border-color:var(--accent2);" title="??? 표시된 부분을 AI가 채워드립니다">✨ ??? 채우기</button>
+          <button class="toolbar-btn" id="ai-write-btn" onclick="handleAiWriteSelected()" style="display:none;background:var(--accent3);color:var(--accent);border-color:var(--accent2);" title="선택한 줄을 AI가 다시 씁니다">✨ AI 작성</button>
         </div>
         <div class="del-confirm-bar" id="del-confirm-bar">
           <span id="del-confirm-txt"></span>
@@ -1294,14 +1304,14 @@ function closeResponsePanel() {
           <div class="fab-actions" id="fab-actions"></div>
         </div>
         <div class="chip-row" id="chip-row">
-          <span class="chip-hint" id="chip-hint">씬을 선택하거나 자유롭게 대화하세요</span>
+          <span class="chip-hint" id="chip-hint">라인에게 씬 수정, 추가, 분석을 지시하세요</span>
         </div>
         <div class="prompter-row">
           <label class="attach-btn" title="파일 첨부 (txt/md/docx)">
             📎<input type="file" accept=".txt,.md,.docx" onchange="handleFileAttach(event)" style="display:none">
           </label>
           <textarea class="prompter-inp" id="prompter-inp" rows="1"
-            placeholder="지시를 입력하세요..."
+            placeholder="라인에게 씬 수정, 추가, 분석을 지시하세요"
             onkeydown="onPromptKey(event)"
             oninput="autoResize(this); if(this.value) detectSceneNumbers(this.value);"></textarea>
           <button class="prompter-send" id="prompter-send" onclick="sendPrompt()">↑</button>
@@ -2598,13 +2608,29 @@ function updateToolbarInfo() {
   const el = document.getElementById('toolbar-info');
   if (!el) return;
   const cnt = S.selectedIds.size;
-  el.textContent = cnt > 0 ? `${cnt}개 씬 선택됨` : `전체 ${(S.cur?.scenes||[]).length}씬`;
+  el.textContent = cnt > 0 ? '라인에게 지시하세요 — ' + cnt + '개 씬 선택됨' : '라인에게 씬 수정, 추가, 분석을 지시하세요';
 }
 function updateDelBtn() {
   const btn = document.getElementById('del-btn');
   if (btn) btn.classList.toggle('show', S.selectedIds.size > 0);
   const mergeBtn = document.getElementById('merge-btn');
   if (mergeBtn) mergeBtn.style.display = S.selectedIds.size >= 2 ? '' : 'none';
+}
+
+function updateAiWriteBtn() {
+  // ??? 채우기 버튼
+  const fillBtn = document.getElementById('fill-btn');
+  const hasPlaceholder = (S.cur?.scenes||[]).some(sc =>
+    (sc.lines||[]).some(l => l.text && l.text.includes('???'))
+  );
+  if (fillBtn) fillBtn.style.display = hasPlaceholder ? '' : 'none';
+
+  // AI 작성 버튼
+  const aiWriteBtn = document.getElementById('ai-write-btn');
+  const hasAiSelected = (S.cur?.scenes||[]).some(sc =>
+    (sc.lines||[]).some(l => l.aiSelected)
+  );
+  if (aiWriteBtn) aiWriteBtn.style.display = hasAiSelected ? '' : 'none';
 }
 
 function scrollToScene(id) {
@@ -2667,7 +2693,9 @@ function switchTab(tab) {
   document.getElementById('tab-chat-btn').classList.toggle('on', tab==='chat');
   document.getElementById('tab-script-btn').classList.toggle('on', tab==='script');
   const inp = document.getElementById('prompter-inp');
-  inp.placeholder = tab==='chat' ? '브레인스토밍 — 자유롭게 대화하세요...' : '지시를 입력하세요 (씬 선택 후 대본 지시 또는 자유 입력)...';
+  inp.placeholder = tab==='chat'
+    ? '플로에게 이야기의 방향, 인물, 구조를 물어보세요'
+    : '라인에게 씬 수정, 추가, 분석을 지시하세요';
 }
 
 // ═══════════════════════════════════════════
@@ -3057,7 +3085,20 @@ function buildSceneBlock(sc, i) {
     linesWrap.innerHTML = '';
     sc.lines.forEach((line, li) => {
       const lw = document.createElement('div'); lw.className = 'line-wrap';
-      lw.style.cssText = 'display:flex;align-items:flex-start;position:relative;';
+      lw.style.cssText = 'display:flex;align-items:flex-start;position:relative;' +
+        (line.aiSelected ? 'background:rgba(232,168,74,0.1);border-left:3px solid var(--accent);padding-left:3px;border-radius:2px;' : '');
+      // AI 작성 모드: 탭으로 선택 토글
+      if (_aiWriteMode && line.type !== 'slug') {
+        lw.style.cursor = 'pointer';
+        lw.addEventListener('click', (e) => {
+          if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+          line.aiSelected = !line.aiSelected;
+          lw.style.cssText = 'display:flex;align-items:flex-start;position:relative;cursor:pointer;' +
+            (line.aiSelected ? 'background:rgba(232,168,74,0.1);border-left:3px solid var(--accent);padding-left:3px;border-radius:2px;' : '');
+          updateAiWriteModePrompt();
+          updateAiWriteBtn();
+        });
+      }
 
       // 중요 대사 버튼 (character 줄에만, absolute 우측)
       if (line.type === 'character' && !sc.locked) {
@@ -3307,6 +3348,18 @@ function buildSceneBlock(sc, i) {
           save(); renderAllLines();
           setTimeout(() => { const els = linesWrap.querySelectorAll('.line-el'); if (els[li+1]) els[li+1].focus(); }, 20);
         }));
+        menu.appendChild(mkMenuBtn('↓ AI 줄 추가', 'var(--accent)', () => {
+          const newLine = { type:'action', text:'', locked:false, aiSelected:true };
+          sc.lines.splice(li + 1, 0, newLine);
+          save(); renderAllLines();
+          if (!_aiWriteMode) enterAiWriteMode();
+          updateAiWriteModePrompt();
+          updateAiWriteBtn();
+          setTimeout(() => {
+            const inp = document.getElementById('prompter-inp');
+            if (inp) inp.focus();
+          }, 150);
+        }));
         menu.appendChild(mkDiv());
         menu.appendChild(mkMenuBtn('줄 삭제', 'var(--red)', () => {
           sc.lines.splice(li, 1); save(); renderAllLines();
@@ -3333,6 +3386,24 @@ function buildSceneBlock(sc, i) {
             save(); renderAllLines();
           }));
         }
+        // AI 작성 버튼
+        menu.appendChild(mkDiv());
+        const isAiSelected = line.aiSelected;
+        menu.appendChild(mkMenuBtn(
+          isAiSelected ? '✨ AI 작성 ✓ (해제)' : '✨ AI 작성',
+          'var(--accent)',
+          () => {
+            line.aiSelected = !isAiSelected;
+            if (line.aiSelected && !_aiWriteMode) enterAiWriteMode();
+            if (!line.aiSelected) {
+              const anySelected = (S.cur?.scenes||[]).some(sc=>(sc.lines||[]).some(l=>l.aiSelected));
+              if (!anySelected) exitAiWriteMode();
+            }
+            renderAllLines();
+            updateAiWriteBtn();
+            updateAiWriteModePrompt();
+          }
+        ));
         document.body.appendChild(menu);
         // Position near touch/click point
         const mw = 130, mh = 160;
@@ -4251,6 +4322,11 @@ async function sendPrompt() {
   const inp = document.getElementById('prompter-inp');
   const text = inp.value.trim();
   if (!text) return;
+  // AI 작성 모드면 handleAiWriteSelected로
+  if (_aiWriteMode && S.activeTab === 'script') {
+    await handleAiWriteSelected();
+    return;
+  }
   inp.value = ''; inp.style.height = 'auto';
   S.autoSelectedIds.clear(); // 전송 후 자동선택 초기화
   setWaiting(true);
@@ -5082,9 +5158,9 @@ async function handleClearScReorder(text) {
     if (firstSc) setTimeout(() => scrollToScene(firstSc.id), 150);
 
     const fixMsg = fixes.length > 0
-      ? ' — ' + fixes.length + '개 씬 경계 다듬기 diff 확인하세요'
-      : ' — 경계 수정 없음';
-    toast('↕ ' + scNums.map(n=>'SC'+n).join('→') + ' 재배치 완료' + fixMsg, 5000);
+      ? ' 경계도 매끄럽게 다듬었어요! diff를 확인해보세요 😊'
+      : ' 흐름이 잘 이어집니다 😊';
+    toast('✨ ' + scNums.map(n=>'SC'+n).join('→') + ' 순서로 재배치했습니다!' + fixMsg, 5000);
 
   } catch(e) {
     hideAnalyzing();
@@ -5460,6 +5536,175 @@ async function handleOrPattern(text) {
   }
 }
 
+// ── B. ??? 플레이스홀더 채우기 ───────────────────────────────────────
+async function handleFillPlaceholders() {
+  const scenes = S.cur?.scenes || [];
+  const targets = [];
+  scenes.forEach(sc => {
+    (sc.lines||[]).forEach((l, li) => {
+      if (l.text && l.text.includes('???')) targets.push({ sc, li, line: l });
+    });
+  });
+  if (!targets.length) { toast('??? 표시된 부분이 없습니다.'); return; }
+
+  showAnalyzing('??? 부분을 채우고 있습니다... ✍️');
+  try {
+    for (const { sc, li, line } of targets) {
+      const scLabel = getSceneLabel(sc, S.cur.scenes);
+      const before = (sc.lines||[]).slice(Math.max(0,li-4), li).map(l=>l.type+': '+l.text).join('\n');
+      const after = (sc.lines||[]).slice(li+1, li+4).map(l=>l.type+': '+l.text).join('\n');
+      const chars = (S.cur.characters||[]).map(c=>c.name+'('+c.role+')').join(', ');
+      const raw = await callClaude(
+        [{role:'user', content:
+          scLabel + ' 씬, 등장인물: ' + chars + '\n\n' +
+          '앞 내용:\n' + before + '\n\n' +
+          '채울 부분 (??? 자리): ' + line.type + ': ' + line.text + '\n\n' +
+          '뒤 내용:\n' + after + '\n\n' +
+          '??? 자리에 들어갈 내용만 작성하세요. 앞뒤 흐름에 자연스럽게 맞춰주세요.'}],
+        '요청한 줄 타입(' + line.type + ')에 맞게 텍스트만 반환하세요. 설명 없이.',
+        200
+      );
+      const filled = raw.trim().replace(/^["']|["']$/g, '');
+      if (filled) line.text = line.text.replace('???', filled);
+    }
+    hideAnalyzing();
+    save(true); renderScriptBody(); renderNavSceneList();
+    toast('✨ ' + targets.length + '개 ??? 부분을 채웠습니다! 확인해보세요 😊', 5000);
+    updateAiWriteBtn();
+  } catch(e) {
+    hideAnalyzing();
+    if (e.name !== 'AbortError') toast('오류: ' + e.message);
+  }
+}
+
+// ── AI 작성 모드 관리 ────────────────────────────────────────────────
+let _aiWriteMode = false;
+
+function enterAiWriteMode() {
+  _aiWriteMode = true;
+  // 배너 표시
+  const banner = document.getElementById('ai-write-banner');
+  if (banner) banner.style.display = 'flex';
+  // 프롬프터 힌트 변경
+  updateAiWriteModePrompt();
+  // 줄 탭 이벤트 활성화
+  document.getElementById('script-body')?.classList.add('ai-write-active');
+}
+
+function exitAiWriteMode() {
+  _aiWriteMode = false;
+  // 배너 숨김
+  const banner = document.getElementById('ai-write-banner');
+  if (banner) banner.style.display = 'none';
+  // 프롬프터 힌트 복원
+  const hint = document.getElementById('chip-hint');
+  if (hint) hint.textContent = '씬을 선택하거나 자유롭게 대화하세요';
+  const inp = document.getElementById('prompter-inp');
+  if (inp) inp.placeholder = '지시를 입력하세요...';
+  // 모든 aiSelected 해제
+  (S.cur?.scenes||[]).forEach(sc => (sc.lines||[]).forEach(l => { l.aiSelected = false; }));
+  document.getElementById('script-body')?.classList.remove('ai-write-active');
+  save(true); renderScriptBody();
+  updateAiWriteBtn();
+}
+
+function updateAiWriteModePrompt() {
+  const count = (S.cur?.scenes||[]).reduce((acc,sc) =>
+    acc + (sc.lines||[]).filter(l=>l.aiSelected).length, 0);
+  const hint = document.getElementById('chip-hint');
+  const inp = document.getElementById('prompter-inp');
+  if (count > 0) {
+    if (hint) hint.innerHTML = '<span style="color:var(--accent);">✨ ' + count + '줄 선택됨</span> — 방향을 입력하면 선택한 부분이 바뀝니다';
+    if (inp) inp.placeholder = '라인이 선택한 부분을 씁니다 — 방향을 알려주세요 (예: 더 감정적으로, 간결하게)';
+  } else {
+    if (hint) hint.innerHTML = '<span style="color:var(--accent);">✨ AI 작성 모드</span> — 줄을 탭해서 선택하세요';
+    if (inp) inp.placeholder = 'AI 작성 모드 — 줄을 탭해서 선택하세요';
+  }
+}
+
+// ── A. 선택된 줄 AI 재작성 ───────────────────────────────────────────
+async function handleAiWriteSelected() {
+  const scenes = S.cur?.scenes || [];
+  const sceneGroups = new Map();
+  scenes.forEach(sc => {
+    const selected = (sc.lines||[]).map((l,li) => ({l,li})).filter(({l}) => l.aiSelected);
+    if (selected.length > 0) sceneGroups.set(sc, selected);
+  });
+  if (!sceneGroups.size) { toast('AI 작성할 줄을 선택해주세요.'); return; }
+
+  const inp = document.getElementById('prompter-inp');
+  const instruction = inp ? inp.value.trim() : '';
+  if (!instruction) {
+    if (inp) {
+      inp.placeholder = '선택한 줄에 어떻게 써드릴까요? (예: 더 감정적으로, 간결하게...)';
+      inp.focus();
+    }
+    toast('프롬프터에 지시를 입력하고 전송해주세요 😊', 3000);
+    return;
+  }
+
+  if (inp) { inp.value = ''; inp.style.height = 'auto'; }
+  showAnalyzing('선택한 부분을 다시 쓰고 있습니다... ✍️');
+
+  try {
+    for (const [sc, selectedLines] of sceneGroups) {
+      const scLabel = getSceneLabel(sc, S.cur.scenes);
+      const chars = (S.cur.characters||[]).map(c=>c.name+'('+c.role+')').join(', ');
+      const allLines = sc.lines || [];
+      const minIdx = Math.min(...selectedLines.map(({li}) => li));
+      const maxIdx = Math.max(...selectedLines.map(({li}) => li));
+      const before = allLines.slice(Math.max(0,minIdx-4), minIdx).map(l=>l.type+': '+l.text).join('\n');
+      const target = selectedLines.map(({l}) => l.type+': '+l.text).join('\n');
+      const after = allLines.slice(maxIdx+1, maxIdx+4).map(l=>l.type+': '+l.text).join('\n');
+
+      const raw = await callClaude(
+        [{role:'user', content:
+          scLabel + ' 씬, 등장인물: ' + chars + '\n\n' +
+          '앞 컨텍스트:\n' + before + '\n\n' +
+          '★ 수정할 부분:\n' + target + '\n\n' +
+          '뒤 컨텍스트:\n' + after + '\n\n' +
+          '지시: ' + instruction}],
+        '수정할 부분만 같은 줄 수와 타입 형식으로 반환하세요.\n' +
+        '형식: type: 내용 (한 줄씩, 예: dialogue: 이제 돌아가야 해.)\n설명 없이 수정된 줄들만.',
+        500
+      );
+
+      const newLines = raw.trim().split('\n').map(row => {
+        const m = row.match(/^(\w+):\s*(.+)$/);
+        return m ? { type:m[1], text:m[2].trim(), locked:false } : null;
+      }).filter(Boolean);
+      if (!newLines.length) continue;
+
+      const oldLines = selectedLines.map(({l}) => ({...l}));
+      const newAllLines = [...allLines];
+      newAllLines.splice(minIdx, selectedLines.length, ...newLines);
+      sc.diff = {
+        prompt: instruction,
+        lines: [
+          ...allLines.slice(Math.max(0,minIdx-2), minIdx).map(l=>({type:'ctx',text:l.text})),
+          ...oldLines.map(l=>({type:'del',text:l.text})),
+          ...newLines.map(l=>({type:'add',text:l.text})),
+          ...allLines.slice(maxIdx+1, maxIdx+3).map(l=>({type:'ctx',text:l.text}))
+        ],
+        newLines: newAllLines,
+        comment: instruction
+      };
+      allLines.forEach(l => { l.aiSelected = false; });
+    }
+    hideAnalyzing();
+    save(true); renderScriptBody(); renderNavSceneList();
+    updateAiWriteBtn();
+    const firstSc = [...sceneGroups.keys()][0];
+    if (firstSc) setTimeout(() => scrollToScene(firstSc.id), 150);
+    exitAiWriteMode();
+    toast('✨ 선택한 부분을 다시 썼습니다! diff를 확인해보세요 😊', 5000);
+  } catch(e) {
+    hideAnalyzing();
+    exitAiWriteMode();
+    if (e.name !== 'AbortError') toast('오류: ' + e.message);
+  }
+}
+
 function handleSceneMergeFromBtn() {
   // 선택된 씬들로 merge 실행
   handleSceneMerge('선택된 씬들 합쳐줘');
@@ -5566,7 +5811,108 @@ async function executeMerge(targetScenes) {
     save(true); renderScriptBody(); renderNavSceneList();
     switchTab('script');
     setTimeout(() => scrollToScene(scA.id), 150);
-    toast('✓ AI가 ' + targetScenes.length + '개 씬을 합쳤습니다 — diff 확인 후 적용하면 나머지 씬이 삭제됩니다', 5000);
+    toast('✨ ' + targetScenes.length + '개 씬을 자연스럽게 합쳤습니다! diff를 확인하고 적용해보세요 😊', 5000);
+
+  } catch(e) {
+    hideAnalyzing();
+    if (e.name !== 'AbortError') toast('오류: ' + e.message);
+  }
+}
+
+// ── AI 자율 씬 추가 ──────────────────────────────────────────────────
+function showAiSceneAddPanel() {
+  const hints = [
+    { label:'전환씬', val:'씬 사이의 흐름을 자연스럽게 잇는 전환씬' },
+    { label:'갈등 고조', val:'갈등이 고조되는 장면' },
+    { label:'감정씬', val:'인물의 내면 감정을 보여주는 장면' },
+    { label:'도입씬', val:'이야기를 시작하는 도입 장면' },
+    { label:'AI가 알아서', val:'' },
+  ];
+  window._aiSceneHints = hints;
+  const bodyHTML = '<div class="choice-intro">어떤 씬이 필요한가요?</div>' +
+    '<div class="choice-list">' +
+    hints.map((h,i) =>
+      '<button class="choice-option" onclick="selectChoiceSingle(this)" data-val="'+i+'">' +
+      '<span class="choice-key">'+(i+1)+'</span>' + h.label + '</button>'
+    ).join('') + '</div>';
+  showResponsePanel('choice', '✨ AI 씬 추가',
+    bodyHTML,
+    '<button class="rp-btn" onclick="confirmAiSceneAdd()">✨ 생성</button>' +
+    '<button class="rp-btn" onclick="closeResponsePanel()">취소</button>'
+  );
+}
+
+async function confirmAiSceneAdd() {
+  const sel = document.querySelector('#rp-body .choice-option.selected');
+  const idx = sel ? parseInt(sel.dataset.val) : 4;
+  const hints = window._aiSceneHints || [];
+  const hint = hints[idx]?.val || '';
+  closeResponsePanel();
+  await handleAiSceneAdd(hint);
+}
+
+async function handleAiSceneAdd(hint) {
+  if (!S.cur) return;
+  const scenes = S.cur.scenes || [];
+  const chars = (S.cur.characters||[]).map(c=>c.name+'('+c.role+')').join(', ');
+  const synopsis = S.cur.synopsis || '';
+  const sceneSummary = scenes.map((s,i) =>
+    'SC'+(i+1)+'. "'+s.title+'": '+(s.lines||[]).map(l=>l.text).join(' ').slice(0,80)
+  ).join('\n');
+
+  showAnalyzing('새 장면을 구상하고 있습니다... 🌱');
+
+  try {
+    const raw = await callClaude(
+      [{role:'user', content:
+        '작품: ' + S.cur.title + '\n' +
+        '시놉시스: ' + synopsis + '\n' +
+        '등장인물: ' + chars + '\n\n' +
+        '현재 씬 목록:\n' + sceneSummary + '\n\n' +
+        (hint ? '추가할 씬 힌트: ' + hint + '\n\n' : '') +
+        '대본의 흐름을 분석해서 가장 필요한 씬을 하나 만들어 추가해주세요.'
+      }],
+      '반드시 다음 형식으로만 응답하세요:\n' +
+      '<insert_after>SC번호</insert_after> 또는 <insert_at>start|end</insert_at>\n' +
+      '<reason>추가 이유 한 줄 — 반드시 긍정적 표현으로 (예: ~을 더 풍성하게, ~을 자연스럽게 연결, ~의 매력을 살려서)</reason>\n' +
+      '<scenes>[{"title":"씬 제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes>',
+      6000
+    );
+    hideAnalyzing();
+
+    const insertAfter = raw.match(/<insert_after>SC\s*(\d+)<\/insert_after>/i)?.[1];
+    const insertAt = raw.match(/<insert_at>(start|end)<\/insert_at>/i)?.[1];
+    const reason = raw.match(/<reason>([\s\S]*?)<\/reason>/i)?.[1]?.trim() || '';
+    const scenesRaw = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
+
+    if (!scenesRaw) { toast('씬 생성 실패. 다시 시도해주세요.'); return; }
+    let scenesData = null;
+    try { scenesData = JSON.parse(scenesRaw); } catch(e) { toast('씬 데이터 파싱 실패.'); return; }
+    if (!scenesData?.length) return;
+
+    let refSc = null;
+    if (insertAfter) {
+      refSc = scenes.find(s => getSceneLabel(s,scenes) === 'SC ' + parseInt(insertAfter));
+    } else if (insertAt === 'start') {
+      refSc = null;
+    } else {
+      refSc = scenes[scenes.length - 1];
+    }
+
+    const refLabel = refSc ? getSceneLabel(refSc, scenes) :
+                     insertAt === 'start' ? '맨 처음' : '맨 끝';
+
+    const toastMsg = reason
+      ? '✨ ' + reason + ' 새 장면을 준비했어요!'
+      : '✨ AI가 새 장면을 만들었습니다!';
+    // 삽입 패널 열기 + 스크롤
+    showNewSceneInsertPanel(scenesData, hint || 'AI 씬 추가', refSc, refLabel);
+    // 패널이 열리면 response panel로 스크롤
+    setTimeout(() => {
+      const rp = document.getElementById('response-panel');
+      if (rp) rp.scrollIntoView({ behavior:'smooth', block:'nearest' });
+    }, 100);
+    toast(toastMsg + ' 바뀐 부분을 확인해보세요 😊', 5000);
 
   } catch(e) {
     hideAnalyzing();
@@ -5608,6 +5954,14 @@ async function handleSceneInsertPrompt(text) {
     const selectedArr = scenes.filter(s => S.selectedIds.has(s.id));
     refSc = selectedArr[selectedArr.length - 1];
     insertMode = 'after';
+  }
+
+  // SC번호/위치 힌트도 내용 힌트도 없으면 → AI가 알아서 판단
+  const hasContentHint = /독백|회상|갈등|전환|감정|도입|결말|클라이맥스|대화|추격|만남|이별|독백|신/.test(text);
+  const hasPosHint = bm || am || fm || S.selectedIds.size > 0;
+  if (!hasContentHint && !hasPosHint) {
+    await handleAiSceneAdd('');
+    return;
   }
 
   // 먼저 선택지 제시
@@ -5715,11 +6069,20 @@ const _analyzingMsgs = [
 ];
 let _analyzingInterval = null;
 
-function showAnalyzing() {
+function showAnalyzing(fixedMsg) {
+  setWaiting(true);
   const el = document.getElementById('chunk-progress');
   const msg = document.getElementById('cp-msg');
   if (!el || !msg) return;
   el.style.display = 'flex';
+  if (fixedMsg) {
+    msg.textContent = '✦ ' + fixedMsg;
+    _analyzingInterval = setInterval(() => {
+      const m = document.getElementById('cp-msg');
+      if (m) m.textContent = '✦ ' + fixedMsg;
+    }, 9999);
+    return;
+  }
   let idx = Math.floor(Math.random() * _analyzingMsgs.length);
   msg.textContent = '✦ ' + _analyzingMsgs[idx];
   _analyzingInterval = setInterval(() => {
@@ -5733,6 +6096,7 @@ function hideAnalyzing() {
   clearInterval(_analyzingInterval);
   const el = document.getElementById('chunk-progress');
   if (el) el.style.display = 'none';
+  setWaiting(false);
 }
 
 function handleSceneTime(text) {
@@ -6034,8 +6398,18 @@ async function handleScriptPrompt(text) {
   if (/중요 대사.*해제|keyline.*해제|중요대사.*해제/.test(text)) { await handleKeyline(text, false); return; }
   if (/몇 분|상연 시간|러닝타임|분짜리/.test(text)) { handleSceneTime(text); return; }
   if (/대사.*몇 줄|몇 줄.*대사|대사.*통계|줄 수/.test(text)) { handleDialogueStats(text); return; }
-  if (/씬.*추가|추가.*씬|새.*씬.*삽입|씬.*삽입|연결씬|전환씬|새 장면/.test(text)) { await handleSceneInsertPrompt(text); return; }
-  if (/합쳐|합치|merge|통합.*씬|씬.*통합|씬.*합|두.*씬.*하나|하나로.*만들|하나의.*씬|씬.*합병/.test(text)) { await handleSceneMerge(text); return; }
+  if (/씬.*추가|추가.*씬|새.*씬.*삽입|씬.*삽입|연결씬|전환씬|새 장면|AI.*씬|씬.*AI/.test(text)) { await handleSceneInsertPrompt(text); return; }
+  if (/합쳐|합치|merge|통합.*씬|씬.*통합|씬.*합|두.*씬.*하나|하나로.*만들|하나의.*씬|씬.*합병/.test(text)) {
+    // Haiku가 실제 합치기 요청인지 판단
+    const _mergeIntentRaw = await callClaude(
+      [{role:'user', content: '요청: "' + text + '"\n\n이것이 두 씬을 하나로 합치는 명령인가요, 아니면 편집/다듬기 요청인가요?'}],
+      '반드시 <intent>merge</intent> 또는 <intent>edit</intent>만 응답하세요.',
+      20, 'claude-haiku-4-5-20251001'
+    );
+    const _mergeIntent = extractTag(_mergeIntentRaw, 'intent');
+    if (_mergeIntent === 'merge') { await handleSceneMerge(text); return; }
+    // edit → 아래 편집 로직으로 계속
+  }
   if (/요약해|요약 해|씬.*요약|한 줄.*요약/.test(text)) { await handleSceneSummary(text); return; }
 
   // 분석/대사 관련 — Haiku 라우터
@@ -6940,7 +7314,18 @@ function showNewSceneInsertPanel(scenesData, comment, refSc, refLabel) {
       }
     }
     save(); renderScriptBody(); renderNavSceneList();
-    toast(`✓ 씬 ${newScs.length}개 ${mode === 'replace' ? '교체됨' : '삽입됨'}`);
+    // 삽입된 씬으로 자동 이동
+    const insertedSc = newScs[0];
+    if (insertedSc) {
+      switchTab('script');
+      setTimeout(() => {
+        scrollToScene(insertedSc.id);
+        S.selectedIds.clear(); S.selectedIds.add(insertedSc.id);
+        renderScriptBody(); renderNavSceneList();
+      }, 150);
+    }
+    const insertLabel = newScs.map(s=>s.title).join(', ');
+    toast('✨ "' + insertLabel + '" 장면이 추가됐습니다! 네비게이터에서도 확인해보세요 😊', 5000);
   };
 
   const refBtns = refSc ? `
@@ -9519,7 +9904,10 @@ async function handleFileAttach(e) {
         '4. 대본/씬이 있으면: <scenes>[{"title":"씬제목","slug":"INT/EXT. 장소 - 시간","merge":false,"lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes>\n' +
         '   - type은 action(지문)/character(배역명)/dialogue(대사) 중 하나만 사용\n' +
         '   - 앞 구간과 이어지는 씬이면 merge:true\n' +
-        '5. 현재 프로젝트와 전혀 다른 작품이면: <newproject>추천제목</newproject>';
+        '5. 현재 프로젝트와 전혀 다른 작품이면: <newproject>추천제목</newproject>\n' +
+        '6. 반드시 <relevance>related</relevance> 또는 <relevance>unrelated</relevance> 태그를 붙이세요.\n' +
+        '   related: 대본/시나리오/이야기 관련 파일\n' +
+        '   unrelated: 레시피, 뉴스, 기술문서 등 대본과 무관한 파일';
     };
 
     let synopsisData = null;
@@ -9655,80 +10043,100 @@ async function handleFileAttach(e) {
 
     fabStatus.textContent = (summaryText || '분석 완료') + chunkWarning;
 
+    // 연관성 판단 — raw에서 추출
+    const _relTag = (() => {
+      // 짧은 파일은 summaryText에서, 긴 파일은 처음 청크에서
+      const src = summaryText || '';
+      const m = src.match(/<relevance>(related|unrelated)<\/relevance>/i);
+      return m ? m[1] : (allScenes.length > 0 || synopsisData ? 'related' : 'unrelated');
+    })();
+    const isRelated = _relTag !== 'unrelated';
+
     // 액션 버튼 생성
     const actions = [];
 
-    // 현재 프로젝트에 저장하는 버튼들
-    if (synopsisData) {
-      actions.push({ label:'📋 시놉시스로 저장', cls:'green', fn: () => {
-        S.cur.synopsis = synopsisData; save();
-        renderSynopsisDrawer();
-        toast('✓ 시놉시스 저장됨');
-        addMsg('assistant', '파일에서 시놉시스를 저장했습니다.\n\n' + synopsisData.slice(0,200) + (synopsisData.length>200?'...':''));
-        hideBanner();
-      }});
-    }
-    if (scenesData && Array.isArray(scenesData) && scenesData.length > 0) {
-      if (isLong) {
-        // 긴 파일은 이미 순차 등록 완료 — 확인 버튼만
-        actions.push({ label:'✓ 씬 ' + scenesData.length + '개 추가 완료 — 닫기', cls:'purple', fn: () => {
-          save();
-          renderScriptBody();
-          addMsg('assistant', '파일에서 씬 ' + scenesData.length + '개를 대본에 추가했습니다.');
-          hideBanner();
-        }});
-        // 등장인물 추출 확인 버튼
-        actions.push({ label:'👥 등장인물 추출할까요?', cls:'amber', fn: () => {
-          hideBanner();
-          openDrawer('chars');
-          setTimeout(() => extractCharsFromScript(), 300);
-        }});
+    // 씬 추가 헬퍼
+    const doAddScenes = (position) => {
+      const newScs = (scenesData||[]).map(sc => ({
+        id: Date.now() + Math.floor(Math.random() * 100000),
+        title: sc.title || '새 씬', locked: false,
+        lines: [
+          { type:'slug', text: sc.slug || 'INT. 장소 - 시간', locked:false },
+          ...(sc.lines||[]).map(l => ({ type: l.type||'action', text: l.text||'', locked:false }))
+        ],
+        storyboard: [], diff: null,
+      }));
+      if (!S.cur.scenes) S.cur.scenes = [];
+      if (position === 'start') {
+        S.cur.scenes.unshift(...newScs);
+      } else if (position === 'selected') {
+        const lastSelIdx = [...S.selectedIds].reduce((max, id) => {
+          const idx = S.cur.scenes.findIndex(s=>s.id===id);
+          return idx > max ? idx : max;
+        }, -1);
+        S.cur.scenes.splice(lastSelIdx >= 0 ? lastSelIdx+1 : S.cur.scenes.length, 0, ...newScs);
       } else {
-        actions.push({ label:'🎬 씬 ' + scenesData.length + '개 현재 프로젝트에 추가', cls:'purple', fn: () => {
-          addScenesFromAI(scenesData);
-          addMsg('assistant', '파일에서 씬 ' + scenesData.length + '개를 대본에 추가했습니다.');
-          hideBanner();
-        }});
+        S.cur.scenes.push(...newScs);
       }
-    }
+      save(true); renderScriptBody(); renderNavSceneList();
+      addMsg('assistant', '✨ 씬 ' + newScs.length + '개를 대본에 추가했습니다!');
+      // 추가 후 분석 버튼
+      fabActions.innerHTML = '';
+      const mkB = (label, cls, fn) => {
+        const b = document.createElement('button');
+        b.className = 'fab-action-btn ' + (cls||'');
+        b.textContent = label; b.onclick = fn;
+        fabActions.appendChild(b);
+      };
+      mkB('📋 시놉시스 자동 생성', 'green', () => { hideBanner(); regenSynopsis(); });
+      mkB('👥 등장인물 자동 추출', 'amber', () => { hideBanner(); openDrawer('chars'); setTimeout(()=>extractCharsFromScript(),300); });
+      mkB('✕ 닫기', '', () => hideBanner());
+      fabStatus.textContent = '씬 ' + newScs.length + '개 추가 완료! 추가 분석을 할까요?';
+    };
 
-    // 새 프로젝트로 저장 버튼 (AI가 다른 작품으로 판단한 경우)
-    if (newProjectTitle && (synopsisData || scenesData)) {
-      const suggestedTitle = newProjectTitle.trim();
-      actions.push({ label:'✨ "' + suggestedTitle + '" 새 프로젝트로 저장', cls:'amber', fn: () => {
-        // 새 프로젝트 생성
-        const newProj = {
+    // 새 프로젝트 생성 헬퍼
+    const doNewProject = () => {
+      const suggested = (newProjectTitle || '새 프로젝트').trim();
+      const title = prompt('새 프로젝트 제목을 입력하세요:', suggested) || suggested;
+      const newProj = {
+        id: Date.now() + Math.floor(Math.random() * 100000),
+        title, medium: S.cur?.medium || '기타',
+        genreTags: [], scenes: [], characters: [],
+        synopsis: synopsisData || '',
+        synopsisSections: [], messages: [],
+        lastOpened: Date.now(), storyboard: [],
+      };
+      if (scenesData && Array.isArray(scenesData)) {
+        newProj.scenes = scenesData.map(sc => ({
           id: Date.now() + Math.floor(Math.random() * 100000),
-          title: suggestedTitle,
-          medium: S.cur?.medium || '기타',
-          genreTags: [],
-          scenes: [],
-          characters: [],
-          synopsis: synopsisData || '',
-          synopsisSections: [],
-          messages: [],
-          lastOpened: Date.now(),
-          storyboard: [],
-        };
-        // 씬 데이터가 있으면 추가
-        if (scenesData && Array.isArray(scenesData)) {
-          newProj.scenes = scenesData.map(s => ({
-            id: Date.now() + Math.floor(Math.random() * 100000),
-            title: s.title || '새 씬',
-            locked: false,
-            lines: [
-              { type:'slug', text: s.slug || 'INT. 장소 - 시간대', locked:false },
-              ...(s.lines||[]).map(l => ({ type: l.type||'action', text:l.text||'', locked:false }))
-            ],
-            storyboard: [], diff: null,
-          }));
-        }
-        S.projects.push(newProj);
-        save(true);
-        toast('✨ 새 프로젝트 "' + suggestedTitle + '" 생성됨');
-        addMsg('assistant', '"' + suggestedTitle + '" 새 프로젝트를 만들었습니다. 홈으로 돌아가면 확인할 수 있어요.');
-        hideBanner();
-      }});
+          title: sc.title || '새 씬', locked: false,
+          lines: [
+            { type:'slug', text: sc.slug || 'INT. 장소 - 시간', locked:false },
+            ...(sc.lines||[]).map(l => ({ type: l.type||'action', text: l.text||'', locked:false }))
+          ],
+          storyboard: [], diff: null,
+        }));
+      }
+      S.projects.push(newProj);
+      save(true);
+      toast('✨ "' + title + '" 프로젝트가 만들어졌습니다!', 4000);
+      hideBanner();
+      openProject(newProj.id);
+    };
+
+    if (!isRelated && allScenes.length === 0) {
+      // 연관 없음
+      fabStatus.textContent = '이 파일은 현재 대본과 관련이 없는 것 같습니다.';
+      actions.push({ label:'그래도 맨 뒤에 추가', cls:'', fn: () => doAddScenes('end') });
+      actions.push({ label:'✨ 새 프로젝트로 만들기', cls:'amber', fn: doNewProject });
+    } else if (scenesData && Array.isArray(scenesData) && scenesData.length > 0) {
+      // 연관 있음 + 씬 있음 → 위치 선택
+      actions.push({ label:'⬆ 맨 앞에 추가', cls:'', fn: () => doAddScenes('start') });
+      if (S.selectedIds.size > 0) {
+        actions.push({ label:'↓ 선택 씬 뒤에 추가', cls:'purple', fn: () => doAddScenes('selected') });
+      }
+      actions.push({ label:'⬇ 맨 뒤에 추가', cls:'purple', fn: () => doAddScenes('end') });
+      actions.push({ label:'✨ 새 프로젝트로 만들기', cls:'amber', fn: doNewProject });
     }
 
     // 둘 다 없으면 메모로 브레인스토밍에 추가
