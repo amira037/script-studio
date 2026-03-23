@@ -4409,26 +4409,19 @@ async function handleChatPrompt(text) {
   switchTab('chat');
   showTyping();
   try {
-    // 씬 흐름/감정/설정 분석 키워드 감지
-    if (/갈등.*분석|갈등.*흐름|긴장.*흐름|갈등.*검사|갈등.*봐/.test(text) && (S.cur?.scenes||[]).length > 0) {
-      await checkConflictWithPrompt(text); return;
-    }
-    // 앞뒤 씬 연결 분석 먼저 (단일 씬 기준)
-    if (/앞뒤|이전.*씬|다음.*씬|씬.*앞뒤|이 씬.*흐름/.test(text) && S.selectedIds.size > 0) {
-      await handleSceneConnection(text); return;
-    }
-    if (/연결|매끄럽|자연스럽|장면.*전환|씬.*이어/.test(text) && (S.cur?.scenes||[]).length > 1) {
-      await handleFlowAnalysisInChat(text, 'flow'); return;
-    }
-    if (/감정|심리|내면|감정.*흐름/.test(text) && (S.cur?.scenes||[]).length > 0) {
-      await handleFlowAnalysisInChat(text, 'emotion'); return;
-    }
-    if (/설정.*충돌|모순|설정.*오류|설정.*검사/.test(text) && (S.cur?.scenes||[]).length > 0) {
-      await handleFlowAnalysisInChat(text, 'setting'); return;
-    }
-    // 목적 기반 씬 재배치 키워드 감지
-    if (/긴장.*높은.*씬.*모아|갈등.*높은.*씬.*앞|클라이맥스.*앞|씬.*순서.*갈등|강도.*기준.*재배치|갈등.*기준.*순서/.test(text) && (S.cur?.scenes||[]).length > 1) {
-      await reorderByConflict(text); return;
+    // 씬/대사/분석 관련 — Haiku 라우터
+    const _chatAnalysisKw = /갈등|긴장|흐름|연결|감정|심리|설정|충돌|모순|일관성|검사|대사.*분석|주요.*대사|중요.*대사|대사.*어때|어때|자연스럽|매끄럽|앞뒤|씬.*어때|재배치|재배열|갈등.*기준|클라이맥스/.test(text);
+    if (_chatAnalysisKw && (S.cur?.scenes||[]).length > 0) {
+      const _chatCmd = await haikusRoute(text);
+      if (_chatCmd === 'conflict')   { await checkConflictWithPrompt(text); return; }
+      if (_chatCmd === 'flow')       { await handleFlowAnalysisInChat(text, 'flow'); return; }
+      if (_chatCmd === 'emotion')    { await handleFlowAnalysisInChat(text, 'emotion'); return; }
+      if (_chatCmd === 'setting')    { await handleFlowAnalysisInChat(text, 'setting'); return; }
+      if (_chatCmd === 'consistency'){ await checkConsistencyWithPrompt(text); return; }
+      if (_chatCmd === 'scene_connect') { await handleSceneConnection(text); return; }
+      if (_chatCmd === 'reorder')    { await reorderByConflict(text); return; }
+      if (_chatCmd === 'dialogue_analysis') { switchTab('script'); setTimeout(()=>{const inp=document.getElementById('prompter-inp');if(inp){inp.value=text;inp.dispatchEvent(new Event('input'));inp.focus();}},200); addMsg('assistant','대사 분석은 대본 에디터에서 진행하겠습니다 😊'); return; }
+      // 그 외(edit/brainstorm/merge 등) → 아래 일반 처리로
     }
     const ctx = buildProjectContext();
     const history = await buildCompressedHistory();
@@ -5005,30 +4998,103 @@ ${charList}`}],
 // ── SC번호 명확한 순서 재배치 ──────────────────────────────────────
 async function handleClearScReorder(text) {
   const scenes = S.cur?.scenes || [];
-  // SC번호들 추출 및 순서 파악
-  const scNums = [...new Set((text.match(/SC\s*(\d+)/gi)||[]).map(s=>parseInt(s.replace(/SC\s*/i,''))))];
+  // SC번호들 추출 — 텍스트에 나온 순서대로
+  const scNums = [];
+  const scPat = /SC\s*(\d+)/gi;
+  let m;
+  while ((m = scPat.exec(text)) !== null) {
+    const n = parseInt(m[1]);
+    if (!scNums.includes(n)) scNums.push(n);
+  }
   if (scNums.length < 2) { toast('SC번호를 2개 이상 명시해주세요.'); return; }
 
-  // 해당 씬 찾기
   const targetScenes = scNums.map(n => scenes.find(s => getSceneLabel(s,scenes)==='SC '+n)).filter(Boolean);
   if (targetScenes.length < 2) { toast('씬을 찾을 수 없습니다.'); return; }
 
-  // 새 순서로 재배치 — targetScenes 순서대로
+  // 1. 배열 재배치
   const newOrder = [...scenes];
-  const firstIdx = Math.min(...targetScenes.map(s=>newOrder.indexOf(s)));
-  // 해당 씬들을 원래 위치에서 제거
+  const firstIdx = Math.min(...targetScenes.map(s => newOrder.indexOf(s)));
   targetScenes.forEach(s => {
     const idx = newOrder.indexOf(s);
     if (idx > -1) newOrder.splice(idx, 1);
   });
-  // targetScenes 순서대로 firstIdx 위치에 삽입
   newOrder.splice(firstIdx, 0, ...targetScenes);
 
-  // 미리보기 모달
-  showReorderPreviewModal(targetScenes.map((s,i) => ({
-    id: getSceneLabel(s,scenes),
-    newIndex: firstIdx + i
-  })));
+  // 2. Sonnet이 경계 부분 다듬기
+  showAnalyzing();
+  try {
+    // 재배치된 씬 경계 내용 수집 (앞뒤 접합부)
+    const borderContent = targetScenes.map((sc, i) => {
+      const lastLines = (sc.lines||[]).slice(-3).map(l=>l.text).join(' / ');
+      const nextSc = targetScenes[i+1];
+      const nextFirstLines = nextSc ? (nextSc.lines||[]).slice(0,3).map(l=>l.text).join(' / ') : '';
+      return getSceneLabel(sc,scenes) + ' 끝: ' + lastLines +
+        (nextSc ? '\n→ ' + getSceneLabel(nextSc,scenes) + ' 시작: ' + nextFirstLines : '');
+    }).join('\n\n');
+
+    const raw = await callClaude(
+      [{role:'user', content:
+        '씬 순서를 ' + scNums.map(n=>'SC'+n).join('→') + ' 으로 재배치했습니다.\n\n' +
+        '각 씬의 경계 부분이 자연스럽게 이어지도록 필요한 경우 씬 시작/끝 부분을 수정해주세요.\n\n' +
+        '경계 내용:\n' + borderContent}],
+      '수정이 필요한 씬만 <fix sc="씬번호" pos="start|end">수정할 내용</fix> 형식으로 응답하세요.\n' +
+      '수정 불필요하면 <fix></fix>만 응답하세요. 마크다운 없이.',
+      2000
+    );
+    hideAnalyzing();
+
+    // fix 태그 파싱
+    const fixPat = /<fix\s+sc="(\d+)"\s+pos="(start|end)">([\s\S]*?)<\/fix>/g;
+    const fixes = [];
+    let fm;
+    while ((fm = fixPat.exec(raw)) !== null) {
+      if (fm[3].trim()) fixes.push({ scNum: parseInt(fm[1]), pos: fm[2], content: fm[3].trim() });
+    }
+
+    // 재배치 적용
+    pushUndo();
+    S.cur.scenes = newOrder;
+
+    // Sonnet 수정 적용 (diff로 표시)
+    fixes.forEach(fix => {
+      const sc = S.cur.scenes.find(s => getSceneLabel(s, S.cur.scenes) === 'SC ' + fix.scNum);
+      if (!sc) return;
+      const newLines = [...(sc.lines||[])];
+      if (fix.pos === 'end') {
+        newLines.push({ type:'action', text: fix.content, locked:false });
+      } else {
+        newLines.unshift({ type:'action', text: fix.content, locked:false });
+      }
+      sc.diff = {
+        prompt: 'SC' + fix.scNum + ' 경계 다듬기',
+        lines: [
+          ...(sc.lines||[]).map(l=>({type:'ctx', text:l.text})),
+          { type:'add', text: fix.content }
+        ],
+        newLines,
+        comment: '재배치 경계 다듬기'
+      };
+    });
+
+    save(true); renderScriptBody(); renderNavSceneList();
+    switchTab('script');
+    const firstSc = S.cur.scenes.find(s => getSceneLabel(s, S.cur.scenes) === 'SC ' + scNums[0]);
+    if (firstSc) setTimeout(() => scrollToScene(firstSc.id), 150);
+
+    const fixMsg = fixes.length > 0
+      ? ' — ' + fixes.length + '개 씬 경계 다듬기 diff 확인하세요'
+      : ' — 경계 수정 없음';
+    toast('↕ ' + scNums.map(n=>'SC'+n).join('→') + ' 재배치 완료' + fixMsg, 5000);
+
+  } catch(e) {
+    hideAnalyzing();
+    // Sonnet 실패해도 재배치는 적용
+    pushUndo();
+    S.cur.scenes = newOrder;
+    save(true); renderScriptBody(); renderNavSceneList();
+    switchTab('script');
+    toast('↕ 씬 순서 변경됐습니다');
+  }
 }
 
 // ── 대안 장면 교체 ──────────────────────────────────────────────────
@@ -5281,6 +5347,73 @@ async function handleKeyline(text, setOn) {
 }
 
 // ── 씬 합치기 ────────────────────────────────────────────────────────
+
+// ── 공통 Haiku 라우터 ────────────────────────────────────────────
+// script/chat 양쪽에서 사용. cmd 반환:
+//   conflict | flow | emotion | setting | consistency
+//   dialogue_analysis | dialogue_lookup | keyline
+//   scene_connect | merge | reorder | insert | edit | brainstorm
+async function haikusRoute(text) {
+  const sceneCount = (S.cur?.scenes||[]).length;
+  const charNames = (S.cur?.characters||[]).map(c=>c.name).join(', ');
+  const raw = await callClaude(
+    [{role:'user', content:
+      '대본 요청: "' + text + '"\n' +
+      '씬 수: ' + sceneCount + ', 등장인물: ' + charNames
+    }],
+    '대본 편집/분석 요청을 분류하세요.\n' +
+    '- 갈등/긴장 강도 분석 → conflict\n' +
+    '- 씬 흐름/연결/전환 분석 → flow\n' +
+    '- 감정/심리 흐름 분석 → emotion\n' +
+    '- 설정 충돌/모순 검사 → setting\n' +
+    '- 일관성 검사 → consistency\n' +
+    '- 인물 대사 분석/선별 → dialogue_analysis\n' +
+    '- 대사 목록 조회 → dialogue_lookup\n' +
+    '- 중요 대사 지정 → keyline\n' +
+    '- 씬 연결/흐름/어때 분석 → scene_connect\n' +
+    '- 씬 합치기/병합 → merge\n' +
+    '- 씬 순서 재배치 → reorder\n' +
+    '- 씬 추가/삽입 → insert\n' +
+    '- 방향/아이디어/전략/조언 → brainstorm\n' +
+    '- 그 외 편집 → edit\n' +
+    '반드시 <cmd>명령어</cmd> 형식으로만 응답하세요.',
+    40, 'claude-haiku-4-5-20251001'
+  );
+  return extractTag(raw, 'cmd') || 'edit';
+}
+
+async function dispatchCmd(cmd, text, source) {
+  // source: 'script' | 'chat'
+  switch(cmd) {
+    case 'conflict':    await checkConflictWithPrompt(text); break;
+    case 'flow':
+      if (source === 'chat') await handleFlowAnalysisInChat(text, 'flow');
+      else await handleSceneConnection(text);
+      break;
+    case 'emotion':
+      if (source === 'chat') await handleFlowAnalysisInChat(text, 'emotion');
+      else await checkEmotionFlowWithPrompt(text);
+      break;
+    case 'setting':
+      if (source === 'chat') await handleFlowAnalysisInChat(text, 'setting');
+      else await checkSettingConflictWithPrompt(text);
+      break;
+    case 'consistency':  await checkConsistencyWithPrompt(text); break;
+    case 'dialogue_analysis': await handleCharDialogueAnalysis(text); break;
+    case 'dialogue_lookup':   handleCharDialogueLookup(text); break;
+    case 'keyline':     await handleKeyline(text, true); break;
+    case 'scene_connect': await handleSceneConnection(text); break;
+    case 'merge':       await handleSceneMerge(text); break;
+    case 'reorder':     await handleClearScReorder(text); break;
+    case 'insert':      await handleSceneInsertPrompt(text); break;
+    case 'brainstorm':
+      if (source === 'script') showBrainstormSuggestion(text);
+      else { hideTyping(); addMsg('assistant', '이 질문은 방향 탐색이 필요해 보입니다. 자유롭게 이야기해주세요 😊'); }
+      break;
+    default: break; // edit — 호출자가 처리
+  }
+}
+
 // ── "또는/혹은" 패턴 — Haiku가 컨텍스트 보고 판단 ──────────────────
 async function handleOrPattern(text) {
   const scenes = S.cur?.scenes || [];
@@ -5893,27 +6026,28 @@ async function handleScriptPrompt(text) {
 
   if (!selectedScenes.length) { toast('편집할 씬이 없습니다.'); return; }
 
-  // Special commands
-  if (/갈등.*분석|갈등.*흐름|긴장.*흐름|갈등.*검사|갈등.*봐/.test(text)) { await checkConflictWithPrompt(text); return; }
+  // Special commands — 명확한 키워드는 직접 처리
   if (/제목.*바꿔|제목.*변경|제목.*수정|제목.*극적|제목.*추천/.test(text)) { await handleTitleChange(text); return; }
   if (/중요 장면|잠금해줘|locked.*on|장면.*잠금/.test(text)) { await handleSceneLock(text, true); return; }
   if (/잠금 해제|잠금.*해제|중요 장면.*해제|locked.*off/.test(text)) { await handleSceneLock(text, false); return; }
   if (/복제해줘|복제 해줘|씬.*복제/.test(text)) { await handleSceneClone(text); return; }
   if (/중요 대사.*해제|keyline.*해제|중요대사.*해제/.test(text)) { await handleKeyline(text, false); return; }
-  if (/중요 대사|keyline|핵심 대사/.test(text) && /SC\s*\d+|이 씬/.test(text)) { await handleKeyline(text, true); return; }
   if (/몇 분|상연 시간|러닝타임|분짜리/.test(text)) { handleSceneTime(text); return; }
   if (/대사.*몇 줄|몇 줄.*대사|대사.*통계|줄 수/.test(text)) { handleDialogueStats(text); return; }
-  // 대사 관련 — 분기
-  if (/대사.*분석|인물.*대사.*분석|대사.*어때|대사.*검토|주요.*대사|중요.*대사.*찾|중요.*대사.*분석/.test(text)) { await handleCharDialogueAnalysis(text); return; }
-  if (/SC\s*\d+.*대사.*중요|SC\s*\d+.*중요.*대사|중요.*대사.*SC\s*\d+|대사.*선택.*SC\s*\d+/.test(text)) { await handleKeyline(text, true); return; }
-  if (/대사.*뽑아|대사.*보여|대사.*목록|대사.*확인/.test(text)) { handleCharDialogueLookup(text); return; }
   if (/씬.*추가|추가.*씬|새.*씬.*삽입|씬.*삽입|연결씬|전환씬|새 장면/.test(text)) { await handleSceneInsertPrompt(text); return; }
   if (/합쳐|합치|merge|통합.*씬|씬.*통합|씬.*합|두.*씬.*하나|하나로.*만들|하나의.*씬|씬.*합병/.test(text)) { await handleSceneMerge(text); return; }
-  // 씬 분석 — handleSceneConnection으로 통합 (선택 씬 기준)
-  if (/연결|매끄럽|흐름|자연스럽|전환.*어색|어색.*전환|앞뒤|이 장면|이 씬.*어때|어떻게 생각|괜찮아/.test(text)) { await handleSceneConnection(text); return; }
-  if (/일관성|검사/.test(text)) { await checkConsistencyWithPrompt(text); return; }
-  if (/감정|심리|내면|감정.*흐름|심리.*변화/.test(text)) { await checkEmotionFlowWithPrompt(text); return; }
-  if (/설정.*충돌|모순|설정.*오류|설정.*검사|충돌.*설정/.test(text)) { await checkSettingConflictWithPrompt(text); return; }
+  if (/요약해|요약 해|씬.*요약|한 줄.*요약/.test(text)) { await handleSceneSummary(text); return; }
+
+  // 분석/대사 관련 — Haiku 라우터
+  const _analysisKw = /갈등|긴장|흐름|연결|감정|심리|설정|충돌|모순|일관성|검사|대사.*분석|주요.*대사|중요.*대사|대사.*어때|대사.*뽑아|대사.*목록|대사.*조회|어때|자연스럽|매끄럽|앞뒤|씬.*어때/.test(text);
+  if (_analysisKw) {
+    showAnalyzing();
+    const _cmd = await haikusRoute(text);
+    hideAnalyzing();
+    if (_cmd !== 'edit' && _cmd !== 'brainstorm') { await dispatchCmd(_cmd, text, 'script'); return; }
+    if (_cmd === 'brainstorm') { showBrainstormSuggestion(text); return; }
+    // edit → 아래 편집 로직으로 계속
+  }
 
   // ── 1단계 키워드 감지 ────────────────────────────────────────────────
   // 대안 장면 교체
@@ -6002,32 +6136,24 @@ async function handleScriptPrompt(text) {
     if (selCount >= 4 && selCount <= 6 && !(/바꿔줘|수정해줘|고쳐줘/.test(text))) {
       toast('씬이 ' + selCount + '개라 처리에 시간이 걸릴 수 있습니다.', 2500);
     }
-    const definiteBrain = /어떻게.*하면 좋|어떻게.*바꿔야|왜.*이상|방향.*맞는지|어떤.*방법이 좋|어떻게.*생각|어떤.*게 좋|어떻게 해야|조언.*해줘|어떻게 하지/.test(text);
-    const definiteEdit = /바꿔줘|수정해줘|고쳐줘|추가해줘|삭제해줘|써줘|넣어줘|만들어줘|바꿔$|수정$|대사.*분석|대사.*어때|대사.*통계|흐름.*어때|연결.*어때|씬.*어때|이 장면|재배치|재배열|순서로|합쳐|씬.*추가|씬.*삽입/.test(text);
-
-    if (definiteBrain) {
-      showBrainstormSuggestion(text);
-      return;
-    }
-
-    // 2단계: 애매한 경우 Haiku 판단
-    if (!definiteEdit) {
-      const intentRaw = await callClaude(
-        [{role:'user', content:'대본 작업 요청: "'+text+'"'}],
-        '대본 편집 요청을 분류하세요.\n' +
-        '- 씬 합치기/병합/통합/하나로 → merge\n' +
-        '- 대사/씬/편집/분석/수정/추가/삭제/흐름/연결/통계/조회 관련 → edit\n' +
-        '- 방향/아이디어/전략/어떻게 하면/의견/조언/논의 → brainstorm\n' +
-        '반드시 <intent>merge</intent>, <intent>edit</intent>, <intent>brainstorm</intent> 중 하나만 응답하세요.',
-        30, 'claude-haiku-4-5-20251001'
-      );
-      const intent = extractTag(intentRaw, 'intent');
-      if (intent === 'merge') { await handleSceneMerge(text); return; }
-      if (intent === 'brainstorm') {
-        showBrainstormSuggestion(text);
-        return;
-      }
-    }
+    // 항상 Haiku가 판단 — edit|brainstorm|merge 외 특수 cmd도 처리
+    const _intentRaw = await callClaude(
+      [{role:'user', content:'대본 작업 요청: "'+text+'"'}],
+      '대본 편집 요청을 분류하세요.\n' +
+      '- 씬 합치기/병합 → merge\n' +
+      '- 씬 순서 재배치 → reorder\n' +
+      '- 씬 추가/삽입 → insert\n' +
+      '- 대사/씬/편집/분석/수정/추가/삭제/흐름/연결/통계/조회 관련 → edit\n' +
+      '- 방향/아이디어/전략/어떻게 하면/의견/조언/논의 → brainstorm\n' +
+      '반드시 <intent>명령어</intent> 형식으로만 응답하세요.',
+      30, 'claude-haiku-4-5-20251001'
+    );
+    const _intent = extractTag(_intentRaw, 'intent');
+    if (_intent === 'merge')    { await handleSceneMerge(text); return; }
+    if (_intent === 'reorder')  { await handleClearScReorder(text); return; }
+    if (_intent === 'insert')   { await handleSceneInsertPrompt(text); return; }
+    if (_intent === 'brainstorm') { showBrainstormSuggestion(text); return; }
+    // edit → 아래 편집 로직으로 계속
   } // end skipBrainCheck
 
   // 중요 장면 포함 시 확인
@@ -6832,10 +6958,10 @@ function showNewSceneInsertPanel(scenesData, comment, refSc, refLabel) {
 
 function showCommentPanel(rawText) {
   const text = cleanDisplayText(rawText) || rawText.slice(0, 300) || '처리 완료';
-  const escaped = text.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  window._commentPanelText = text;
   showResponsePanel('comment', 'AI 응답', `<div class="ai-comment-txt">${formatRpText(text)}</div>`,
     `<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>
-     <button class="rp-btn to-chat" onclick="takeToBrainstorm('${escaped}')">브레인스토밍에서 계속 →</button>`);
+     <button class="rp-btn to-chat" onclick="flowPanelToBrainstorm(window._commentPanelText)">💬 브레인스토밍에서 계속 →</button>`);
 }
 
 function selectChoice(btn, choice) {
