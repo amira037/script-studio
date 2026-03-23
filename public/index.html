@@ -3562,9 +3562,17 @@ function buildDiffLines(lines) {
 function applyDiff(id) {
   const sc = S.cur.scenes.find(s=>s.id===id);
   if (!sc || !sc.diff) return;
+  const mergeDeleteId = sc.diff.mergeDeleteId;
   sc.lines = sc.diff.newLines;
   sc.diff = null;
-  save(); renderScriptBody(); renderNavSceneList(); toast('✓ 적용됨');
+  // 씬 합치기 — 다른 씬 삭제
+  if (mergeDeleteId) {
+    S.cur.scenes = S.cur.scenes.filter(s=>s.id!==mergeDeleteId);
+    toast('✓ 적용됨 — 합쳐진 씬이 삭제됐습니다');
+  } else {
+    toast('✓ 적용됨');
+  }
+  save(); renderScriptBody(); renderNavSceneList();
 }
 function cancelDiff(id) {
   const sc = S.cur.scenes.find(s=>s.id===id);
@@ -5125,7 +5133,7 @@ function formatRpText(text) {
       '$1<div style="color:var(--accent);font-weight:600;font-size:11px;margin-top:8px;margin-bottom:2px;">$2</div>')
     // 번호/대시 강조
     .replace(/(^|\n)(\d+\.|[-•])\s/g,'$1<span style="color:var(--accent);font-weight:600;">$2</span> ')
-    .replace(/\n\n/g,'<br><br>')
+    .replace(/\n\n/g,'<br>')
     .replace(/\n/g,'<br>');
 }
 
@@ -5236,7 +5244,81 @@ async function handleKeyline(text, setOn) {
   }
 }
 
-// ── 씬 추가 (대본 에디터) ─────────────────────────────────────────────
+// ── 씬 합치기 ────────────────────────────────────────────────────────
+async function handleSceneMerge(text) {
+  if (!S.cur) return;
+  const scenes = S.cur.scenes || [];
+
+  const scPat = /SC\s*(\d+)/gi;
+  const nums = [];
+  let m;
+  while ((m = scPat.exec(text)) !== null) nums.push(parseInt(m[1]));
+
+  let targetScenes = [];
+  if (nums.length >= 2) {
+    targetScenes = nums.map(n => scenes.find(s => getSceneLabel(s,scenes) === 'SC '+n)).filter(Boolean);
+  } else if (S.selectedIds.size >= 2) {
+    targetScenes = scenes.filter(s => S.selectedIds.has(s.id));
+  }
+
+  if (targetScenes.length < 2) {
+    toast('합칠 씬을 2개 이상 선택하거나 SC번호를 명시해주세요.');
+    return;
+  }
+
+  const scA = targetScenes[0];
+  const scB = targetScenes[1];
+  const lblA = getSceneLabel(scA, scenes);
+  const lblB = getSceneLabel(scB, scenes);
+
+  showAnalyzing();
+
+  try {
+    const combinedContent =
+      '[앞 씬 — ' + lblA + ']\n' +
+      (scA.lines||[]).map(l=>l.type+': '+l.text).join('\n') +
+      '\n\n[뒤 씬 — ' + lblB + ']\n' +
+      (scB.lines||[]).map(l=>l.type+': '+l.text).join('\n');
+
+    const raw = await callClaude(
+      [{role:'user', content:
+        lblA + ' 기준으로 두 씬을 자연스럽게 합쳐주세요.\n' +
+        lblA + '의 제목과 슬러그를 유지하고, 두 씬의 내용을 자연스럽게 이어주세요.\n\n' +
+        combinedContent}],
+      '반드시 <scenes>[{"title":"씬 제목","slug":"슬러그","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만 응답하세요.',
+      6000
+    );
+    hideAnalyzing();
+
+    const scenesRaw = extractTag(raw, 'scenes');
+    if (!scenesRaw) { toast('씬 합치기 실패'); return; }
+    let scenesData = null;
+    try { scenesData = JSON.parse(scenesRaw); } catch {}
+    if (!scenesData?.length) { toast('씬 데이터 파싱 실패'); return; }
+
+    const newLines = scenesData[0].lines.map(l=>({...l, locked:false}));
+    scA.diff = {
+      prompt: lblA + '+' + lblB + ' 합치기',
+      lines: [
+        ...(scA.lines||[]).map(l=>({type:'del', text:l.text})),
+        ...newLines.map(l=>({type:'add', text:l.text}))
+      ],
+      newLines,
+      comment: lblA + '+' + lblB + ' 합치기',
+      mergeDeleteId: scB.id
+    };
+    S.selectedIds.clear(); S.selectedIds.add(scA.id);
+    save(true); renderScriptBody(); renderNavSceneList();
+    switchTab('script');
+    setTimeout(() => scrollToScene(scA.id), 150);
+    toast('✓ AI가 두 씬을 합쳤습니다 — diff 확인 후 적용하면 ' + lblB + '는 삭제됩니다', 5000);
+
+  } catch(e) {
+    hideAnalyzing();
+    if (e.name !== 'AbortError') toast('오류: ' + e.message);
+  }
+}
+
 async function handleSceneInsertPrompt(text) {
   if (!S.cur) return;
   const scenes = S.cur.scenes || [];
@@ -5273,10 +5355,41 @@ async function handleSceneInsertPrompt(text) {
     insertMode = 'after';
   }
 
+  // 먼저 선택지 제시
+  const insertChoices = [
+    '기존 씬에 내용 추가 (씬 수 유지)',
+    '새 씬으로 분리 생성',
+    'AI가 더 적합한 방법으로 판단'
+  ];
+  window._sceneInsertText = text;
+  window._sceneInsertRefSc = refSc;
+  window._sceneInsertMode = insertMode;
+
+  showResponsePanel('choice', '씬 추가 방식 선택',
+    '<div class="choice-intro">어떤 방식으로 추가할까요?</div>' +
+    '<div class="choice-list">' +
+    insertChoices.map((c,i) =>
+      '<button class="choice-option" onclick="selectChoiceSingle(this)" data-val="'+i+'">' +
+      '<span class="choice-key">'+(i+1)+'</span>' + c + '</button>'
+    ).join('') + '</div>',
+    '<button class="rp-btn" onclick="confirmSceneInsertChoice()">✓ 선택</button>' +
+    '<button class="rp-btn" onclick="closeResponsePanel()">취소</button>'
+  );
+}
+
+async function confirmSceneInsertChoice() {
+  const sel = document.querySelector('#rp-body .choice-option.selected');
+  const choice = sel ? parseInt(sel.dataset.val) : 2;
+  closeResponsePanel();
+
+  const text = window._sceneInsertText || '';
+  const refSc = window._sceneInsertRefSc;
+  const insertMode = window._sceneInsertMode || 'after';
+  const scenes = S.cur?.scenes || [];
+
   showAnalyzing();
 
   try {
-    // 앞뒤 씬 컨텍스트
     const refIdx = refSc ? scenes.indexOf(refSc) : scenes.length - 1;
     const prevSc = scenes[refIdx];
     const nextSc = scenes[refIdx + 1];
@@ -5307,7 +5420,29 @@ async function handleSceneInsertPrompt(text) {
     if (!scenesData?.length) { toast('씬 데이터 파싱 실패.'); return; }
 
     const refLabel = refSc ? getSceneLabel(refSc, scenes) : null;
-    showNewSceneInsertPanel(scenesData, text, refSc, refLabel);
+
+    if (choice === 0 && refSc) {
+      // 기존 씬에 내용 추가 — diff로 제안
+      const newLines = scenesData[0]?.lines || [];
+      const existingLines = refSc.lines || [];
+      const diffLines = [
+        ...existingLines.map(l => ({ type:'ctx', text:l.text })),
+        ...newLines.map(l => ({ type:'add', text:l.text }))
+      ];
+      refSc.diff = {
+        prompt: text,
+        lines: diffLines,
+        newLines: [...existingLines, ...newLines.map(l=>({...l, locked:false}))],
+        comment: '내용 추가: ' + (scenesData[0]?.title || '')
+      };
+      S.selectedIds.clear(); S.selectedIds.add(refSc.id);
+      save(true); renderScriptBody(); renderNavSceneList();
+      switchTab('script');
+      setTimeout(() => scrollToScene(refSc.id), 150);
+      toast('✓ 기존 씬에 내용 추가 제안 — diff를 확인하세요', 4000);
+    } else {
+      showNewSceneInsertPanel(scenesData, text, refSc, refLabel);
+    }
 
   } catch(e) {
     hideAnalyzing();
@@ -5645,6 +5780,7 @@ async function handleScriptPrompt(text) {
   if (/SC\s*\d+.*대사.*중요|SC\s*\d+.*중요.*대사|중요.*대사.*SC\s*\d+|대사.*선택.*SC\s*\d+/.test(text)) { await handleKeyline(text, true); return; }
   if (/대사.*뽑아|대사.*보여|대사.*목록|대사.*확인/.test(text)) { handleCharDialogueLookup(text); return; }
   if (/씬.*추가|추가.*씬|새.*씬.*삽입|씬.*삽입|연결씬|전환씬|새 장면/.test(text)) { await handleSceneInsertPrompt(text); return; }
+  if (/합쳐|합치|merge|통합.*씬|씬.*통합|씬.*합|두.*씬.*하나|하나로.*만들|하나의.*씬|씬.*합병/.test(text)) { await handleSceneMerge(text); return; }
   // 씬 분석 — handleSceneConnection으로 통합 (선택 씬 기준)
   if (/연결|매끄럽|흐름|자연스럽|전환.*어색|어색.*전환|앞뒤|이 장면|이 씬.*어때|어떻게 생각|괜찮아/.test(text)) { await handleSceneConnection(text); return; }
   if (/일관성|검사/.test(text)) { await checkConsistencyWithPrompt(text); return; }
@@ -5728,12 +5864,14 @@ async function handleScriptPrompt(text) {
       const intentRaw = await callClaude(
         [{role:'user', content:'대본 작업 요청: "'+text+'"'}],
         '대본 편집 요청을 분류하세요.\n' +
+        '- 씬 합치기/병합/통합/하나로 → merge\n' +
         '- 대사/씬/편집/분석/수정/추가/삭제/흐름/연결/통계/조회 관련 → edit\n' +
         '- 방향/아이디어/전략/어떻게 하면/의견/조언/논의 → brainstorm\n' +
-        '반드시 <intent>edit</intent> 또는 <intent>brainstorm</intent>만 응답하세요.',
+        '반드시 <intent>merge</intent>, <intent>edit</intent>, <intent>brainstorm</intent> 중 하나만 응답하세요.',
         30, 'claude-haiku-4-5-20251001'
       );
       const intent = extractTag(intentRaw, 'intent');
+      if (intent === 'merge') { await handleSceneMerge(text); return; }
       if (intent === 'brainstorm') {
         showBrainstormSuggestion(text);
         return;
@@ -6885,19 +7023,33 @@ async function handleCharDialogueAnalysis(text) {
   const dlgList = allDialogues.sort((a,b)=>b.score-a.score).slice(0,15)
     .map((d,i) => i+': ['+getSceneLabel(d.sc, scenes)+'] "'+d.text.slice(0,80)+'"').join('\n');
 
+  // 2단계: 먼저 인덱스만 선별 (Haiku)
+  const selectRaw = await callClaude(
+    [{role:'user', content: foundChar + '의 대사 목록:\n' + dlgList + '\n\n가장 극적으로 중요한 3~5개의 인덱스 번호를 선택하세요.'}],
+    '반드시 <selected>[숫자,숫자,숫자]</selected> 형식으로만 응답하세요. 설명 없이 태그만.',
+    80, 'claude-haiku-4-5-20251001'
+  );
+
+  // 선별된 대사로 분석 설명 요청 (별도 호출)
+  const selectedRaw2 = extractTag(selectRaw, 'selected');
+  let selectedIdxs2 = [];
+  if (selectedRaw2) { try { selectedIdxs2 = JSON.parse(selectedRaw2); } catch {} }
+  if (!selectedIdxs2.length) selectedIdxs2 = [0, 1, 2]; // fallback
+
+  const sortedDlgs2 = allDialogues.sort((a,b)=>b.score-a.score).slice(0,15);
+  const selectedDlgTexts = selectedIdxs2.map(i => sortedDlgs2[i]).filter(Boolean)
+    .map(d => '"'+d.text.slice(0,60)+'"').join(', ');
+
   const raw = await callClaude(
-    [{role:'user', content: foundChar + '의 대사 목록:\n' + dlgList + '\n\n가장 극적으로 중요한 대사 3~5개를 선별하고 이유를 설명하세요.'}],
-    '먼저 각 대사가 중요한 이유를 간략히 설명하고, 마지막에 <selected>[인덱스,인덱스,...]</selected> 태그를 붙이세요. 한국어로. **볼드** 마크다운 사용 금지.',
-    400, 'claude-haiku-4-5-20251001'
+    [{role:'user', content: foundChar + '의 주요 대사: ' + selectedDlgTexts + '\n\n이 대사들이 왜 극적으로 중요한지 간결하게 설명하세요.'}],
+    '3~4문장으로 간결하게. 한국어로. 마크다운 없이.',
+    200, 'claude-haiku-4-5-20251001'
   );
 
   hideAnalyzing();
-  const selectedRaw = extractTag(raw, 'selected');
-  let selectedIdxs = [];
-  if (selectedRaw) { try { selectedIdxs = JSON.parse(selectedRaw); } catch {} }
   const displayText = cleanDisplayText(raw) || '';
   const sortedDlgs = allDialogues.sort((a,b)=>b.score-a.score).slice(0,15);
-  const selectedDlgs = selectedIdxs.map(i => sortedDlgs[i]).filter(Boolean);
+  const selectedDlgs = selectedIdxs2.map(i => sortedDlgs[i]).filter(Boolean);
 
   // _dlgMap: scId → 대사 인덱스 → sc.lines 인덱스 매핑
   window._dlgMap = {};
