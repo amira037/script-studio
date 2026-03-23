@@ -2635,6 +2635,12 @@ function updateAiWriteBtn() {
       : 'AI 씬 추가';
     aiWriteBtn.style.opacity = hasAiSelected || hasSceneSel ? '1' : '0.6';
   }
+
+  // 선택된 줄 0개면 자동으로 선택 모드 종료
+  if (_aiWriteMode) {
+    const hasAiSelected = (S.cur?.scenes||[]).some(sc=>(sc.lines||[]).some(l=>l.aiSelected));
+    if (!hasAiSelected) exitAiWriteMode();
+  }
 }
 
 function scrollToScene(id) {
@@ -3100,7 +3106,7 @@ function buildSceneBlock(sc, i) {
           lw.style.cssText = 'display:flex;align-items:flex-start;position:relative;cursor:pointer;' +
             (line.aiSelected ? 'background:rgba(232,168,74,0.1);border-left:3px solid var(--accent);padding-left:3px;border-radius:2px;' : '');
           updateAiWriteModePrompt();
-          updateAiWriteBtn();
+          updateAiWriteBtn(); // 0개면 자동 종료
         });
       }
 
