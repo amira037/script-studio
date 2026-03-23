@@ -5522,9 +5522,9 @@ async function handlePickKeyScenes(text) {
 
     const labels = targets.map(s => getSceneLabel(s,scenes)).join(', ');
     toast('★ ' + labels + ' — 중요 장면으로 선별됐습니다! 😊', 5000);
-    // 네비게이터 ★ 필터 자동 활성화
+    // 네비게이터 ★ 필터 자동 활성화 + 응답 패널 닫기
     setNavFilter('locked');
-    showCommentPanel('★ 중요 장면 선별 완료\n\n' + targets.map(s => getSceneLabel(s,scenes) + '. ' + s.title).join('\n') + '\n\n네비게이터에서 ★ 필터가 켜졌습니다.');
+    closeResponsePanel();
   } catch(e) {
     hideAnalyzing();
     if (e.name !== 'AbortError') toast('오류: ' + e.message);
@@ -6748,7 +6748,18 @@ async function handleScriptPrompt(text) {
     if (_lockIntent === 'pick') { await handlePickKeyScenes(text); return; }
     await handleSceneLock(text, true); return;
   }
-  if (/잠금 해제|잠금.*해제|중요 장면.*해제|locked.*off/.test(text)) { await handleSceneLock(text, false); return; }
+  if (/잠금 해제|잠금.*해제|중요 장면.*해제|locked.*off/.test(text)) {
+    // "전부/모두/다" 포함 시 전체 해제
+    if (/전부|모두|다 해제|전체/.test(text)) {
+      const scenes = S.cur?.scenes || [];
+      scenes.forEach(s => { s.locked = false; });
+      save(true); renderScriptBody(); renderNavSceneList();
+      setNavFilter('all');
+      toast('☆ 중요 장면 표시가 모두 해제됐습니다.', 3000);
+      return;
+    }
+    await handleSceneLock(text, false); return;
+  }
   if (/복제해줘|복제 해줘|씬.*복제/.test(text)) { await handleSceneClone(text); return; }
   if (/중요 대사.*해제|keyline.*해제|중요대사.*해제/.test(text)) { await handleKeyline(text, false); return; }
   if (/몇 분|상연 시간|러닝타임|분짜리/.test(text)) { handleSceneTime(text); return; }
