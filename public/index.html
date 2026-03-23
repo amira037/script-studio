@@ -2729,6 +2729,8 @@ function renderScriptBody() {
     // 각 씬 블록 뒤에 add-between (afterId = 이 씬의 id → 이 씬 다음 삽입)
     body.appendChild(buildAddBetweenBtn(sc.id, i + 1));
   });
+  // ??? 채우기 버튼 등 툴바 상태 업데이트
+  updateAiWriteBtn();
 }
 
 function buildAddBetweenBtn(afterId, idx) {
@@ -5507,14 +5509,35 @@ async function handleKeyline(text, setOn) {
   const scenes = S.cur?.scenes || [];
   const scPat = /SC\s*(\d+)/i;
   const m = text.match(scPat);
-  const sc = m
+  // 인물명 감지 먼저
+  const charNames = (S.cur?.characters||[]).map(c=>c.name).filter(Boolean);
+  const mentionedCharEarly = charNames.find(n => text.includes(n));
+  // SC없이 인물명만 있으면 → 전체 씬에서 처리
+  const multiScene = !m && mentionedCharEarly && !S.selectedIds.size;
+  let sc = m
     ? scenes.find(s => getSceneLabel(s, scenes) === 'SC ' + parseInt(m[1]))
     : scenes.find(s => S.selectedIds.has(s.id));
+  if (!sc && !multiScene) { toast('씬을 선택하거나 SC번호를 입력해주세요.'); return; }
+  // 전체 씬에서 인물 대사 일괄 처리
+  if (multiScene && mentionedCharEarly) {
+    let count = 0;
+    scenes.forEach(sc2 => {
+      let lastChar = '';
+      (sc2.lines||[]).forEach(l => {
+        if (l.type==='character') lastChar = l.text;
+        if (l.type==='dialogue' && lastChar.includes(mentionedCharEarly)) {
+          l.keyline = setOn; l.locked = setOn; count++;
+        }
+      });
+    });
+    save(true); renderScriptBody();
+    toast((setOn?'★':'☆') + ' ' + mentionedCharEarly + ' 대사 ' + count + '개 ' + (setOn?'지정':'해제') + '됨', 3000);
+    return;
+  }
   if (!sc) { toast('씬을 찾을 수 없습니다.'); return; }
 
-  // 인물 이름 감지
-  const charNames = (S.cur.characters||[]).map(c=>c.name).filter(Boolean);
-  const mentionedChar = charNames.find(n => text.includes(n));
+  // 인물 이름 감지 (위에서 이미 선언됨)
+  const mentionedChar = mentionedCharEarly;
 
   if (!mentionedChar) {
     // 인물 미지정이면 Haiku가 중요도 판단
@@ -8118,23 +8141,46 @@ function markSingleKeyline(e, data) {
 function markSingleKeylineById(btn) {
   const scId = parseInt(btn.dataset.scid);
   const sc = S.cur?.scenes?.find(s=>s.id===scId);
-  if (!sc) return;
-  // data-idx 우선 사용
+  if (!sc) { toast('씬을 찾을 수 없습니다.'); return; }
   if (btn.dataset.idx !== undefined) {
-    const charName = btn.closest('[data-charname]')?.dataset?.charname || '';
-    const dialogues = (sc.lines||[]).filter(l=>l.type==='dialogue');
-    // 전체 대사 중 해당 인덱스 찾기
     const dlgIdx = parseInt(btn.dataset.idx);
-    // window._dlgMap에서 찾기
+    // _dlgMap에서 lineIdx 찾기
     if (window._dlgMap && window._dlgMap[scId] && window._dlgMap[scId][dlgIdx] !== undefined) {
       const lineIdx = window._dlgMap[scId][dlgIdx];
-      if (sc.lines[lineIdx]) { sc.lines[lineIdx].keyline=true; sc.lines[lineIdx].locked=true; }
-    } else {
-      // fallback: 순서대로
-      if (dialogues[dlgIdx]) { dialogues[dlgIdx].keyline=true; dialogues[dlgIdx].locked=true; }
+      if (sc.lines[lineIdx]) {
+        sc.lines[lineIdx].keyline = true;
+        sc.lines[lineIdx].locked = true;
+        save(true); renderScriptBody();
+        btn.textContent = '★ 지정됨';
+        btn.style.opacity = '0.5';
+        btn.disabled = true;
+        toast('★ 중요 대사로 지정됐습니다!', 2500);
+        return;
+      }
     }
-  } else {
-    const text = btn.dataset.text;
+    // fallback: 대사 순번으로 직접 찾기
+    let cnt = 0;
+    for (let li = 0; li < (sc.lines||[]).length; li++) {
+      if (sc.lines[li].type === 'dialogue') {
+        if (cnt === dlgIdx) {
+          sc.lines[li].keyline = true;
+          sc.lines[li].locked = true;
+          save(true); renderScriptBody();
+          btn.textContent = '★ 지정됨';
+          btn.style.opacity = '0.5';
+          btn.disabled = true;
+          toast('★ 중요 대사로 지정됐습니다!', 2500);
+          return;
+        }
+        cnt++;
+      }
+    }
+    toast('대사를 찾을 수 없습니다.');
+    return;
+  }
+  // text 기반 fallback
+  const text = btn.dataset.text;
+  if (text) {
     (sc.lines||[]).forEach(l => { if (l.type==='dialogue' && l.text===text) { l.keyline=true; l.locked=true; } });
   }
   save(true); renderScriptBody();
@@ -8155,6 +8201,10 @@ async function addTraitFromDialogue(btn) {
     );
     const trait = extractTag(raw, 'trait');
     if (!trait) { btn.textContent = '실패'; return; }
+    // 버튼에 특성명 미리 표시
+    btn.textContent = '+' + trait;
+    btn.style.color = 'var(--accent)';
+    btn.style.borderColor = 'var(--accent2)';
     const c = (S.cur?.characters||[]).find(x=>x.name===charName);
     if (!c) { btn.textContent = '실패'; return; }
     if (!c.traits) c.traits = [];
