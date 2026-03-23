@@ -3136,7 +3136,8 @@ function buildSceneBlock(sc, i) {
       const el = document.createElement('div');
       el.className = 'line-el line-' + line.type + (line.keyline ? ' keyline' : '');
       // 중요 장면(sc.locked)은 수동 편집 허용, 줄 잠금(line.locked)만 차단
-      el.contentEditable = line.locked ? 'false' : 'true';
+      // AI 작성 모드에서는 편집 불가 (모바일 키보드 방지)
+      el.contentEditable = (line.locked || _aiWriteMode) ? 'false' : 'true';
       el.dataset.locked = line.locked;
       el.textContent = line.text;
       el.style.flex = '1';
@@ -3307,115 +3308,238 @@ function buildSceneBlock(sc, i) {
         if (existing) existing.remove();
         const menu = document.createElement('div');
         menu.id = 'line-type-menu';
-        menu.style.cssText = 'position:fixed;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);padding:6px;z-index:200;display:flex;flex-direction:column;gap:2px;min-width:140px;box-shadow:0 8px 24px rgba(0,0,0,.5);';
-        const types = [['action','지문'],['character','배역명'],['dialogue','대사'],['parenthetical','괄호 지문']];
+        menu.style.cssText = 'position:fixed;background:var(--bg2);border:1px solid var(--border2);' +
+          'border-radius:var(--r2);padding:6px;z-index:600;min-width:160px;max-width:220px;' +
+          'box-shadow:0 4px 20px rgba(0,0,0,.5);display:flex;flex-direction:column;gap:2px;';
+
+        // ── 타입 버튼 한 줄 가로 배치 ──────────────────────────────
+
+        // ── 구분선 ──────────────────────────────────────────────────
+        const mkDiv = () => {
+          const d = document.createElement('div');
+          d.style.cssText = 'height:1px;background:var(--border);margin:3px 0;';
+          return d;
+        };
+        const mkMenuBtn = (label, color, fn, style2) => {
+          const b = document.createElement('button');
+          b.style.cssText = 'font-size:12px;padding:7px 10px;background:none;border:none;' +
+            'color:' + (color||'var(--text2)') + ';cursor:pointer;text-align:left;border-radius:var(--r);' +
+            'width:100%;' + (style2||'');
+          b.textContent = label;
+          b.addEventListener('touchstart', (te) => { te.stopPropagation(); }, {passive:true});
+          b.onclick = (ev) => { ev.stopPropagation(); fn(); menu.remove(); menuOpen=false; };
+          return b;
+        };
+        const mk2Row = (btnA, btnB) => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:3px;';
+          row.appendChild(btnA); row.appendChild(btnB);
+          return row;
+        };
+
+        // ── 선택 모드 분기 ─────────────────────────────────────────────
+        const anySelected = (sc.lines||[]).some(l => l.aiSelected);
+        const selectedCount = (sc.lines||[]).filter(l => l.aiSelected).length;
+
+        if (anySelected) {
+          // ── 선택 모드 ──────────────────────────────────────────────
+          // 삽입 2열
+          const selInsAbove = mkMenuBtn('↑ 위 삽입', null, () => {
+            const firstSelIdx = sc.lines.findIndex(l => l.aiSelected);
+            const newLines = Array.from({length: selectedCount}, () => ({type:'action', text:'', locked:false}));
+            sc.lines.splice(firstSelIdx, 0, ...newLines);
+            save(); renderAllLines();
+          });
+          const selInsBelow = mkMenuBtn('↓ 아래 삽입', null, () => {
+            let lastSelIdx = 0;
+            sc.lines.forEach((l,idx) => { if (l.aiSelected) lastSelIdx = idx; });
+            const newLines = Array.from({length: selectedCount}, () => ({type:'action', text:'', locked:false}));
+            sc.lines.splice(lastSelIdx + 1, 0, ...newLines);
+            save(); renderAllLines();
+          });
+          menu.appendChild(mk2Row(selInsAbove, selInsBelow));
+
+          // 삭제 2열
+          menu.appendChild(mkDiv());
+          const selDelLine = mkMenuBtn('줄 삭제', 'var(--red)', () => {
+            sc.lines = sc.lines.filter(l => !l.aiSelected);
+            save(); renderAllLines(); exitAiWriteMode();
+          });
+          const selDelBlock = mkMenuBtn('단락 삭제', 'var(--red)', () => {
+            // 선택된 줄 기준으로 단락 확장
+            const selIdxs = sc.lines.map((l,i) => l.aiSelected ? i : -1).filter(i => i >= 0);
+            const minIdx = Math.min(...selIdxs);
+            const maxIdx = Math.max(...selIdxs);
+            // 위로 확장
+            let blockStart = minIdx;
+            const baseType = sc.lines[minIdx].type;
+            const isDialogue = ['character','parenthetical','dialogue'].includes(baseType);
+            if (isDialogue) {
+              for (let k = minIdx-1; k >= 0; k--) {
+                if (['character','parenthetical','dialogue'].includes(sc.lines[k].type)) blockStart = k;
+                else break;
+              }
+            } else {
+              for (let k = minIdx-1; k >= 0; k--) {
+                if (sc.lines[k].type === baseType) blockStart = k;
+                else break;
+              }
+            }
+            // 아래로 확장
+            let blockEnd = maxIdx;
+            if (isDialogue) {
+              for (let k = maxIdx+1; k < sc.lines.length; k++) {
+                if (['character','parenthetical','dialogue'].includes(sc.lines[k].type)) blockEnd = k;
+                else break;
+              }
+            } else {
+              for (let k = maxIdx+1; k < sc.lines.length; k++) {
+                if (sc.lines[k].type === baseType) blockEnd = k;
+                else break;
+              }
+            }
+            sc.lines.splice(blockStart, blockEnd - blockStart + 1);
+            save(); renderAllLines(); exitAiWriteMode();
+          });
+          menu.appendChild(mk2Row(selDelLine, selDelBlock));
+
+          // AI 줄 삽입
+          menu.appendChild(mkDiv());
+          const aiInsLabel = selectedCount > 1 ? '✨ AI 줄 삽입 ×' + selectedCount : '✨ AI 줄 삽입';
+          menu.appendChild(mkMenuBtn(aiInsLabel, 'var(--accent)', async () => {
+            // 선택된 줄 중 마지막 인덱스 아래에 삽입
+            let lastSelIdx = 0;
+            sc.lines.forEach((l,idx) => { if (l.aiSelected) lastSelIdx = idx; });
+            // 빈 줄 삽입
+            const insertedLines = Array.from({length: selectedCount}, () => ({type:'action', text:'???', locked:false}));
+            sc.lines.splice(lastSelIdx + 1, 0, ...insertedLines);
+            // 선택 해제
+            sc.lines.forEach(l => { l.aiSelected = false; });
+            save(); renderAllLines(); exitAiWriteMode();
+            // 삽입된 줄들 즉시 채우기
+            for (let k = 0; k < selectedCount; k++) {
+              await handleFillSingleLine(sc, lastSelIdx + 1 + k);
+            }
+          }));
+
+          // 선택 해제
+          menu.appendChild(mkDiv());
+          menu.appendChild(mkMenuBtn('☑ 선택 해제', 'var(--accent)', () => {
+            sc.lines.forEach(l => { l.aiSelected = false; });
+            exitAiWriteMode();
+            renderAllLines(); updateAiWriteBtn();
+          }));
+
+        } else {
+          // ── 일반 모드 ──────────────────────────────────────────────
+        const typeRow = document.createElement('div');
+        typeRow.style.cssText = 'display:flex;gap:3px;margin-bottom:4px;';
+        const types = [['action','지문'],['character','배역명'],['dialogue','대사'],['parenthetical','(지문)']];
         types.forEach(([t, label]) => {
           const btn = document.createElement('button');
-          btn.style.cssText = 'font-size:12px;padding:8px 12px;background:none;border:none;color:var(--text2);text-align:left;border-radius:var(--r);cursor:pointer;display:block;width:100%;';
-          if (line.type === t) { btn.style.color='var(--accent)'; btn.style.background='var(--accent3)'; }
+          const isActive = line.type === t;
+          btn.style.cssText = 'flex:1;font-size:10px;padding:5px 2px;border-radius:var(--r);cursor:pointer;' +
+            'border:1px solid ' + (isActive ? 'var(--accent)' : 'var(--border2)') + ';' +
+            'background:' + (isActive ? 'var(--accent3)' : 'none') + ';' +
+            'color:' + (isActive ? 'var(--accent)' : 'var(--text2)') + ';';
           btn.textContent = label;
           btn.addEventListener('touchstart', (te) => { te.stopPropagation(); }, {passive:true});
           btn.onclick = (ev) => {
             ev.stopPropagation();
             const prevType = line.type;
             line.type = t;
-            // parenthetical로 변경 시 괄호 자동 추가
             if (t === 'parenthetical') {
               const txt = line.text.trim();
-              if (txt && !txt.startsWith('(')) {
-                line.text = '(' + (txt.endsWith(')') ? txt : txt + ')');
-              } else if (!txt) {
-                line.text = '()';
-              }
+              if (txt && !txt.startsWith('(')) line.text = '(' + (txt.endsWith(')') ? txt : txt + ')');
+              else if (!txt) line.text = '()';
             }
-            // parenthetical에서 다른 타입으로 변경 시 괄호 제거
             if (prevType === 'parenthetical' && t !== 'parenthetical') {
               const txt = line.text.trim();
-              if (txt.startsWith('(') && txt.endsWith(')')) {
-                line.text = txt.slice(1, -1).trim();
-              }
+              if (txt.startsWith('(') && txt.endsWith(')')) line.text = txt.slice(1,-1).trim();
+            }
+            // 줄 선택 중이면 같은 씬의 선택된 줄 전체 타입 변경
+            const hasSelected = (sc.lines||[]).some(l=>l.aiSelected);
+            if (hasSelected) {
+              (sc.lines||[]).forEach(l => { if (l.aiSelected) l.type = t; });
             }
             save(); renderAllLines(); menu.remove(); menuOpen=false;
           };
-          menu.appendChild(btn);
+          typeRow.appendChild(btn);
         });
-        // Divider + insert above/below + delete
-        const mkDiv = () => { const d = document.createElement('div'); d.style.cssText = 'height:1px;background:var(--border);margin:4px 0;'; return d; };
-        const mkMenuBtn = (label, color, fn) => {
-          const b = document.createElement('button');
-          b.style.cssText = 'font-size:12px;padding:8px 12px;background:none;border:none;color:' + (color||'var(--text2)') + ';text-align:left;border-radius:var(--r);cursor:pointer;width:100%;';
-          b.textContent = label;
-          b.addEventListener('touchstart', (te) => { te.stopPropagation(); }, {passive:true});
-          b.onclick = (ev) => { ev.stopPropagation(); fn(); menu.remove(); menuOpen=false; };
-          return b;
-        };
-        menu.appendChild(mkDiv());
-        menu.appendChild(mkMenuBtn('↑ 윗줄 삽입', null, () => {
-          sc.lines.splice(li, 0, { type:'action', text:'', locked:false });
-          save(); renderAllLines();
-          setTimeout(() => { const els = linesWrap.querySelectorAll('.line-el'); if (els[li]) els[li].focus(); }, 20);
-        }));
-        menu.appendChild(mkMenuBtn('↓ 아랫줄 삽입', null, () => {
-          sc.lines.splice(li + 1, 0, { type:'action', text:'', locked:false });
-          save(); renderAllLines();
-          setTimeout(() => { const els = linesWrap.querySelectorAll('.line-el'); if (els[li+1]) els[li+1].focus(); }, 20);
-        }));
-        menu.appendChild(mkMenuBtn('↓ AI 줄 추가', 'var(--accent)', () => {
-          const newLine = { type:'action', text:'', locked:false, aiSelected:true };
-          sc.lines.splice(li + 1, 0, newLine);
-          save(); renderAllLines();
-          if (!_aiWriteMode) enterAiWriteMode();
-          updateAiWriteModePrompt();
-          updateAiWriteBtn();
-          setTimeout(() => {
-            const inp = document.getElementById('prompter-inp');
-            if (inp) inp.focus();
-          }, 150);
-        }));
-        menu.appendChild(mkDiv());
-        menu.appendChild(mkMenuBtn('줄 삭제', 'var(--red)', () => {
-          sc.lines.splice(li, 1); save(); renderAllLines();
-        }));
-        // 대사 묶음 삭제 — character/parenthetical/dialogue 어느 줄에서든 묶음 전체 삭제
-        const isDialogueLine = ['character','parenthetical','dialogue'].includes(line.type);
-        if (isDialogueLine) {
-          menu.appendChild(mkMenuBtn('🗑 대사 묶음 삭제', 'var(--red)', () => {
-            // 위로 올라가서 character 줄 찾기
-            let charIdx = li;
-            if (line.type !== 'character') {
-              for (let k = li - 1; k >= 0; k--) {
-                if (sc.lines[k].type === 'character') { charIdx = k; break; }
-                if (sc.lines[k].type === 'action' || sc.lines[k].type === 'slug') break;
+        menu.appendChild(typeRow);
+          // 삽입 2열
+          menu.appendChild(mkDiv());
+          const insAbove = mkMenuBtn('↑ 위 삽입', null, () => {
+            sc.lines.splice(li, 0, {type:'action', text:'', locked:false});
+            save(); renderAllLines();
+            setTimeout(() => { const els = linesWrap.querySelectorAll('.line-el'); if (els[li]) els[li].focus(); }, 20);
+          });
+          const insBelow = mkMenuBtn('↓ 아래 삽입', null, () => {
+            sc.lines.splice(li+1, 0, {type:'action', text:'', locked:false});
+            save(); renderAllLines();
+            setTimeout(() => { const els = linesWrap.querySelectorAll('.line-el'); if (els[li+1]) els[li+1].focus(); }, 20);
+          });
+          menu.appendChild(mk2Row(insAbove, insBelow));
+
+          // 삭제 2열
+          menu.appendChild(mkDiv());
+          const delLine = mkMenuBtn('줄 삭제', 'var(--red)', () => {
+            sc.lines.splice(li, 1); save(); renderAllLines();
+          });
+          const delBlock = mkMenuBtn('단락 삭제', 'var(--red)', () => {
+            const baseType = line.type;
+            const isDialogue = ['character','parenthetical','dialogue'].includes(baseType);
+            let blockStart = li, blockEnd = li;
+            if (isDialogue) {
+              for (let k = li-1; k >= 0; k--) {
+                if (['character','parenthetical','dialogue'].includes(sc.lines[k].type)) blockStart = k;
+                else break;
+              }
+              for (let k = li+1; k < sc.lines.length; k++) {
+                if (['character','parenthetical','dialogue'].includes(sc.lines[k].type)) blockEnd = k;
+                else break;
+              }
+            } else {
+              for (let k = li-1; k >= 0; k--) {
+                if (sc.lines[k].type === baseType) blockStart = k;
+                else break;
+              }
+              for (let k = li+1; k < sc.lines.length; k++) {
+                if (sc.lines[k].type === baseType) blockEnd = k;
+                else break;
               }
             }
-            // charIdx부터 아래로 parenthetical/dialogue 줄 모두 포함
-            let endIdx = charIdx;
-            for (let k = charIdx + 1; k < sc.lines.length; k++) {
-              if (sc.lines[k].type === 'parenthetical' || sc.lines[k].type === 'dialogue') endIdx = k;
-              else break;
-            }
-            sc.lines.splice(charIdx, endIdx - charIdx + 1);
+            sc.lines.splice(blockStart, blockEnd - blockStart + 1);
             save(); renderAllLines();
+          });
+          menu.appendChild(mk2Row(delLine, delBlock));
+
+          // 줄 선택
+          menu.appendChild(mkDiv());
+          menu.appendChild(mkMenuBtn('☑ 줄 선택', null, () => {
+            const isMember = ['character','parenthetical','dialogue'].includes(line.type);
+            if (isMember) {
+              let charIdx = li;
+              if (line.type !== 'character') {
+                for (let k = li-1; k >= 0; k--) {
+                  if (sc.lines[k].type === 'character') { charIdx = k; break; }
+                  if (sc.lines[k].type === 'action' || sc.lines[k].type === 'slug') break;
+                }
+              }
+              let endIdx = charIdx;
+              for (let k = charIdx+1; k < sc.lines.length; k++) {
+                if (sc.lines[k].type === 'parenthetical' || sc.lines[k].type === 'dialogue') endIdx = k;
+                else break;
+              }
+              for (let k = charIdx; k <= endIdx; k++) sc.lines[k].aiSelected = true;
+            } else {
+              line.aiSelected = true;
+            }
+            if (!_aiWriteMode) enterAiWriteMode();
+            renderAllLines(); updateAiWriteBtn(); updateAiWriteModePrompt();
           }));
         }
-        // AI 작성 버튼
-        menu.appendChild(mkDiv());
-        const isAiSelected = line.aiSelected;
-        menu.appendChild(mkMenuBtn(
-          isAiSelected ? '✨ AI 작성 ✓ (해제)' : '✨ AI 작성',
-          'var(--accent)',
-          () => {
-            line.aiSelected = !isAiSelected;
-            if (line.aiSelected && !_aiWriteMode) enterAiWriteMode();
-            if (!line.aiSelected) {
-              const anySelected = (S.cur?.scenes||[]).some(sc=>(sc.lines||[]).some(l=>l.aiSelected));
-              if (!anySelected) exitAiWriteMode();
-            }
-            renderAllLines();
-            updateAiWriteBtn();
-            updateAiWriteModePrompt();
-          }
-        ));
+
         document.body.appendChild(menu);
         // Position near touch/click point
         // 메뉴 실제 크기 측정 후 위치 계산
