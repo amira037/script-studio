@@ -1268,7 +1268,7 @@ function closeResponsePanel() {
           <button class="prompter-del-btn" id="del-btn" onclick="confirmDeleteSelected()">✕ 씬 삭제</button>
           <button class="toolbar-btn" id="merge-btn" onclick="handleSceneMergeFromBtn()" style="display:none;background:var(--accent3);color:var(--accent);border-color:var(--accent2);">⚡ AI 합치기</button>
           <button class="toolbar-btn" id="fill-btn" onclick="handleFillPlaceholders()" style="display:none;background:var(--accent3);color:var(--accent);border-color:var(--accent2);" title="??? 표시된 부분을 AI가 채워드립니다">✨ ??? 채우기</button>
-          <button class="toolbar-btn" id="ai-write-btn" onclick="handleAiWriteSelected()" style="display:none;background:var(--accent3);color:var(--accent);border-color:var(--accent2);" title="선택한 줄을 AI가 다시 씁니다">✨ AI 작성</button>
+          <button class="toolbar-btn" id="ai-write-btn" onclick="handleAiBtn()" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);" title="AI 작성/재구성/씬 추가">✨</button>
         </div>
         <div class="del-confirm-bar" id="del-confirm-bar">
           <span id="del-confirm-txt"></span>
@@ -2625,12 +2625,16 @@ function updateAiWriteBtn() {
   );
   if (fillBtn) fillBtn.style.display = hasPlaceholder ? '' : 'none';
 
-  // AI 작성 버튼
+  // ✨ AI 버튼 — 항상 표시, 상태에 따라 title 변경
   const aiWriteBtn = document.getElementById('ai-write-btn');
-  const hasAiSelected = (S.cur?.scenes||[]).some(sc =>
-    (sc.lines||[]).some(l => l.aiSelected)
-  );
-  if (aiWriteBtn) aiWriteBtn.style.display = hasAiSelected ? '' : 'none';
+  if (aiWriteBtn) {
+    const hasAiSelected = (S.cur?.scenes||[]).some(sc=>(sc.lines||[]).some(l=>l.aiSelected));
+    const hasSceneSel = S.selectedIds.size > 0;
+    aiWriteBtn.title = hasAiSelected ? '선택한 줄 AI 작성'
+      : hasSceneSel ? '장면 재구성'
+      : 'AI 씬 추가';
+    aiWriteBtn.style.opacity = hasAiSelected || hasSceneSel ? '1' : '0.6';
+  }
 }
 
 function scrollToScene(id) {
@@ -3231,6 +3235,14 @@ function buildSceneBlock(sc, i) {
       el.onkeydown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
+          // ??? 포함 줄 — 즉시 AI 채우기
+          const currentText = el.textContent || '';
+          if (currentText.includes('???')) {
+            line.text = currentText;
+            save(true);
+            handleFillSingleLine(sc, li);
+            return;
+          }
           // 배역명 다음은 자동으로 dialogue, 그 외는 action
           const nextType = line.type === 'character' ? 'dialogue' : 'action';
           const newLine = { type:nextType, text:'', locked:false };
@@ -3406,11 +3418,21 @@ function buildSceneBlock(sc, i) {
         ));
         document.body.appendChild(menu);
         // Position near touch/click point
-        const mw = 130, mh = 160;
+        // 메뉴 실제 크기 측정 후 위치 계산
+        menu.style.visibility = 'hidden';
+        menu.style.display = 'block';
+        const mw = menu.offsetWidth || 160;
+        const mh = menu.offsetHeight || 200;
+        menu.style.visibility = '';
+        menu.style.display = '';
         let x = touchX || (el.getBoundingClientRect().left);
         let y = touchY || (el.getBoundingClientRect().bottom);
         x = Math.min(x, window.innerWidth - mw - 8);
-        y = Math.min(y, window.innerHeight - mh - 8);
+        x = Math.max(x, 8);
+        // 하단 잘림 방지 — 공간 부족하면 위쪽으로
+        if (y + mh > window.innerHeight - 8) {
+          y = Math.max(8, (touchY || el.getBoundingClientRect().top) - mh);
+        }
         menu.style.left = x + 'px';
         menu.style.top = y + 'px';
         setTimeout(() => {
@@ -5536,6 +5558,47 @@ async function handleOrPattern(text) {
   }
 }
 
+// ── B. ??? 단일 줄 즉시 채우기 ─────────────────────────────────────
+async function handleFillSingleLine(sc, li) {
+  const line = sc.lines[li];
+  if (!line || !line.text.includes('???')) return;
+  const scenes = S.cur?.scenes || [];
+  const scLabel = getSceneLabel(sc, scenes);
+  const chars = (S.cur?.characters||[]).map(c=>c.name+'('+c.role+')').join(', ');
+  const before = (sc.lines||[]).slice(Math.max(0,li-4), li).map(l=>l.type+': '+l.text).join('\n');
+  const after = (sc.lines||[]).slice(li+1, li+4).map(l=>l.type+': '+l.text).join('\n');
+
+
+  // 해당 줄 로딩 표시
+  const els = document.querySelectorAll('.line-el');
+  const targetEl = [...els].find(el => el.closest('.line-wrap') &&
+    el.textContent.includes('???'));
+
+  showAnalyzing('??? 채우는 중...');
+  try {
+    const raw = await callClaude(
+      [{role:'user', content:
+        scLabel + ' 씬, 등장인물: ' + chars + '\n\n' +
+        '앞 내용:\n' + before + '\n\n' +
+        '채울 부분: ' + line.type + ': ' + line.text + '\n\n' +
+        '뒤 내용:\n' + after + '\n\n' +
+        '??? 자리에 들어갈 내용만 작성하세요.'}],
+      '요청한 줄 타입(' + line.type + ')에 맞게 텍스트만 반환하세요. 설명 없이.',
+      150, 'claude-haiku-4-5-20251001'
+    );
+    hideAnalyzing();
+    const filled = raw.trim().replace(/^["']|["']$/g, '');
+    if (filled) {
+      line.text = line.text.replace('???', filled);
+      save(true); renderScriptBody();
+      toast('✨ 라인이 채워졌습니다 😊', 3000);
+    }
+  } catch(e) {
+    hideAnalyzing();
+    if (e.name !== 'AbortError') toast('오류: ' + e.message);
+  }
+}
+
 // ── B. ??? 플레이스홀더 채우기 ───────────────────────────────────────
 async function handleFillPlaceholders() {
   const scenes = S.cur?.scenes || [];
@@ -5571,6 +5634,86 @@ async function handleFillPlaceholders() {
     save(true); renderScriptBody(); renderNavSceneList();
     toast('✨ ' + targets.length + '개 ??? 부분을 채웠습니다! 확인해보세요 😊', 5000);
     updateAiWriteBtn();
+  } catch(e) {
+    hideAnalyzing();
+    if (e.name !== 'AbortError') toast('오류: ' + e.message);
+  }
+}
+
+// ── ✨ AI 버튼 통합 핸들러 ──────────────────────────────────────────
+function handleAiBtn() {
+  const hasLineSelected = (S.cur?.scenes||[]).some(sc=>(sc.lines||[]).some(l=>l.aiSelected));
+  const hasSceneSelected = S.selectedIds.size > 0;
+
+  if (hasLineSelected) {
+    // 줄 선택됨 → AI 작성 실행
+    const inp = document.getElementById('prompter-inp');
+    if (inp && inp.value.trim()) {
+      handleAiWriteSelected();
+    } else {
+      // 지시 없으면 프롬프터 포커스
+      if (inp) {
+        inp.placeholder = '라인이 선택한 부분을 씁니다 — 방향을 알려주세요';
+        inp.focus();
+      }
+      toast('프롬프터에 지시를 입력하고 전송해주세요 😊', 3000);
+    }
+  } else if (hasSceneSelected) {
+    // 씬 선택됨 → 장면 재구성
+    handleSceneRewrite();
+  } else {
+    // 아무것도 없음 → AI 씬 추가
+    showAiSceneAddPanel();
+  }
+}
+
+async function handleSceneRewrite() {
+  const scenes = S.cur?.scenes || [];
+  const selected = scenes.filter(s => S.selectedIds.has(s.id));
+  if (!selected.length) return;
+
+  const inp = document.getElementById('prompter-inp');
+  const instruction = inp ? inp.value.trim() : '';
+  if (!instruction) {
+    if (inp) {
+      inp.placeholder = '선택한 장면을 어떻게 재구성할까요?';
+      inp.focus();
+    }
+    toast('프롬프터에 재구성 방향을 입력하고 전송해주세요 😊', 3000);
+    return;
+  }
+  if (inp) { inp.value = ''; inp.style.height = 'auto'; }
+  showAnalyzing('장면을 재구성하고 있습니다... ✍️');
+  try {
+    const chars = (S.cur?.characters||[]).map(c=>c.name+'('+c.role+')').join(', ');
+    for (const sc of selected) {
+      const scLabel = getSceneLabel(sc, scenes);
+      const content = (sc.lines||[]).map(l=>l.type+': '+l.text).join('\n');
+      const raw = await callClaude(
+        [{role:'user', content:
+          scLabel + ' 재구성\n등장인물: ' + chars + '\n\n' +
+          '현재 내용:\n' + content + '\n\n지시: ' + instruction}],
+        '반드시 <scenes>[{"title":"제목","slug":"슬러그","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만 응답하세요.',
+        6000
+      );
+      const sr = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
+      if (!sr) continue;
+      let scenesData = null;
+      try { scenesData = JSON.parse(sr); } catch {}
+      if (!scenesData?.length) continue;
+      const newLines = scenesData[0].lines.map(l=>({...l, locked:false}));
+      sc.diff = {
+        prompt: instruction,
+        lines: [
+          ...(sc.lines||[]).map(l=>({type:'del', text:l.text})),
+          ...newLines.map(l=>({type:'add', text:l.text}))
+        ],
+        newLines, comment: '장면 재구성'
+      };
+    }
+    hideAnalyzing();
+    save(true); renderScriptBody();
+    toast('✨ 장면 재구성 완료! diff를 확인해보세요 😊', 4000);
   } catch(e) {
     hideAnalyzing();
     if (e.name !== 'AbortError') toast('오류: ' + e.message);
@@ -5905,8 +6048,10 @@ async function handleAiSceneAdd(hint) {
     const toastMsg = reason
       ? '✨ ' + reason + ' 새 장면을 준비했어요!'
       : '✨ AI가 새 장면을 만들었습니다!';
+    // AI 제안 삽입 방향 저장
+    window._aiInsertMode = insertAfter ? 'after' : (insertAt === 'start' ? 'before' : 'after');
     // 삽입 패널 열기 + 스크롤
-    showNewSceneInsertPanel(scenesData, hint || 'AI 씬 추가', refSc, refLabel);
+    showNewSceneInsertPanel(scenesData, toastMsg, refSc, refLabel);
     // 패널이 열리면 response panel로 스크롤
     setTimeout(() => {
       const rp = document.getElementById('response-panel');
@@ -7289,32 +7434,55 @@ function showNewSceneInsertPanel(scenesData, comment, refSc, refLabel) {
     const newScs = makeSceneObjs();
     if (!S.cur.scenes) S.cur.scenes = [];
 
+    if (mode === 'draft' && refSc) {
+      // 대안씬으로 저장
+      const draftSc = newScs[0];
+      if (draftSc) {
+        draftSc.draft = true;
+        draftSc.draftOf = refSc.id;
+        const idx = S.cur.scenes.findIndex(s => s.id === refSc.id);
+        S.cur.scenes.splice(idx + 1, 0, draftSc);
+        save(); renderScriptBody(); renderNavSceneList();
+        toast('📋 "' + draftSc.title + '" 대안씬으로 저장됐습니다!', 4000);
+      }
+      return;
+    }
+
+    if (mode === 'replace' && refSc) {
+      // diff로 교체
+      const firstNew = newScs[0];
+      if (firstNew) {
+        const oldLines = refSc.lines || [];
+        const diffLines = [];
+        const maxLen = Math.max(oldLines.length, firstNew.lines.length);
+        for (let i = 0; i < maxLen; i++) {
+          const o = oldLines[i], n = firstNew.lines[i];
+          if (o && n && o.text === n.text) diffLines.push({type:'ctx', text:o.text});
+          else { if (o) diffLines.push({type:'del', text:o.text}); if (n) diffLines.push({type:'add', text:n.text}); }
+        }
+        refSc.diff = { prompt:'AI 씬으로 교체', lines:diffLines, newLines:firstNew.lines, comment:'AI 교체' };
+        if (newScs.length > 1) {
+          const idx = S.cur.scenes.findIndex(s => s.id === refSc.id);
+          S.cur.scenes.splice(idx + 1, 0, ...newScs.slice(1));
+        }
+        save(); renderScriptBody(); renderNavSceneList();
+        setTimeout(() => scrollToScene(refSc.id), 150);
+        toast('✨ 교체 제안이 준비됐습니다! diff를 확인해보세요 😊', 4000);
+      }
+      return;
+    }
+
     if (mode === 'end' || !refSc) {
       S.cur.scenes.push(...newScs);
     } else {
       const idx = S.cur.scenes.findIndex(s => s.id === refSc.id);
       if (mode === 'before') {
         S.cur.scenes.splice(idx, 0, ...newScs);
-      } else if (mode === 'replace') {
-        // diff 방식으로 교체 — 첫 번째 새 씬으로 기존 씬 대체
-        const firstNew = newScs[0];
-        const oldLines = refSc.lines;
-        const diffLines = [];
-        const maxLen = Math.max(oldLines.length, firstNew.lines.length);
-        for (let i = 0; i < maxLen; i++) {
-          const o = oldLines[i], n = firstNew.lines[i];
-          if (o && n && o.text === n.text) { diffLines.push({type:'ctx', text:o.text}); }
-          else { if (o) diffLines.push({type:'del', text:o.text}); if (n) diffLines.push({type:'add', text:n.text}); }
-        }
-        refSc.diff = { prompt:'새 씬으로 대체', lines:diffLines, newLines:firstNew.lines, comment:'씬 대체' };
-        // 나머지 씬들은 뒤에 삽입
-        if (newScs.length > 1) S.cur.scenes.splice(idx + 1, 0, ...newScs.slice(1));
       } else { // after
         S.cur.scenes.splice(idx + 1, 0, ...newScs);
       }
     }
     save(); renderScriptBody(); renderNavSceneList();
-    // 삽입된 씬으로 자동 이동
     const insertedSc = newScs[0];
     if (insertedSc) {
       switchTab('script');
@@ -7328,18 +7496,43 @@ function showNewSceneInsertPanel(scenesData, comment, refSc, refLabel) {
     toast('✨ "' + insertLabel + '" 장면이 추가됐습니다! 네비게이터에서도 확인해보세요 😊', 5000);
   };
 
-  const refBtns = refSc ? `
-    <button class="rp-btn" style="background:var(--red2);color:var(--red);border-color:rgba(224,96,96,.3)" onclick="(${doInsert.toString()})('replace')">↔ ${refLabel} 대체</button>
-    <button class="rp-btn" onclick="(${doInsert.toString()})('before')">↑ ${refLabel} 앞에 삽입</button>
-    <button class="rp-btn" onclick="(${doInsert.toString()})('after')">↓ ${refLabel} 뒤에 삽입</button>` : '';
+  // window에 저장해서 onclick에서 호출
+  window._doInsert = doInsert;
 
-  showResponsePanel('choice', `새 씬 ${scenesData.length}개 — 삽입 방식 선택`,
-    `<div class="ai-comment-txt">${escH(comment)}</div>`,
-    `${refBtns}
-     <button class="rp-btn" onclick="(${doInsert.toString()})('end')">⬇ 맨 뒤에 추가</button>
-     <button class="rp-btn" onclick="closeResponsePanel()">✕ 취소</button>`
-  );
+  // AI 제안 위치 (before/after)
+  const aiSuggestedMode = window._aiInsertMode || null;
+
+  // 씬 미리보기 HTML
+  const previewHTML = scenesData.map(s => {
+    const firstLines = (s.lines||[]).slice(0,3).map(l=>escH(l.text||'')).join('<br>');
+    return '<div style="margin-bottom:6px;padding:6px 8px;background:var(--bg2);border-radius:var(--r);border-left:2px solid var(--accent);">' +
+      '<div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:3px;">' + escH(s.title||'새 씬') + '</div>' +
+      '<div style="font-size:11px;color:var(--text3);line-height:1.5;">' + firstLines + '</div>' +
+      '</div>';
+  }).join('');
+
+  const bodyHTML = previewHTML +
+    (comment && comment !== 'AI 씬 추가'
+      ? '<div style="font-size:11px;color:var(--text2);margin-top:6px;padding:5px 8px;background:var(--bg3);border-radius:var(--r);">' + escH(comment) + '</div>'
+      : '');
+
+  let actsHTML = '';
+  if (refSc) {
+    actsHTML += '<button class="rp-btn" style="background:var(--red2);color:var(--red);border-color:rgba(224,96,96,.3);" onclick="window._doInsert(&quot;replace&quot;)">↔ ' + escH(refLabel) + ' 교체</button>';
+    actsHTML += '<button class="rp-btn" style="background:var(--bg3);color:var(--text2);" onclick="window._doInsert(&quot;draft&quot;)">📋 대안씬으로 저장</button>';
+    if (aiSuggestedMode === 'before') {
+      actsHTML += '<button class="rp-btn" onclick="window._doInsert(&quot;before&quot;)">↑ ' + escH(refLabel) + ' 앞에 삽입</button>';
+    } else {
+      actsHTML += '<button class="rp-btn" onclick="window._doInsert(&quot;after&quot;)">↓ ' + escH(refLabel) + ' 뒤에 삽입</button>';
+    }
+  }
+  actsHTML += '<button class="rp-btn" onclick="window._doInsert(&quot;end&quot;)">⬇ 맨 뒤에 추가</button>';
+  actsHTML += '<button class="rp-btn" onclick="closeResponsePanel()">✕ 취소</button>';
+
+  window._aiInsertMode = null;
+  showResponsePanel('choice', '✨ 새 씬 ' + scenesData.length + '개 미리보기', bodyHTML, actsHTML);
 }
+
 
 function showCommentPanel(rawText) {
   const text = cleanDisplayText(rawText) || rawText.slice(0, 300) || '처리 완료';
