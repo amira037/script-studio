@@ -1520,21 +1520,21 @@ function closeResponsePanel() {
   <div class="modal" id="new-proj-modal-inner">
     <!-- Step 0: 시작 방법 선택 -->
     <div id="np-step-choose">
-      <div class="modal-title" style="margin-bottom:6px;">새 프로젝트</div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:18px;font-family:var(--fm);">어떻게 시작할까요?</div>
+      <div class="modal-title" style="margin-bottom:8px;">새 프로젝트</div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:20px;">어떻게 시작할까요?</div>
       <div style="display:flex;flex-direction:column;gap:10px;">
         <button onclick="startPick('new')" style="display:flex;align-items:center;gap:12px;background:var(--accent3);border:1px solid var(--accent2);border-radius:var(--r2);padding:14px 16px;cursor:pointer;text-align:left;transition:all .15s;" onmouseover="this.style.background='rgba(200,169,110,.2)'" onmouseout="this.style.background='var(--accent3)'">
           <span style="font-size:22px;">🎲</span>
           <div>
-            <div style="font-size:13px;color:var(--accent);font-weight:600;margin-bottom:2px;">픽으로 시작하기</div>
-            <div style="font-size:11px;color:var(--text3);">단어 카드로 이야기의 씨앗을 찾아드려요</div>
+            <div style="font-size:14px;color:var(--accent);font-weight:600;margin-bottom:4px;">픽으로 시작하기</div>
+            <div style="font-size:12px;color:var(--text2);">단어 카드로 이야기의 씨앗을 찾아드려요</div>
           </div>
         </button>
         <button onclick="npShowDirect()" style="display:flex;align-items:center;gap:12px;background:transparent;border:1px solid var(--border2);border-radius:var(--r2);padding:14px 16px;cursor:pointer;text-align:left;transition:all .15s;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='transparent'">
           <span style="font-size:22px;">✏️</span>
           <div>
-            <div style="font-size:13px;color:var(--text);font-weight:600;margin-bottom:2px;">바로 시작하기</div>
-            <div style="font-size:11px;color:var(--text3);">제목과 매체를 직접 입력하고 시작해요</div>
+            <div style="font-size:14px;color:var(--text);font-weight:600;margin-bottom:4px;">바로 시작하기</div>
+            <div style="font-size:12px;color:var(--text2);">제목과 매체를 직접 입력하고 시작해요</div>
           </div>
         </button>
       </div>
@@ -2156,10 +2156,10 @@ function pickBody() { return document.getElementById('pick-body'); }
 function mkPickBtn(label, accent, onClick) {
   const b = document.createElement('button');
   b.textContent = label;
-  b.style.cssText = 'font-size:12px;padding:8px 16px;border-radius:var(--r);border:1px solid '
+  b.style.cssText = 'font-size:13px;padding:9px 18px;border-radius:var(--r);border:1px solid '
     + (accent ? 'var(--accent2)' : 'var(--border2)') + ';background:'
     + (accent ? 'var(--accent3)' : 'transparent') + ';color:'
-    + (accent ? 'var(--accent)' : 'var(--text2)') + ';cursor:pointer;transition:all .15s;';
+    + (accent ? 'var(--accent)' : 'var(--text)') + ';cursor:pointer;transition:all .15s;';
   b.onmouseover = () => { b.style.opacity = '.8'; };
   b.onmouseout = () => { b.style.opacity = '1'; };
   b.onclick = onClick;
@@ -2207,7 +2207,7 @@ async function renderPickWordRound() {
   if (round === 0) {
     const intro = document.createElement('div');
     intro.style.cssText = 'text-align:center;padding:4px 0 20px;';
-    intro.innerHTML = '<div style="font-family:var(--fd);font-size:17px;color:var(--accent);margin-bottom:6px;line-height:1.5;">'
+    intro.innerHTML = '<div style="font-family:var(--fd);font-size:19px;color:var(--accent);margin-bottom:8px;line-height:1.5;">'
       + '세상에 없던 새로운 작품,<br>지금 시작하세요</div>';
     body.appendChild(intro);
   }
@@ -2218,8 +2218,8 @@ async function renderPickWordRound() {
     progress.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;';
     _pickState.words.forEach(w => {
       const chip = document.createElement('div');
-      chip.style.cssText = 'font-size:11px;background:var(--accent3);border:1px solid var(--accent2);'
-        + 'border-radius:10px;padding:2px 10px;color:var(--accent);font-family:var(--fm);';
+      chip.style.cssText = 'font-size:12px;background:var(--accent3);border:1px solid var(--accent2);'
+        + 'border-radius:10px;padding:3px 11px;color:var(--accent);font-family:var(--fm);';
       chip.textContent = w;
       progress.appendChild(chip);
     });
@@ -2228,7 +2228,7 @@ async function renderPickWordRound() {
 
   // 질문
   const q = document.createElement('div');
-  q.style.cssText = 'font-size:12px;color:var(--text2);margin-bottom:16px;text-align:center;';
+  q.style.cssText = 'font-size:14px;color:var(--text);margin-bottom:16px;text-align:center;font-weight:500;';
   q.textContent = '끌리는 단어를 골라주세요';
   body.appendChild(q);
 
@@ -2270,7 +2270,7 @@ async function loadPickVsWords(vsArea) {
   const mkWordCard = (word) => {
     const card = document.createElement('button');
     card.style.cssText = 'background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r2);'
-      + 'padding:26px 10px;font-size:17px;color:var(--text);font-family:var(--fd);cursor:pointer;'
+      + 'padding:28px 12px;font-size:19px;color:var(--text);font-family:var(--fd);cursor:pointer;'
       + 'transition:all .15s;text-align:center;width:100%;';
     card.textContent = word;
     card.onmouseover = () => { card.style.borderColor='var(--accent2)'; card.style.color='var(--accent)'; card.style.background='var(--accent3)'; };
@@ -2299,18 +2299,17 @@ async function loadPickVsWords(vsArea) {
 
 const PICK_WORD_CATEGORIES = ['자연물', '감정', '장소', '사물', '관계', '현상', '신체', '시간'];
 const PICK_WORD_FALLBACKS = {
-  '자연물': ['파도','안개','번개','빙하','화산','이끼','가시','뿌리'],
-  '감정':   ['그리움','분노','황홀','공허','질투','경외','수치','고독'],
-  '장소':   ['지하실','첨탑','골목','폐허','수도원','부두','온실','광장'],
-  '사물':   ['열쇠','거울','나침반','유리','달력','장갑','사다리','촛불'],
-  '관계':   ['배신','계약','유산','맹세','비밀','빚','혈연','이별'],
-  '현상':   ['연기','침묵','메아리','그림자','균열','소용돌이','잔향','흔적'],
-  '신체':   ['눈동자','손목','심장','발자국','목소리','숨결','눈물','등'],
-  '시간':   ['새벽','황혼','기억','예언','과거','순간','윤회','마감'],
+  '자연물': ['파도','번개','빙하','화산','이끼','가시','뿌리','유성','진흙','태풍'],
+  '감정':   ['그리움','황홀','공허','질투','경외','수치','고독','도취','분노','혐오'],
+  '장소':   ['지하실','첨탑','골목','폐허','부두','온실','광장','도살장','지붕','하수구'],
+  '사물':   ['열쇠','나침반','유리','달력','장갑','사다리','촛불','올가미','주사기','족쇄'],
+  '관계':   ['배신','계약','유산','맹세','빚','혈연','이별','인질','공모','복수'],
+  '현상':   ['침묵','메아리','균열','소용돌이','잔향','흔적','발효','부패','변이','폭발'],
+  '신체':   ['눈동자','손목','심장','발자국','숨결','눈물','등','손톱','혀','갈비뼈'],
+  '시간':   ['새벽','황혼','기억','예언','순간','윤회','마감','직전','전생','임종'],
 };
 
 async function generatePickWordPair(exclude = []) {
-  // 두 카테고리 랜덤 선택 (서로 다르게)
   const cats = [...PICK_WORD_CATEGORIES].sort(() => Math.random() - 0.5);
   const catA = cats[0], catB = cats[1];
   const allExclude = [...exclude, ..._pickState.words];
@@ -2318,10 +2317,12 @@ async function generatePickWordPair(exclude = []) {
   try {
     const raw = await callClaude(
       [{ role: 'user', content:
-        '카테고리 A: ' + catA + ' — 이 카테고리에서 단어 1개\n'
-        + '카테고리 B: ' + catB + ' — 이 카테고리에서 단어 1개\n'
-        + (allExclude.length > 0 ? '제외할 단어: ' + allExclude.join(', ') : '') }],
-      '각 카테고리에서 창작 대본에 영감을 주는 강렬하고 구체적인 명사 1개씩 뽑으세요. '
+        '카테고리 A: ' + catA + '\n카테고리 B: ' + catB + '\n'
+        + (allExclude.length > 0 ? '제외: ' + allExclude.join(', ') : '') }],
+      '각 카테고리에서 창작 대본에 영감을 주는 단어나 짧은 이미지를 1개씩 뽑으세요. '
+      + '밝은 것, 어두운 것, 일상적인 것 모두 가능. '
+      + '즉시 장면이나 인물이 떠오르는 것. 단어 하나 또는 2~3단어 조합도 가능 (예: 빈 의자, 마지막 버스, 유령도시). '
+      + '의외의 조합이나 낯선 느낌이 좋음. 지나치게 어둡거나 부정적인 단어는 피할 것. '
       + '반드시 <words>["단어A","단어B"]</words> 형식으로만. 설명 없이.',
       60, 'claude-haiku-4-5-20251001'
     );
@@ -2329,18 +2330,16 @@ async function generatePickWordPair(exclude = []) {
     if (raw2) {
       const arr = JSON.parse(raw2);
       if (Array.isArray(arr) && arr.length >= 2) {
-        // 클라이언트 중복 체크
         const a = allExclude.includes(arr[0])
           ? (PICK_WORD_FALLBACKS[catA]||[]).find(w => !allExclude.includes(w)) || arr[0]
           : arr[0];
-        const b = allExclude.includes(arr[1]) || arr[1] === a
+        const b = (allExclude.includes(arr[1]) || arr[1] === a)
           ? (PICK_WORD_FALLBACKS[catB]||[]).find(w => !allExclude.includes(w) && w !== a) || arr[1]
           : arr[1];
         return [a, b];
       }
     }
   } catch(e) {}
-  // 폴백 — 카테고리별 하드코딩에서 랜덤
   const fa = (PICK_WORD_FALLBACKS[catA]||['열쇠']).find(w => !allExclude.includes(w)) || '열쇠';
   const fb = (PICK_WORD_FALLBACKS[catB]||['파도']).find(w => !allExclude.includes(w) && w !== fa) || '파도';
   return [fa, fb];
@@ -2369,7 +2368,7 @@ async function renderPickGenre() {
   genres.forEach(g => {
     const card = document.createElement('button');
     card.style.cssText = 'background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r2);'
-      + 'padding:11px 14px;font-size:13px;color:var(--text);text-align:left;cursor:pointer;transition:all .15s;';
+      + 'padding:13px 16px;font-size:14px;color:var(--text);text-align:left;cursor:pointer;transition:all .15s;';
     card.textContent = g;
     card.onmouseover = () => { card.style.borderColor = 'var(--accent2)'; card.style.color = 'var(--accent)'; };
     card.onmouseout = () => { card.style.borderColor = 'var(--border2)'; card.style.color = 'var(--text)'; };
@@ -2420,17 +2419,17 @@ async function renderPickReaction() {
   } catch(e) {}
 
   const reactionEl = document.createElement('div');
-  reactionEl.style.cssText = 'font-size:15px;color:var(--text);margin-bottom:6px;font-weight:500;';
+  reactionEl.style.cssText = 'font-size:17px;color:var(--text);margin-bottom:8px;font-weight:500;';
   reactionEl.textContent = reaction;
   const subEl = document.createElement('div');
-  subEl.style.cssText = 'font-size:11px;color:var(--text3);margin-bottom:20px;font-family:var(--fm);';
+  subEl.style.cssText = 'font-size:12px;color:var(--text2);margin-bottom:20px;font-family:var(--fm);';
   subEl.innerHTML = _pickState.words.join(' · ') + ' / ' + _pickState.genre;
   body.append(reactionEl, subEl);
 
   if (_pickState.mode === 'new') {
     // 분량 선택
     const q = document.createElement('div');
-    q.style.cssText = 'font-size:12px;color:var(--text2);margin-bottom:12px;';
+    q.style.cssText = 'font-size:14px;color:var(--text);margin-bottom:14px;font-weight:500;';
     q.textContent = '무엇을 만들까요?';
     body.appendChild(q);
     const btnWrap = document.createElement('div');
@@ -2448,7 +2447,7 @@ async function renderPickReaction() {
   } else {
     // 기존 프로젝트 — 방향 선택
     const q = document.createElement('div');
-    q.style.cssText = 'font-size:12px;color:var(--text2);margin-bottom:12px;';
+    q.style.cssText = 'font-size:14px;color:var(--text);margin-bottom:14px;font-weight:500;';
     q.textContent = '어떻게 이어갈까요?';
     body.appendChild(q);
     const btnWrap = document.createElement('div');
@@ -2484,7 +2483,7 @@ async function renderPickSynopsis() {
     body.innerHTML = '';
 
     const synEl = document.createElement('div');
-    synEl.style.cssText = 'font-size:12px;color:var(--text2);line-height:1.8;background:var(--bg3);'
+    synEl.style.cssText = 'font-size:13px;color:var(--text);line-height:1.9;background:var(--bg3);'
       + 'border-left:2px solid var(--accent2);border-radius:var(--r);padding:12px 14px;margin-bottom:16px;';
     synEl.textContent = synopsis;
     body.appendChild(synEl);
@@ -2504,9 +2503,24 @@ async function renderPickSynopsis() {
 async function doPickCreateProject(synopsis) {
   const body = pickBody(); body.innerHTML = '';
   const loadEl = document.createElement('div');
-  loadEl.style.cssText = 'font-size:12px;color:var(--text3);text-align:center;padding:24px 0;line-height:2;';
-  loadEl.innerHTML = '✦ 첫 장면을 쓰고 있습니다...<br><span style="font-size:10px;">조금만 기다려주세요 ✍️</span>';
+  loadEl.style.cssText = 'font-size:14px;color:var(--text2);text-align:center;padding:32px 0;line-height:2.4;';
   body.appendChild(loadEl);
+
+  const loadingMsgs = [
+    '✦ 이야기의 첫 페이지를 펼치는 중...',
+    '✦ 인물들이 깨어나고 있습니다...',
+    '✦ 첫 장면의 공기를 채우는 중...',
+    '✦ 대사 한 줄 한 줄을 다듬는 중...',
+    '✦ 무대 위의 빛을 조율하고 있습니다...',
+    '✦ 이야기가 숨을 고르고 있어요...',
+    '✦ 조금만요, 거의 다 됐습니다 ✍️',
+  ];
+  let msgIdx = 0;
+  loadEl.innerHTML = loadingMsgs[0];
+  const msgTimer = setInterval(() => {
+    msgIdx = (msgIdx + 1) % loadingMsgs.length;
+    loadEl.innerHTML = loadingMsgs[msgIdx];
+  }, 2200);
 
   const durationLabel = { short:'단편', medium:'중편', long:'장편' };
 
@@ -2585,6 +2599,7 @@ async function doPickCreateProject(synopsis) {
     }
   ];
 
+  clearInterval(msgTimer);
   S.projects.push(proj);
   save();
   closePickOverlay();
@@ -2840,6 +2855,7 @@ function updateAppMediumTag(p) {
 }
 
 function openProject(id) {
+  const p = S.projects.find(x => x.id === id);
   if (!p) return;
   S.cur = p;
   p.lastOpened = Date.now();
