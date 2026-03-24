@@ -2874,6 +2874,13 @@ function openProject(id) {
   renderNavSceneList();
   renderScriptBody();
   renderChatMsgs();
+  // 메모가 있으면 자동 펼치기
+  if ((p.chatMemos||[]).length > 0) {
+    const body = document.getElementById('chat-memo-body');
+    const arr = document.getElementById('chat-memo-arr');
+    if (body) body.style.display = 'block';
+    if (arr) arr.textContent = '▲';
+  }
   updateApiDot();
 }
 
