@@ -9599,7 +9599,6 @@ function selectChoice(btn, choice) {
 }
 
 function showBrainstormSuggestion(originalText, customMsg) {
-  // 기존 안내 바 제거
   document.getElementById('brain-suggest-bar')?.remove();
   const bar = document.createElement('div');
   bar.id = 'brain-suggest-bar';
@@ -9612,11 +9611,10 @@ function showBrainstormSuggestion(originalText, customMsg) {
   const defaultMsg = '이 요청은 브레인스토밍에서 함께 논의하면<br>더 좋은 방향을 찾을 수 있을 것 같습니다 😊';
   msg.innerHTML = '<span style="color:#afa9ec;">💬</span> ' + (customMsg ? customMsg : defaultMsg);
   const btns = document.createElement('div');
-  btns.style.cssText = 'display:flex;gap:6px;';
+  btns.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;';
   const goBtn = document.createElement('button');
   goBtn.textContent = '💬 브레인스토밍으로 →';
   goBtn.style.cssText = 'flex:1;background:#afa9ec;color:#0e0e10;border:none;border-radius:var(--r);padding:6px 12px;font-size:11px;font-weight:600;cursor:pointer;';
-  // 브레인스토밍용 프롬프트 생성
   const brainPrompt = originalText.replace(/[.!?]$/, '') + ' — 어떻게 하면 좋을까?';
   goBtn.onclick = () => { bar.remove(); takeToBrainstorm('', brainPrompt); };
   const continueBtn = document.createElement('button');
@@ -9628,6 +9626,17 @@ function showBrainstormSuggestion(originalText, customMsg) {
     handleScriptPrompt(originalText).finally(() => { S._skipBrainCheck = false; });
   };
   btns.append(goBtn, continueBtn);
+
+  // 시퀀스 관련 키워드 있을 때만 다음 이야기 제안 버튼 추가
+  const isSeqRelated = /다음|이후|이어|시퀀스|장면.*추가|새.*이야기|어떻게.*될|뭐가.*오면/.test(originalText);
+  if (isSeqRelated) {
+    const seqBtn = document.createElement('button');
+    seqBtn.textContent = '✨ 다음 이야기 제안';
+    seqBtn.style.cssText = 'background:var(--accent3);color:var(--accent);border:1px solid var(--accent2);border-radius:var(--r);padding:6px 12px;font-size:11px;cursor:pointer;white-space:nowrap;';
+    seqBtn.onclick = () => { bar.remove(); showSequenceSuggestPanel(); };
+    btns.appendChild(seqBtn);
+  }
+
   bar.append(msg, btns);
   document.body.appendChild(bar);
   setTimeout(() => bar?.remove(), 12000);
