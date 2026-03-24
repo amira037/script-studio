@@ -2165,56 +2165,129 @@ function renderPickAsk() {
   body.appendChild(btnWrap);
 }
 
-// ── Step 1: 단어 카드 ────────────────────────
+// ── Step 1: 단어 VS 선택 ────────────────────────
 async function renderPickWords() {
-  setPickStep('1 / 4');
-  const body = pickBody(); body.innerHTML = '';
-  const loadEl = document.createElement('div');
-  loadEl.style.cssText = 'font-size:12px;color:var(--text3);text-align:center;padding:20px 0;';
-  loadEl.textContent = '✦ 단어 카드를 뽑고 있습니다...';
-  body.appendChild(loadEl);
-
-  const words = await generatePickWords();
-  _pickState.words = words;
-
-  body.innerHTML = '';
-  const title = document.createElement('div');
-  title.style.cssText = 'font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.6;';
-  title.textContent = '이 다섯 단어로 이야기를 시작해볼까요?';
-  body.appendChild(title);
-
-  const cardWrap = document.createElement('div');
-  cardWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;';
-  words.forEach(w => {
-    const card = document.createElement('div');
-    card.style.cssText = 'background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r2);'
-      + 'padding:8px 14px;font-size:13px;color:var(--accent);font-family:var(--fd);cursor:default;';
-    card.textContent = w;
-    cardWrap.appendChild(card);
-  });
-  body.appendChild(cardWrap);
-
-  const btnWrap = document.createElement('div');
-  btnWrap.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;';
-  const next = mkPickBtn('이 단어로 계속하기 →', true, renderPickGenre);
-  const re = mkPickBtn('🔄 다시 뽑기', false, renderPickWords);
-  const cancel = mkPickBtn('취소', false, closePickOverlay);
-  btnWrap.append(next, re, cancel);
-  body.appendChild(btnWrap);
+  setPickStep('1 / 5');
+  _pickState.words = [];
+  _pickState._wordRound = 0;
+  _pickState._seenWords = [];
+  await renderPickWordRound();
 }
 
-async function generatePickWords() {
+async function renderPickWordRound() {
+  const body = pickBody();
+  const round = _pickState._wordRound;
+  setPickStep((round + 1) + ' / 5');
+  body.innerHTML = '';
+
+  // 인트로 (1라운드만)
+  if (round === 0) {
+    const intro = document.createElement('div');
+    intro.style.cssText = 'text-align:center;padding:4px 0 20px;';
+    intro.innerHTML = '<div style="font-family:var(--fd);font-size:17px;color:var(--accent);margin-bottom:6px;line-height:1.5;">'
+      + '세상에 없던 새로운 작품,<br>지금 시작하세요</div>';
+    body.appendChild(intro);
+  }
+
+  // 선택된 단어 진행 표시
+  if (_pickState.words.length > 0) {
+    const progress = document.createElement('div');
+    progress.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;';
+    _pickState.words.forEach(w => {
+      const chip = document.createElement('div');
+      chip.style.cssText = 'font-size:11px;background:var(--accent3);border:1px solid var(--accent2);'
+        + 'border-radius:10px;padding:2px 10px;color:var(--accent);font-family:var(--fm);';
+      chip.textContent = w;
+      progress.appendChild(chip);
+    });
+    body.appendChild(progress);
+  }
+
+  // 질문
+  const q = document.createElement('div');
+  q.style.cssText = 'font-size:12px;color:var(--text2);margin-bottom:16px;text-align:center;';
+  q.textContent = '끌리는 단어를 골라주세요';
+  body.appendChild(q);
+
+  // 로딩 + 단어 카드 영역
+  const vsArea = document.createElement('div');
+  vsArea.id = 'pick-vs-area';
+  body.appendChild(vsArea);
+
+  // 버튼 영역
+  const btnWrap = document.createElement('div');
+  btnWrap.style.cssText = 'display:flex;gap:8px;justify-content:center;margin-top:16px;';
+  const reBtn = mkPickBtn('🔄 다른 단어', false, async () => {
+    reBtn.disabled = true;
+    reBtn.style.opacity = '0.5';
+    await loadPickVsWords(vsArea);
+    reBtn.disabled = false;
+    reBtn.style.opacity = '1';
+  });
+  const cancel = mkPickBtn('취소', false, closePickOverlay);
+  btnWrap.append(reBtn, cancel);
+  body.appendChild(btnWrap);
+
+  // 첫 단어 로딩
+  await loadPickVsWords(vsArea);
+}
+
+async function loadPickVsWords(vsArea) {
+  vsArea.innerHTML = '<div style="font-size:11px;color:var(--text3);text-align:center;padding:20px 0;font-family:var(--fm);">✦ 단어를 고르는 중...</div>';
+
+  const pair = await generatePickWordPair(_pickState._seenWords);
+  _pickState._seenWords.push(...pair);
+
+  vsArea.innerHTML = '';
+  const vsWrap = document.createElement('div');
+  vsWrap.style.cssText = 'display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;';
+
+  const mkWordCard = (word) => {
+    const card = document.createElement('button');
+    card.style.cssText = 'background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r2);'
+      + 'padding:26px 10px;font-size:17px;color:var(--text);font-family:var(--fd);cursor:pointer;'
+      + 'transition:all .15s;text-align:center;width:100%;';
+    card.textContent = word;
+    card.onmouseover = () => { card.style.borderColor='var(--accent2)'; card.style.color='var(--accent)'; card.style.background='var(--accent3)'; };
+    card.onmouseout  = () => { card.style.borderColor='var(--border2)'; card.style.color='var(--text)'; card.style.background='var(--bg3)'; };
+    card.onclick = () => {
+      _pickState.words.push(word);
+      _pickState._wordRound++;
+      if (_pickState._wordRound >= 5) {
+        renderPickGenre();
+      } else {
+        renderPickWordRound();
+      }
+    };
+    return card;
+  };
+
+  const vs = document.createElement('div');
+  vs.style.cssText = 'font-size:10px;color:var(--text3);font-family:var(--fm);text-align:center;user-select:none;';
+  vs.textContent = 'VS';
+
+  vsWrap.append(mkWordCard(pair[0]), vs, mkWordCard(pair[1]));
+  vsArea.appendChild(vsWrap);
+}
+
+async function generatePickWordPair(exclude = []) {
   try {
+    const excludeHint = exclude.length > 0 ? ' 이미 사용한 단어는 제외하세요: ' + exclude.join(', ') + '.' : '';
     const raw = await callClaude(
-      [{ role: 'user', content: '대본 창작에 영감을 줄 무작위 단어 5개를 뽑아주세요.' }],
-      '반드시 <words>["단어1","단어2","단어3","단어4","단어5"]</words> 형식으로만 응답하세요. '
-      + '명사 위주, 구체적이고 이미지가 강한 단어들로. 설명 없이.',
-      100, 'claude-haiku-4-5-20251001'
+      [{ role: 'user', content: '창작에 영감을 주는 단어 2개만 뽑아주세요.' + excludeHint }],
+      '반드시 <words>["단어1","단어2"]</words> 형식으로만. 명사, 이미지가 강한 단어. 설명 없이.',
+      60, 'claude-haiku-4-5-20251001'
     );
     const raw2 = extractTag(raw, 'words');
-    if (raw2) { const arr = JSON.parse(raw2); if (Array.isArray(arr)) return arr.slice(0,5); }
+    if (raw2) {
+      const arr = JSON.parse(raw2);
+      if (Array.isArray(arr) && arr.length >= 2) return arr.slice(0,2);
+    }
   } catch(e) {}
-  return ['열쇠', '안개', '거울', '번개', '돼지'];
+  // 폴백 — 랜덤 2개
+  const fallback = ['열쇠','안개','거울','번개','돼지','나침반','유리','뼈','달력','연기','장갑','사다리','촛불','파도','지도'];
+  const avail = fallback.filter(w => !exclude.includes(w));
+  return [avail[Math.floor(Math.random()*avail.length)], avail[Math.floor(Math.random()*avail.length)+1] || '별'];
 }
 
 // ── Step 2: 장르 추천 ────────────────────────
