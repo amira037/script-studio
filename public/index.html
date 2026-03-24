@@ -6194,7 +6194,7 @@ async function confirmAiSceneAdd() {
   await handleAiSceneAdd(hint);
 }
 
-async function handleAiSceneAdd(hint) {
+async function handleAiSceneAdd(hint, forcedRefSc, forcedRefLabel, isInsertOnly) {
   if (!S.cur) return;
   const scenes = S.cur.scenes || [];
   const chars = (S.cur.characters||[]).map(c=>c.name+'('+c.role+')').join(', ');
@@ -6578,7 +6578,7 @@ async function handleSceneConnection(text) {
 
   showAnalyzing();
 
-  const _planFmt = '\n\n개선 제안은 반드시 다음 형식으로 작성하세요:\n방안1: [제목]\n- 구체적 내용 (SC번호 포함)\n방안2: [제목]\n- 구체적 내용 (SC번호 포함)\n방안이 없으면 생략 가능.\n주의: 각 방안은 하나의 구체적인 방법만 포함하세요. "또는", "혹은"으로 대안을 같은 방안 안에 넣지 말고, 대안은 별도 방안으로 분리하세요. 마크다운 볼드(**) 사용 금지.';
+  const _planFmt = '\n\n개선 제안은 반드시 다음 형식으로 작성하세요:\n방안1: [제목]\n수정대상: SC번호 (반드시 하나만. 앞 씬이 문제면 앞 씬 번호, 뒷 씬이 문제면 뒷 씬 번호)\n유형: 수정 또는 삽입\n내용: 구체적 수정/삽입 내용\n\n유형 구분:\n- 기존 씬 내용 변경 → 유형: 수정\n- 두 씬 사이 새 씬 추가 → 유형: 삽입 (수정대상은 앞 씬 번호)\n\n중요: 수정대상은 반드시 SC번호 하나만. 앞 씬과 뒷 씬 중 더 문제있는 씬을 선택하세요.\n주의: 각 방안은 하나의 방법만. "또는/혹은" 금지. 마크다운 볼드(**) 사용 금지.';
   const sysPrompt = targetScenes.length === 0
     ? '대본 전체 흐름을 분석하세요. 어색한 씬 전환, 감정 흐름 단절, 시간 순서 혼란 등을 찾아주세요.' + _planFmt
     : '씬들의 연결이 자연스러운지 분석하세요.\n연결 평가, 문제점, 개선 제안을 구체적으로 작성하세요.' + _planFmt;
@@ -6614,10 +6614,20 @@ async function handleSceneConnection(text) {
     const endIdx = nextMatch > startIdx ? nextMatch : startIdx + 600;
     const planBlock = raw.slice(startIdx, endIdx);
     const planContent = planBlock.replace(/\*+/g,'').replace(/\n/g,' ').trim().slice(0,200);
-    // SC번호 추출
-    const planScNums = [...new Set((planBlock.match(/SC\s*(\d+)/gi)||[]).map(s=>parseInt(s.replace(/SC\s*/i,''))))];
+    // SC번호 추출 — "수정대상: SCN" 우선, 없으면 첫 번째 SC번호만
+    let planScNums = [];
+    const targetMatch = planBlock.match(/수정대상\s*:\s*SC\s*(\d+)/i);
+    if (targetMatch) {
+      planScNums = [parseInt(targetMatch[1])];
+    } else {
+      // fallback: 첫 번째 SC번호만 사용 (앞 씬 우선)
+      const firstSc = planBlock.match(/SC\s*(\d+)/i);
+      if (firstSc) planScNums = [parseInt(firstSc[1])];
+    }
+    // 삽입 유형 감지
+    const isInsertPlan = /유형\s*:\s*삽입|삽입|뒤에.*새|새.*씬.*삽입/i.test(planBlock);
     if (planScNums.length > 0) {
-      plans.push({ num: planNum, scNums: planScNums, content: planContent });
+      plans.push({ num: planNum, scNums: planScNums, content: planContent, isInsert: isInsertPlan });
     }
   }
 
@@ -6634,6 +6644,7 @@ async function handleSceneConnection(text) {
         const prompt = '방안' + plan.num + '으로 수정해줘: ' + plan.content.slice(0,150);
         window['_planPrompt'+plan.num] = prompt;
         window['_planScNums'+plan.num] = plan.scNums;
+        window['_planIsInsert'+plan.num] = plan.isInsert || false;
         fixBtns += '<button class="rp-btn" onclick="applyPlanFix(' + plan.num + ')">✦ 방안' + plan.num + '으로 수정하기</button>';
       }
     });
@@ -7378,23 +7389,31 @@ function showFlowCheckPanel(issues, prompt) {
   );
 }
 
-function applyPlanFix(planNum) {
+async function applyPlanFix(planNum) {
   const scNums = window['_planScNums'+planNum] || [];
   const prompt = window['_planPrompt'+planNum] || '';
   if (!scNums.length) return;
 
-  // 씬 추가/삽입 요청이면 handleSceneInsertPrompt로
-  if (/추가|삽입|새.*씬|연결씬|전환씬/.test(prompt)) {
-    switchTab('script');
-    setTimeout(() => {
-      const inp = document.getElementById('prompter-inp');
-      if (inp) { inp.value = prompt; inp.dispatchEvent(new Event('input')); inp.focus(); }
-    }, 200);
+  // window에 isInsert 플래그 저장됐으면 우선 사용
+  const isInsert = window['_planIsInsert'+planNum] ||
+    /삽입|뒤에.*새|새.*씬.*삽입|연결씬|전환씬/.test(prompt);
+  const scenes = S.cur?.scenes || [];
+
+  if (isInsert) {
+    // 삽입 — 기준 씬 찾아서 handleAiSceneAdd 직접 호출
+    const refScNum = scNums[0];
+    const refSc = scenes.find(s => getSceneLabel(s,scenes) === 'SC '+refScNum);
+    const refLabel = refSc ? getSceneLabel(refSc, scenes) : '맨 뒤';
+    closeResponsePanel();
+    window._aiInsertMode = 'after';
+    // hint 추출
+    const hint = prompt.replace(/방안\d+으로 수정해줘:/,'').trim();
+    await handleAiSceneAdd(hint, refSc, refLabel, true); // isInsertOnly=true
     return;
   }
 
+  // 수정 — 씬 선택 후 Sonnet 재작성
   S.selectedIds.clear();
-  const scenes = S.cur?.scenes || [];
   scNums.forEach(n => {
     const sc = scenes.find(s => getSceneLabel(s,scenes) === 'SC '+n);
     if (sc) S.selectedIds.add(sc.id);
@@ -7737,17 +7756,25 @@ function showNewSceneInsertPanel(scenesData, comment, refSc, refLabel) {
       ? '<div style="font-size:11px;color:var(--text2);margin-top:6px;padding:5px 8px;background:var(--bg3);border-radius:var(--r);">' + escH(comment) + '</div>'
       : '');
 
+  // isInsertOnly: 삽입 전용 — 교체/대안 없음
+  const isInsertOnly = window._insertOnly || false;
+  window._insertOnly = false;
+
   let actsHTML = '';
   if (refSc) {
-    actsHTML += '<button class="rp-btn" style="background:var(--red2);color:var(--red);border-color:rgba(224,96,96,.3);" onclick="window._doInsert(&quot;replace&quot;)">↔ ' + escH(refLabel) + ' 교체</button>';
-    actsHTML += '<button class="rp-btn" style="background:var(--bg3);color:var(--text2);" onclick="window._doInsert(&quot;draft&quot;)">📋 대안씬으로 저장</button>';
+    if (!isInsertOnly) {
+      // 수정 모드 — 교체 + 대안 저장
+      actsHTML += '<button class="rp-btn" style="background:var(--red2);color:var(--red);border-color:rgba(224,96,96,.3);" onclick="window._doInsert(&quot;replace&quot;)">↔ ' + escH(refLabel) + ' 교체</button>';
+      actsHTML += '<button class="rp-btn" style="background:var(--bg3);color:var(--text2);" onclick="window._doInsert(&quot;draft&quot;)">📋 대안씬으로 저장</button>';
+    }
+    // 삽입 버튼 — 항상
     if (aiSuggestedMode === 'before') {
       actsHTML += '<button class="rp-btn" onclick="window._doInsert(&quot;before&quot;)">↑ ' + escH(refLabel) + ' 앞에 삽입</button>';
     } else {
       actsHTML += '<button class="rp-btn" onclick="window._doInsert(&quot;after&quot;)">↓ ' + escH(refLabel) + ' 뒤에 삽입</button>';
     }
   }
-  actsHTML += '<button class="rp-btn" onclick="window._doInsert(&quot;end&quot;)">⬇ 맨 뒤에 추가</button>';
+  // 맨 뒤에 추가 — 제거
   actsHTML += '<button class="rp-btn" onclick="closeResponsePanel()">✕ 취소</button>';
 
   window._aiInsertMode = null;
