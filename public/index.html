@@ -2220,6 +2220,8 @@ async function renderPickWordRound() {
   const reBtn = mkPickBtn('🔄 다른 단어', false, async () => {
     reBtn.disabled = true;
     reBtn.style.opacity = '0.5';
+    // 현재 보여준 두 단어 모두 seen에 추가
+    if (_pickState._currentPair) _pickState._seenWords.push(..._pickState._currentPair);
     await loadPickVsWords(vsArea);
     reBtn.disabled = false;
     reBtn.style.opacity = '1';
@@ -2236,7 +2238,8 @@ async function loadPickVsWords(vsArea) {
   vsArea.innerHTML = '<div style="font-size:11px;color:var(--text3);text-align:center;padding:20px 0;font-family:var(--fm);">✦ 단어를 고르는 중...</div>';
 
   const pair = await generatePickWordPair(_pickState._seenWords);
-  _pickState._seenWords.push(...pair);
+  // 선택 안 한 단어들만 exclude에 추가 (선택한 건 포함 안 함)
+  _pickState._currentPair = pair;
 
   vsArea.innerHTML = '';
   const vsWrap = document.createElement('div');
@@ -2251,6 +2254,9 @@ async function loadPickVsWords(vsArea) {
     card.onmouseover = () => { card.style.borderColor='var(--accent2)'; card.style.color='var(--accent)'; card.style.background='var(--accent3)'; };
     card.onmouseout  = () => { card.style.borderColor='var(--border2)'; card.style.color='var(--text)'; card.style.background='var(--bg3)'; };
     card.onclick = () => {
+      // 선택 안 한 상대 단어만 seenWords에 추가
+      const other = _pickState._currentPair.find(w => w !== word);
+      if (other) _pickState._seenWords.push(other);
       _pickState.words.push(word);
       _pickState._wordRound++;
       if (_pickState._wordRound >= 5) {
@@ -2272,10 +2278,13 @@ async function loadPickVsWords(vsArea) {
 
 async function generatePickWordPair(exclude = []) {
   try {
-    const excludeHint = exclude.length > 0 ? ' 이미 사용한 단어는 제외하세요: ' + exclude.join(', ') + '.' : '';
+    const excludeHint = exclude.length > 0 ? ' 이미 제시한 단어는 절대 반복하지 마세요: ' + exclude.join(', ') + '.' : '';
     const raw = await callClaude(
       [{ role: 'user', content: '창작에 영감을 주는 단어 2개만 뽑아주세요.' + excludeHint }],
-      '반드시 <words>["단어1","단어2"]</words> 형식으로만. 명사, 이미지가 강한 단어. 설명 없이.',
+      '반드시 <words>["단어1","단어2"]</words> 형식으로만. '
+      + '명사로, 구체적이고 이미지가 강한 단어. '
+      + '밝은 것, 어두운 것, 일상적인 것, 추상적인 것, 자연, 사물, 감정 등 분위기가 다양하게 나오도록. '
+      + '두 단어의 분위기가 서로 달라야 함. 설명 없이.',
       60, 'claude-haiku-4-5-20251001'
     );
     const raw2 = extractTag(raw, 'words');
@@ -2284,7 +2293,6 @@ async function generatePickWordPair(exclude = []) {
       if (Array.isArray(arr) && arr.length >= 2) return arr.slice(0,2);
     }
   } catch(e) {}
-  // 폴백 — 랜덤 2개
   const fallback = ['열쇠','안개','거울','번개','돼지','나침반','유리','뼈','달력','연기','장갑','사다리','촛불','파도','지도'];
   const avail = fallback.filter(w => !exclude.includes(w));
   return [avail[Math.floor(Math.random()*avail.length)], avail[Math.floor(Math.random()*avail.length)+1] || '별'];
