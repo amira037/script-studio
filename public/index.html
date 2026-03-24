@@ -5855,28 +5855,8 @@ async function handleSequenceSuggestFromScript() {
   }
 }
 
-// ── 막혔어 → 픽/대본 분기 패널 ──────────────────────────────────────
-function showStuckPanel() {
-  const hasScenes = (S.cur?.scenes||[]).filter(s=>!s.draft).length > 0;
-  const bodyHTML = '<div class="choice-intro" style="font-size:13px;color:var(--text);margin-bottom:6px;">막혔을 때 도움이 될 수 있어요 ✨</div>'
-    + '<div style="font-size:11px;color:var(--text3);margin-bottom:12px;">어떻게 풀어볼까요?</div>'
-    + '<div style="display:flex;flex-direction:column;gap:8px;">'
-    + '<button class="rp-btn" style="text-align:left;padding:10px 14px;font-size:13px;background:var(--accent3);color:var(--accent);border-color:var(--accent2);" onclick="closeResponsePanel();startPick(\'existing\')">🎲 픽으로 새 영감 찾기</button>'
-    + (hasScenes
-      ? '<button class="rp-btn" style="text-align:left;padding:10px 14px;font-size:13px;" onclick="closeResponsePanel();handleSequenceSuggestFromScript()">📖 지금 대본 기반으로 제안받기</button>'
-      : '')
-    + '<button class="rp-btn" style="text-align:left;padding:10px 14px;font-size:13px;" onclick="closeResponsePanel();sendChatText(\'지금 대본의 문제점이 뭔지 분석해줘\')">🔍 대본 문제점 분석</button>'
-    + '</div>';
-  showResponsePanel('choice', '😤 막혔어요?', bodyHTML,
-    '<button class="rp-btn" onclick="closeResponsePanel()">취소</button>'
-  );
-}
-
-function sendChatText(text) {
-  const inp = document.getElementById('prompter-inp');
-  if (inp) { inp.value = text; autoResize(inp); }
-  handleChatPrompt(text);
-}
+// ── 막혔어 → 시퀀스 제안 패널과 통합 ────────────────────────────────
+function showStuckPanel() { showSequenceSuggestPanel(); }
 
 // ── 시퀀스 제목 승인 → 내용 생성 패널 ───────────────────────────────
 function showApproveSequencePanel(seqTitlesData) {
