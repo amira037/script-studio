@@ -1229,7 +1229,7 @@ function closeResponsePanel() {
         <div class="nav-scene-list" id="nav-scene-list"></div>
         <div style="display:flex;gap:4px;margin:5px 6px 5px;">
           <button class="nav-add-scene" id="nav-add-scene-anchor" onclick="addSceneAtEnd()" style="margin:0;flex:1;">+ 씬 추가</button>
-          <button class="nav-add-scene" onclick="showAiSceneAddPanel()" style="margin:0;width:auto;padding:7px 10px;" title="AI가 필요한 씬을 판단해서 추가합니다">✨ AI</button>
+          <button class="nav-add-scene" onclick="handleAiBtn()" style="margin:0;width:auto;padding:7px 10px;" title="AI 장면 작업">✨ AI</button>
         </div>
       </div>
       <div class="nav-btm">
@@ -6894,8 +6894,12 @@ async function handleFillPlaceholders() {
 
 // ── 빈 씬 판별 ───────────────────────────────────────────────────────
 function isEmptyScene(sc) {
+  const PLACEHOLDERS = ['지문을 입력하세요.', '캐릭터', '대사를 입력하세요.'];
   const lines = sc.lines || [];
-  const meaningful = lines.filter(l => l.type !== 'slug' && l.text && l.text.trim());
+  const meaningful = lines.filter(l =>
+    l.type !== 'slug' && l.text && l.text.trim()
+    && !PLACEHOLDERS.includes(l.text.trim())
+  );
   return meaningful.length === 0;
 }
 
