@@ -305,6 +305,7 @@ textarea, input { font-family:var(--fb); }
 .sc-nav-info { flex:1; min-width:0; }
 .sc-nav-name { font-size:13px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .sc-nav-slug { font-size:11px; color:var(--text3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:1px; }
+.nav-sc-label, .sc-num { white-space:nowrap; }
 .sc-lock-icon { font-size:10px; color:var(--text3); flex-shrink:0; }
 
 /* Nav drag handle */
@@ -1266,9 +1267,9 @@ function closeResponsePanel() {
           <button class="toolbar-btn" id="redo-btn" onclick="redo()" disabled title="다시실행 (Ctrl+Y)">↪ 다시실행</button>
           <span class="toolbar-info" id="toolbar-info"></span>
           <button class="prompter-del-btn" id="del-btn" onclick="confirmDeleteSelected()">✕ 씬 삭제</button>
-          <button class="toolbar-btn" id="merge-btn" onclick="handleSceneMergeFromBtn()" style="display:none;background:var(--accent3);color:var(--accent);border-color:var(--accent2);">⚡ AI 합치기</button>
+
           <button class="toolbar-btn" id="fill-btn" onclick="handleFillPlaceholders()" style="display:none;background:var(--accent3);color:var(--accent);border-color:var(--accent2);" title="??? 표시된 부분을 AI가 채워드립니다">✨ ??? 채우기</button>
-          <button class="toolbar-btn" id="ai-write-btn" onclick="handleAiBtn()" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);" title="AI 작성/재구성/씬 추가">✨</button>
+          <button class="toolbar-btn" id="ai-write-btn" onclick="handleAiBtn()" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);font-size:16px;padding:4px 10px;" title="AI 작성/재구성/씬 추가">✨</button>
         </div>
         <div class="del-confirm-bar" id="del-confirm-bar">
           <span id="del-confirm-txt"></span>
@@ -1304,7 +1305,7 @@ function closeResponsePanel() {
           <div class="fab-actions" id="fab-actions"></div>
         </div>
         <div class="chip-row" id="chip-row">
-          <span class="chip-hint" id="chip-hint">라인에게 씬 수정, 추가, 분석을 지시하세요</span>
+          <span class="chip-hint" id="chip-hint"></span>
         </div>
         <div class="prompter-row">
           <label class="attach-btn" title="파일 첨부 (txt/md/docx)">
@@ -2371,7 +2372,8 @@ function renderNavSceneList() {
     // ── 잠금 아이콘 ──
     if (sc.locked) {
       const lock = document.createElement('span');
-      lock.className = 'sc-lock-icon'; lock.textContent = '🔒';
+      lock.className = 'sc-lock-icon'; lock.textContent = '★';
+      lock.style.cssText = 'color:var(--accent);font-size:10px;margin-left:2px;';
       item.appendChild(lock);
     }
 
@@ -2613,8 +2615,7 @@ function updateToolbarInfo() {
 function updateDelBtn() {
   const btn = document.getElementById('del-btn');
   if (btn) btn.classList.toggle('show', S.selectedIds.size > 0);
-  const mergeBtn = document.getElementById('merge-btn');
-  if (mergeBtn) mergeBtn.style.display = S.selectedIds.size >= 2 ? '' : 'none';
+  // merge-btn removed from toolbar
 }
 
 function updateAiWriteBtn() {
@@ -2705,7 +2706,7 @@ function switchTab(tab) {
   const inp = document.getElementById('prompter-inp');
   inp.placeholder = tab==='chat'
     ? '플로에게 이야기의 방향, 인물, 구조를 물어보세요'
-    : '라인에게 씬 수정, 추가, 분석을 지시하세요';
+    : '';
 }
 
 // ═══════════════════════════════════════════
@@ -2766,7 +2767,7 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
       </div>
     </div>
     <div id="nsi-panel-paste" style="display:none;padding:10px 14px;display:none;flex-direction:column;gap:7px;">
-      <textarea id="nsi-paste-area" maxlength="4000" style="width:100%;min-height:100px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-family:var(--fb);font-size:12px;padding:8px 10px;resize:vertical;outline:none;line-height:1.7;" placeholder="씬 텍스트를 여기에 붙여넣으세요.&#10;&#10;예)&#10;SCENE 12. 외부. 마을 길 – 밤&#10;유모가 어린 율랑을 데리고 은밀히 숨어든다.&#10;유모  쉿… 도련님. 소리 내면 안 돼요." oninput="document.getElementById('nsi-char-count').textContent=this.value.length+' / 4000'"></textarea>
+      <textarea id="nsi-paste-area" maxlength="4000" style="width:100%;min-height:100px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-family:var(--fb);font-size:12px;padding:8px 10px;resize:vertical;outline:none;line-height:1.7;" placeholder="씬 텍스트를 여기에 붙여넣으세요.&#10;&#10;예)&#10;SCENE 12. 외부. 마을 길 – 밤&#10;유모가 어린 율랑을 데리고 은밀히 숨어든다.&#10;유모  쉿… 도련님. 소리 내면 안 돼요." oninput="document.getElementById('nsi-char-count').textContent=this.value.length+' / 4000'" onfocus="document.getElementById('prompter').style.display='none'" onblur="document.getElementById('prompter').style.display=''"></textarea>
       <div style="font-size:10px;color:var(--text3);font-family:var(--fm);text-align:right;margin-top:-4px;" id="nsi-char-count">0 / 4000</div>
       <div style="display:flex;gap:6px;">
         <button id="nsi-parse-btn" style="font-size:11px;background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:6px 14px;font-weight:600;cursor:pointer;">✦ AI 파싱해서 씬 만들기</button>
@@ -2992,8 +2993,8 @@ function buildSceneBlock(sc, i) {
   lockBtn.style.cssText = sc.locked
     ? 'font-size:10px;color:#5dcaa5;border-color:#1d9e75;background:rgba(29,158,117,.2);font-weight:600;'
     : 'font-size:10px;color:#5dcaa5;border-color:rgba(29,158,117,.4);background:rgba(29,158,117,.12);';
-  lockBtn.textContent = sc.locked ? '★ 중요 장면' : '☆ 중요 장면';
-  lockBtn.title = sc.locked ? '중요 장면 해제' : '중요 장면으로 표시 (AI 편집 보호)';
+  lockBtn.textContent = sc.locked ? '★ 중요' : '☆ 중요';
+  lockBtn.title = sc.locked ? '중요 장면 해제' : '중요 장면으로 표시';
   lockBtn.onclick = () => {
     sc.locked = !sc.locked;
     save(); renderScriptBody(); renderNavSceneList();
@@ -3002,7 +3003,7 @@ function buildSceneBlock(sc, i) {
   // 텍스트 입력 버튼
   const txtEditBtn = document.createElement('button');
   txtEditBtn.className = 'sc-hdr-btn';
-  txtEditBtn.textContent = '📝 텍스트 편집';
+  txtEditBtn.textContent = '📝 텍스트';
   txtEditBtn.style.cssText = 'font-size:10px;color:#85b7eb;border-color:rgba(110,168,200,.4);background:rgba(110,168,200,.12);';
   txtEditBtn.onclick = () => openSceneTextEditor(sc, block);
   // 씬 제목 AI 채우기 버튼 (제목이 없거나 '새 씬'일 때만 표시)
@@ -3012,16 +3013,32 @@ function buildSceneBlock(sc, i) {
   titleAiBtn.textContent = '✦ AI 제목';
   titleAiBtn.title = 'AI가 씬 내용을 읽고 제목을 제안합니다';
   titleAiBtn.onclick = async () => {
+    // 빈 씬 체크
+    const contentLines = sc.lines.filter(l => l.type !== 'slug' && l.text?.trim());
+    if (contentLines.length < 2) {
+      toast('씬 내용을 먼저 작성해주세요 😊'); return;
+    }
     titleAiBtn.textContent = '...'; titleAiBtn.disabled = true;
     setWaiting(true);
-    toast('✦ AI 제목 작성 중...', 10000);
     try {
       const sceneText = sc.lines.map(l => l.text).join(' ').slice(0, 300);
       const ctx = buildProjectContext();
       const sys = '대본 씬의 내용을 보고 적절한 씬 제목을 한국어로 5~15자 이내로 제안해주세요. 제목만 출력하고 다른 말은 하지 마세요.';
       const raw = await callClaude([{role:'user', content:'작품: ' + ctx + '\n씬 내용: ' + sceneText}], sys, 50, 'claude-haiku-4-5-20251001');
-      const suggested = raw.trim().replace(/^["']|["']$/g, '').replace(/^제목[:：]?\s*/i, '');
-      if (suggested) {
+      const firstLine = raw.trim().split('\n')[0];
+      const suggested = firstLine
+        .replace(/^[\"'「『【\[]/g, '').replace(/[\"'」』】\]]/g, '')
+        .replace(/^제목[:：]?\s*/i, '')
+        .replace(/^\d+[.)]\s*/,'')
+        .trim()
+        .slice(0, 20);
+      // 제목답지 않은 응답 필터링
+      const isInvalid = !suggested ||
+        suggested.length > 20 ||
+        /없습니다|않습니다|수 없|불가|충분|부족|실패/.test(suggested);
+      if (isInvalid) {
+        toast('제목 생성에 실패했습니다. 다시 시도해주세요.');
+      } else {
         sc.title = suggested;
         titleInp.value = suggested;
         save(); renderNavSceneList();
@@ -3075,12 +3092,11 @@ function buildSceneBlock(sc, i) {
     toast('✓ 대안 장면으로 복제됨', 3000);
     setTimeout(() => scrollToScene(cloned.id), 100);
   };
-  acts.appendChild(collapseBtn);
   acts.appendChild(titleAiBtn);
   acts.appendChild(txtEditBtn);
   acts.appendChild(cloneBtn);
   acts.appendChild(lockBtn);
-  hdr.append(cb, num, titleInp, acts);
+  hdr.append(collapseBtn, cb, num, titleInp, acts);
   block.appendChild(hdr);
 
   // Ensure slug line exists as first line
@@ -6172,24 +6188,38 @@ function showAiSceneAddPanel() {
     { label:'AI가 알아서', val:'' },
   ];
   window._aiSceneHints = hints;
-  const bodyHTML = '<div class="choice-intro">어떤 씬이 필요한가요?</div>' +
+  const bodyHTML =
+    '<div class="choice-intro">어떤 씬이 필요한가요?</div>' +
     '<div class="choice-list">' +
     hints.map((h,i) =>
-      '<button class="choice-option" onclick="selectChoiceSingle(this)" data-val="'+i+'">' +
+      '<button class="choice-option" onclick="selectChoiceSingle(this);showAiSceneDesc();" data-val="'+i+'">' +
       '<span class="choice-key">'+(i+1)+'</span>' + h.label + '</button>'
-    ).join('') + '</div>';
+    ).join('') + '</div>' +
+    '<div id="ai-scene-desc-wrap" style="display:none;margin-top:8px;">' +
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:4px;">어떤 장면인지 설명해주세요 (선택사항)</div>' +
+    '<textarea id="ai-scene-desc" rows="2" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);padding:6px 8px;color:var(--text);font-size:12px;resize:none;" placeholder="예: 비 오는 밤, 두 사람이 처음 마주치는..."></textarea>' +
+    '</div>';
   showResponsePanel('choice', '✨ AI 씬 추가',
     bodyHTML,
-    '<button class="rp-btn" onclick="confirmAiSceneAdd()">✨ 생성</button>' +
+    '<button class="rp-btn" onclick="confirmAiSceneAdd(false)">✨ 생성</button>' +
+    '<button class="rp-btn" style="background:var(--bg3);color:var(--text2);" onclick="confirmAiSceneAdd(true)">🎲 알아서 생성</button>' +
     '<button class="rp-btn" onclick="closeResponsePanel()">취소</button>'
   );
 }
 
-async function confirmAiSceneAdd() {
+function showAiSceneDesc() {
+  const wrap = document.getElementById('ai-scene-desc-wrap');
+  if (wrap) wrap.style.display = 'block';
+}
+
+async function confirmAiSceneAdd(autoMode) {
   const sel = document.querySelector('#rp-body .choice-option.selected');
   const idx = sel ? parseInt(sel.dataset.val) : 4;
   const hints = window._aiSceneHints || [];
-  const hint = hints[idx]?.val || '';
+  const hintVal = hints[idx]?.val || '';
+  const descEl = document.getElementById('ai-scene-desc');
+  const desc = (!autoMode && descEl) ? descEl.value.trim() : '';
+  const hint = desc ? hintVal + (hintVal ? ' — ' : '') + desc : hintVal;
   closeResponsePanel();
   await handleAiSceneAdd(hint);
 }
@@ -6748,7 +6778,7 @@ async function handleScriptPrompt(text) {
 
   // Special commands — 명확한 키워드는 직접 처리
   if (/제목.*바꿔|제목.*변경|제목.*수정|제목.*극적|제목.*추천/.test(text)) { await handleTitleChange(text); return; }
-  if (/중요 장면|잠금해줘|locked.*on|장면.*잠금/.test(text)) {
+  if (/중요\s*장면|주요\s*장면|잠금해줘|locked.*on|장면.*잠금/.test(text)) {
     // Haiku가 잠금(지정) vs 선별(뽑아줘) 판단
     const _lockRaw = await callClaude(
       [{role:'user', content: '요청: "' + text + '"'}],
@@ -6759,9 +6789,9 @@ async function handleScriptPrompt(text) {
     if (_lockIntent === 'pick') { await handlePickKeyScenes(text); return; }
     await handleSceneLock(text, true); return;
   }
-  if (/잠금 해제|잠금.*해제|중요 장면.*해제|locked.*off/.test(text)) {
+  if (/잠금\s*해제|잠금.*해제|(?:중요|주요)\s*장면.*해제|locked.*off/.test(text)) {
     // "전부/모두/다" 포함 시 전체 해제
-    if (/전부|모두|다 해제|전체/.test(text)) {
+    if (/전부|모두|다\s*해제|전체|전부\s*해제|모두\s*해제/.test(text)) {
       const scenes = S.cur?.scenes || [];
       scenes.forEach(s => { s.locked = false; });
       save(true); renderScriptBody(); renderNavSceneList();
