@@ -2238,7 +2238,6 @@ async function loadPickVsWords(vsArea) {
   vsArea.innerHTML = '<div style="font-size:11px;color:var(--text3);text-align:center;padding:20px 0;font-family:var(--fm);">✦ 단어를 고르는 중...</div>';
 
   const pair = await generatePickWordPair(_pickState._seenWords);
-  // 선택 안 한 단어들만 exclude에 추가 (선택한 건 포함 안 함)
   _pickState._currentPair = pair;
 
   vsArea.innerHTML = '';
@@ -2254,7 +2253,6 @@ async function loadPickVsWords(vsArea) {
     card.onmouseover = () => { card.style.borderColor='var(--accent2)'; card.style.color='var(--accent)'; card.style.background='var(--accent3)'; };
     card.onmouseout  = () => { card.style.borderColor='var(--border2)'; card.style.color='var(--text)'; card.style.background='var(--bg3)'; };
     card.onclick = () => {
-      // 선택 안 한 상대 단어만 seenWords에 추가
       const other = _pickState._currentPair.find(w => w !== word);
       if (other) _pickState._seenWords.push(other);
       _pickState.words.push(word);
@@ -2276,26 +2274,53 @@ async function loadPickVsWords(vsArea) {
   vsArea.appendChild(vsWrap);
 }
 
+const PICK_WORD_CATEGORIES = ['자연물', '감정', '장소', '사물', '관계', '현상', '신체', '시간'];
+const PICK_WORD_FALLBACKS = {
+  '자연물': ['파도','안개','번개','빙하','화산','이끼','가시','뿌리'],
+  '감정':   ['그리움','분노','황홀','공허','질투','경외','수치','고독'],
+  '장소':   ['지하실','첨탑','골목','폐허','수도원','부두','온실','광장'],
+  '사물':   ['열쇠','거울','나침반','유리','달력','장갑','사다리','촛불'],
+  '관계':   ['배신','계약','유산','맹세','비밀','빚','혈연','이별'],
+  '현상':   ['연기','침묵','메아리','그림자','균열','소용돌이','잔향','흔적'],
+  '신체':   ['눈동자','손목','심장','발자국','목소리','숨결','눈물','등'],
+  '시간':   ['새벽','황혼','기억','예언','과거','순간','윤회','마감'],
+};
+
 async function generatePickWordPair(exclude = []) {
+  // 두 카테고리 랜덤 선택 (서로 다르게)
+  const cats = [...PICK_WORD_CATEGORIES].sort(() => Math.random() - 0.5);
+  const catA = cats[0], catB = cats[1];
+  const allExclude = [...exclude, ..._pickState.words];
+
   try {
-    const excludeHint = exclude.length > 0 ? ' 이미 제시한 단어는 절대 반복하지 마세요: ' + exclude.join(', ') + '.' : '';
     const raw = await callClaude(
-      [{ role: 'user', content: '창작에 영감을 주는 단어 2개만 뽑아주세요.' + excludeHint }],
-      '반드시 <words>["단어1","단어2"]</words> 형식으로만. '
-      + '명사로, 구체적이고 이미지가 강한 단어. '
-      + '밝은 것, 어두운 것, 일상적인 것, 추상적인 것, 자연, 사물, 감정 등 분위기가 다양하게 나오도록. '
-      + '두 단어의 분위기가 서로 달라야 함. 설명 없이.',
+      [{ role: 'user', content:
+        '카테고리 A: ' + catA + ' — 이 카테고리에서 단어 1개\n'
+        + '카테고리 B: ' + catB + ' — 이 카테고리에서 단어 1개\n'
+        + (allExclude.length > 0 ? '제외할 단어: ' + allExclude.join(', ') : '') }],
+      '각 카테고리에서 창작 대본에 영감을 주는 강렬하고 구체적인 명사 1개씩 뽑으세요. '
+      + '반드시 <words>["단어A","단어B"]</words> 형식으로만. 설명 없이.',
       60, 'claude-haiku-4-5-20251001'
     );
     const raw2 = extractTag(raw, 'words');
     if (raw2) {
       const arr = JSON.parse(raw2);
-      if (Array.isArray(arr) && arr.length >= 2) return arr.slice(0,2);
+      if (Array.isArray(arr) && arr.length >= 2) {
+        // 클라이언트 중복 체크
+        const a = allExclude.includes(arr[0])
+          ? (PICK_WORD_FALLBACKS[catA]||[]).find(w => !allExclude.includes(w)) || arr[0]
+          : arr[0];
+        const b = allExclude.includes(arr[1]) || arr[1] === a
+          ? (PICK_WORD_FALLBACKS[catB]||[]).find(w => !allExclude.includes(w) && w !== a) || arr[1]
+          : arr[1];
+        return [a, b];
+      }
     }
   } catch(e) {}
-  const fallback = ['열쇠','안개','거울','번개','돼지','나침반','유리','뼈','달력','연기','장갑','사다리','촛불','파도','지도'];
-  const avail = fallback.filter(w => !exclude.includes(w));
-  return [avail[Math.floor(Math.random()*avail.length)], avail[Math.floor(Math.random()*avail.length)+1] || '별'];
+  // 폴백 — 카테고리별 하드코딩에서 랜덤
+  const fa = (PICK_WORD_FALLBACKS[catA]||['열쇠']).find(w => !allExclude.includes(w)) || '열쇠';
+  const fb = (PICK_WORD_FALLBACKS[catB]||['파도']).find(w => !allExclude.includes(w) && w !== fa) || '파도';
+  return [fa, fb];
 }
 
 // ── Step 2: 장르 추천 ────────────────────────
