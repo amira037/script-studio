@@ -5551,29 +5551,45 @@ async function buildCompressedHistory() {
 }
 
 // ── 씬 번호 정규화 ────────────────────────────────────────────────────
-// SC\d+, 씬\d+, 장면\d+ 는 이미 잡힘 — 나머지 애매한 경우만 Haiku 호출
 async function normalizeSceneNums(text) {
   // 이미 SC 패턴 있으면 그대로
   if (/SC\s*\d+/i.test(text)) return text;
   // 씬/장면 + 숫자 패턴도 그대로
   if (/(?:씬|장면)\s*\d+/.test(text)) return text;
 
-  // 숫자(한글/아라비아)가 있고 씬 관련 맥락이 있을 때만 Haiku 정규화
-  const hasNum = /\d+|첫|두|세|네|다섯|여섯|일곱|여덟|아홉|열|번째|번째/.test(text);
+  const scenes = S.cur?.scenes || [];
+  if (!scenes.length) return text;
+
+  // 숫자 기반 — 번호는 있는데 SC 형식이 아닌 경우
+  const hasNum = /\d+|첫|두|세|네|다섯|여섯|일곱|여덟|아홉|열|번째/.test(text);
   const hasSceneCtx = /장|씬|장면|번|번째|앞|뒤|다음|이전|마지막|처음/.test(text);
-  if (!hasNum || !hasSceneCtx) return text;
+
+  // 인물/내용 기반 — 등장인물 이름이나 장면 묘사가 포함된 경우
+  const charNames = (S.cur?.characters||[]).map(c => c.name).filter(Boolean);
+  const hasMentionedChar = charNames.some(n => text.includes(n));
+  const hasSceneDesc = /장면|씬|대결|싸우|만나|등장|나오|나타|시작|끝|열리|닫히|대화|고백|갈등/.test(text);
+  const needsContentMatch = hasMentionedChar || hasSceneDesc;
+
+  // 둘 다 해당 없으면 통과
+  if (!((hasNum && hasSceneCtx) || needsContentMatch)) return text;
 
   try {
-    const scenes = S.cur?.scenes || [];
-    const sceneList = scenes.map((s,i) => 'SC'+(i+1)+': "'+s.title+'"').join(', ');
+    const sceneList = scenes.map((s,i) => {
+      const slug = (s.lines||[]).find(l=>l.type==='slug')?.text || '';
+      const chars = [...new Set((s.lines||[]).filter(l=>l.type==='character').map(l=>l.text))].join(', ');
+      return 'SC'+(i+1)+': "'+s.title+'"' + (slug?' ['+slug+']':'') + (chars?' ('+chars+')':'');
+    }).join('\n');
+
     const raw = await callClaude(
       [{role:'user', content:
-        '씬 목록: ' + sceneList + '\n\n'
-        + '사용자 요청: "' + text + '"\n\n'
-        + '요청에서 언급된 씬 번호를 SC 형식으로 변환해주세요.'}],
-      '씬 번호가 있으면 원문의 번호 표현을 SC1, SC2 형식으로 바꿔서 전체 문장을 반환하세요. '
-      + '씬 번호가 없으면 원문 그대로 반환하세요. 설명 없이 변환된 문장만.',
-      100, 'claude-haiku-4-5-20251001'
+        '씬 목록:\n' + sceneList + '\n\n'
+        + '사용자 요청: "' + text + '"'}],
+      '사용자 요청에서 특정 씬을 언급하고 있으면, 씬 목록에서 해당 씬을 찾아 SC번호로 변환하세요.\n'
+      + '씬 제목, 등장인물, 슬러그라인, 내용 묘사를 모두 참고하세요.\n'
+      + '씬이 특정되면: 원문의 씬 표현을 SC1 형식으로 바꿔서 전체 문장 반환.\n'
+      + '씬이 특정 안 되면: 원문 그대로 반환.\n'
+      + '설명 없이 결과 문장만.',
+      150, 'claude-haiku-4-5-20251001'
     );
     return raw.trim() || text;
   } catch(e) { return text; }
