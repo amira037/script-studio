@@ -482,6 +482,116 @@ textarea, input { font-family:var(--fb); }
 .msg-action-btn.amber { background:var(--accent3); color:var(--accent); border-color:var(--accent2); font-weight:600; }
 .msg-action-btn.green { border-color:rgba(110,200,154,.4); color:var(--green); background:var(--green2); }
 .msg-action-btn.purple { border-color:rgba(168,158,221,.4); color:var(--purple); background:var(--purple2); }
+
+/* B: 플로 흐름 분석 패널 */
+.flow-analysis-panel {
+  background:var(--bg3); border:1px solid var(--border2);
+  border-radius:var(--r2); padding:14px 16px; margin-top:2px;
+  font-size:13px; line-height:1.7;
+}
+.flow-analysis-header {
+  font-size:10px; color:var(--text3); font-family:var(--fm);
+  letter-spacing:.08em; text-transform:uppercase; margin-bottom:10px;
+  display:flex; align-items:center; gap:6px;
+}
+.flow-analysis-header::before {
+  content:''; display:inline-block; width:6px; height:6px;
+  border-radius:50%; background:var(--amber); flex-shrink:0;
+}
+.flow-problem {
+  margin-bottom:12px; padding-bottom:12px;
+  border-bottom:1px solid var(--border);
+}
+.flow-problem:last-child { border-bottom:none; margin-bottom:0; padding-bottom:0; }
+.flow-problem-title {
+  font-size:11px; font-weight:600; color:var(--amber);
+  margin-bottom:4px; display:flex; align-items:center; gap:5px;
+}
+.flow-problem-title .fp-num {
+  background:var(--amber2); border-radius:3px;
+  padding:1px 5px; font-family:var(--fm); font-size:10px;
+}
+.flow-problem-desc { font-size:13px; color:var(--text); line-height:1.65; }
+.flow-plan {
+  margin-top:10px; padding:10px 12px;
+  background:var(--bg4); border-radius:var(--r);
+  border-left:2px solid var(--accent2);
+}
+.flow-plan-title {
+  font-size:10px; font-weight:600; color:var(--accent);
+  font-family:var(--fm); margin-bottom:5px;
+}
+.flow-plan-desc { font-size:12px; color:var(--text2); line-height:1.6; }
+
+/* E-1: 미처리 제안 리마인더 배너 */
+#pending-reminder {
+  display:none; align-items:center; gap:8px;
+  padding:7px 14px; background:rgba(200,169,110,0.1);
+  border-top:1px solid var(--accent2);
+  font-size:11px; color:var(--accent);
+  flex-shrink:0; position:relative; z-index:10;
+}
+#pending-reminder.show { display:flex; }
+#pending-reminder .pr-icon { font-size:13px; }
+#pending-reminder .pr-text { flex:1; }
+#pending-reminder .pr-check { 
+  font-size:10px; padding:3px 9px; border-radius:var(--r);
+  border:1px solid var(--accent2); background:transparent;
+  color:var(--accent); cursor:pointer; transition:all .15s; white-space:nowrap;
+}
+#pending-reminder .pr-check:hover { background:var(--accent3); }
+#pending-reminder .pr-dismiss {
+  font-size:10px; padding:3px 9px; border-radius:var(--r);
+  border:1px solid var(--border2); background:transparent;
+  color:var(--text3); cursor:pointer; transition:all .15s; white-space:nowrap;
+}
+#pending-reminder .pr-dismiss:hover { color:var(--text2); }
+@keyframes flashReminder {
+  0%,100% { background:rgba(200,169,110,0.10); }
+  50%      { background:rgba(200,169,110,0.28); }
+}
+#pending-reminder.flash { animation:flashReminder 0.4s ease 2; }
+
+/* E-2: 콘텐츠 감지 토스트 */
+.content-toast {
+  position:fixed; bottom:80px; right:16px;
+  background:var(--bg3); border:1px solid var(--border2);
+  border-radius:var(--r2); padding:10px 14px;
+  font-size:12px; color:var(--text);
+  display:flex; align-items:flex-start; gap:10px;
+  box-shadow:0 4px 16px rgba(0,0,0,.5);
+  transform:translateX(120%); transition:transform .25s ease;
+  z-index:200; max-width:300px;
+}
+.content-toast.show { transform:translateX(0); }
+.content-toast .ct-icon { font-size:14px; flex-shrink:0; margin-top:1px; }
+.content-toast .ct-body { flex:1; min-width:0; }
+.content-toast .ct-title { font-size:11px; color:var(--text2); margin-bottom:5px; }
+.content-toast .ct-traits {
+  display:flex; flex-wrap:wrap; gap:3px; margin-bottom:7px;
+}
+.content-toast .ct-trait {
+  font-size:9px; padding:1px 6px; border-radius:3px;
+  background:var(--accent3); color:var(--accent);
+  font-family:var(--fm); white-space:nowrap;
+}
+.content-toast .ct-trait.conflict-old {
+  background:var(--red2); color:var(--red);
+  text-decoration:line-through; opacity:.7;
+}
+.content-toast .ct-trait.conflict-new {
+  background:var(--green2); color:var(--green);
+}
+.content-toast .ct-arrow {
+  font-size:9px; color:var(--text3); align-self:center;
+}
+.content-toast .ct-btn {
+  font-size:10px; padding:4px 10px; border-radius:var(--r);
+  border:none; background:var(--accent); color:#0e0e10;
+  font-weight:600; cursor:pointer; white-space:nowrap;
+  display:block; width:100%; margin-top:2px;
+}
+.content-toast .ct-btn:hover { background:#d4b97e; }
 .typing-dots { display:flex; gap:4px; padding:4px 0; align-items:center; }
 .typing-dots span { width:5px; height:5px; border-radius:50%; background:var(--text3); animation:bop 1.2s infinite ease; }
 .typing-dots span:nth-child(2) { animation-delay:.2s; }
@@ -1301,6 +1411,14 @@ function closeResponsePanel() {
         </div>
       </div>
 
+      <!-- E-1: 미처리 제안 리마인더 -->
+      <div id="pending-reminder">
+        <span class="pr-icon">💡</span>
+        <span class="pr-text" id="pr-text">미처리된 플로 제안이 있어요</span>
+        <button class="pr-check" onclick="pendingReminderCheck()">확인하기</button>
+        <button class="pr-dismiss" onclick="pendingReminderDismiss()">무시하고 계속</button>
+      </div>
+
       <!-- Prompter -->
       <div class="prompter" id="prompter">
         <div class="file-analyze-banner" id="file-analyze-banner">
@@ -1603,6 +1721,7 @@ function closeResponsePanel() {
 
 <!-- Toast -->
 <div class="toast" id="toast"></div>
+<div class="content-toast" id="content-toast"></div>
 
 <script>
 // ═══════════════════════════════════════════
@@ -1911,6 +2030,209 @@ function extractJSON(text) {
   if (!m) return null;
   try { return JSON.parse(m[0]); } catch { return null; }
 }
+
+// ═══════════════════════════════════════════
+// H: 등장인물 이름 구조 헬퍼
+// ═══════════════════════════════════════════
+function buildCharAliases(ch) {
+  const aliases = new Set();
+  const ln = (ch.lastName||'').trim();
+  const fn = (ch.firstName||'').trim();
+  const ti = (ch.title||'').trim();
+  const nm = (ch.name||'').trim();
+
+  if (nm) aliases.add(nm);
+  if (ln && fn) {
+    aliases.add(ln + fn);
+    aliases.add(ln + ' ' + fn);
+  }
+  if (ln) aliases.add(ln);
+  if (fn) aliases.add(fn);
+  if (ln && ti) {
+    aliases.add(ln + ' ' + ti);
+    aliases.add(ln + ti);
+  }
+  if (ti) {
+    aliases.add(ti);
+    aliases.add(ti + '님');
+  }
+  if (fn && ti) aliases.add(fn + ' ' + ti);
+  // 기존 수동 aliases 유지
+  (ch.aliases||[]).forEach(a => aliases.add(a));
+  return [...aliases].filter(Boolean);
+}
+
+// 캐릭터 이름으로 대본 전체 매칭 (aliases 포함)
+function findCharByName(nameStr) {
+  if (!S.cur) return null;
+  return (S.cur.characters||[]).find(c => {
+    const aliases = buildCharAliases(c);
+    return aliases.some(a => a && nameStr && (nameStr.includes(a) || a.includes(nameStr)));
+  });
+}
+
+
+// ═══════════════════════════════════════════
+// F: 플로 콘텐츠 감지 (character / synopsis / setting_update)
+// ═══════════════════════════════════════════
+
+// 충돌 속성 그룹
+const _traitConflictGroups = [
+  ['남성', '여성', '논바이너리', '남자', '여자'],
+  ['기혼', '미혼', '이혼', '사별'],
+  ['생존', '사망', '실종', '행방불명'],
+  ['선역', '악역', '중립'],
+  ['성인', '미성년자', '어린이', '청소년'],
+];
+
+function detectTraitConflicts(existingTraits, newTraits) {
+  const conflicts = [];
+  newTraits.forEach(nt => {
+    const group = _traitConflictGroups.find(g => g.includes(nt));
+    if (!group) return;
+    const conflicting = existingTraits.find(et => group.includes(et) && et !== nt);
+    if (conflicting) conflicts.push({ old: conflicting, new: nt });
+  });
+  return conflicts;
+}
+
+function floDetectContent(raw, displayText) {
+  if (!S.cur || S.activeTab !== 'chat') return;
+
+  const charRaw = extractTag(raw, 'character');
+  if (charRaw) {
+    let charData = null;
+    try { charData = JSON.parse(charRaw); } catch {}
+    if (charData && charData.name) {
+      const newTraits = [...(charData.traits||[])];
+      if (charData.gender && !newTraits.includes(charData.gender)) newTraits.unshift(charData.gender);
+
+      const existing = findCharByName(charData.name)
+        || (S.cur.characters||[]).find(c => c.name === charData.name);
+
+      if (!existing) {
+        showContentToastRich('🎭', `새 등장인물: ${charData.name}`, '✦ 등장인물 추가', () => {
+          if (!S.cur.characters) S.cur.characters = [];
+          const newChar = {
+            id: Date.now(), name: charData.name,
+            lastName: charData.lastName||'', firstName: charData.firstName||'',
+            title: charData.title||'', role: charData.role||'',
+            description: charData.description||'', traits: newTraits, aliases: []
+          };
+          newChar.aliases = buildCharAliases(newChar);
+          S.cur.characters.push(newChar);
+          save(); renderCharList?.();
+          toast('✓ ' + charData.name + ' 등록됨');
+          suggestNextOnboardingStep('char_added');
+        }, newTraits, []);
+      } else {
+        const existingTraits = existing.traits || [];
+        const conflicts = detectTraitConflicts(existingTraits, newTraits);
+        const pureNew = newTraits.filter(t =>
+          !existingTraits.includes(t) && !conflicts.find(c => c.new === t)
+        );
+        const hasNewNameFields = (charData.lastName && !existing.lastName)
+          || (charData.firstName && !existing.firstName)
+          || (charData.title && !existing.title);
+
+        if (conflicts.length) {
+          showContentToastRich('⚠️', `${existing.name} 속성 충돌`, '✦ 속성 변경', () => {
+            conflicts.forEach(c => {
+              const idx = existing.traits.indexOf(c.old);
+              if (idx !== -1) existing.traits[idx] = c.new;
+              else existing.traits.push(c.new);
+            });
+            existing.aliases = buildCharAliases(existing);
+            save(); renderCharList?.();
+            toast('✓ ' + existing.name + ' 속성 변경됨');
+          }, [], conflicts);
+        }
+        if (pureNew.length || hasNewNameFields) {
+          showContentToastRich('✨', `${existing.name} 새 속성`, '✦ 모두 추가', () => {
+            if (!existing.traits) existing.traits = [];
+            pureNew.forEach(t => { if (!existing.traits.includes(t)) existing.traits.push(t); });
+            if (charData.lastName && !existing.lastName) existing.lastName = charData.lastName;
+            if (charData.firstName && !existing.firstName) existing.firstName = charData.firstName;
+            if (charData.title && !existing.title) existing.title = charData.title;
+            existing.aliases = buildCharAliases(existing);
+            save(); renderCharList?.();
+            toast('✓ ' + existing.name + ' 속성 추가됨');
+          }, pureNew, []);
+        }
+      }
+    }
+  }
+
+  if (!charRaw) {
+    const charNames = (S.cur.characters||[]).map(c => c.name).filter(Boolean);
+    const hasCharSection = /(?:캐릭터|인물)\s*(?:설정|특징|정보)\s*[:：]|의\s*과거\s*[:：]|의\s*성격\s*[:：]/.test(displayText);
+    const mentionedChar = charNames.find(n => displayText.includes(n) && hasCharSection);
+    if (mentionedChar && hasCharSection) {
+      showContentToast('✨', `${mentionedChar} 설정 내용 감지`, '속성 추가', () => {
+        handleMsgAction({ type:'addCharAttrFromChat', data:{ charName: mentionedChar, traits:[] } });
+      });
+    }
+  }
+
+  const synopsisRaw = extractTag(raw, 'synopsis');
+  if (synopsisRaw && synopsisRaw.length > 20) {
+    showContentToast('📋', '시놉시스 감지됨', '시놉시스 저장', () => {
+      handleMsgAction({ type:'saveSynopsisWithSequence', data: synopsisRaw });
+    });
+  }
+
+  const settingRaw = extractTag(raw, 'setting_update');
+  if (settingRaw) {
+    showContentToast('⚙️', '핵심 설정 변경 감지됨', '전체 씬에 반영', () => {
+      handleMsgAction({ type:'settingUpdateScan', data:{ settingText: settingRaw, affectedChars:[] } });
+    });
+    const mentionedChar2 = (S.cur.characters||[]).find(c =>
+      buildCharAliases(c).some(a => settingRaw.includes(a))
+    );
+    if (mentionedChar2) {
+      showContentToast('🎭', `${mentionedChar2.name} 설정 변경 감지`, '속성 업데이트', () => {
+        handleMsgAction({ type:'addCharAttrFromChat', data:{ charName: mentionedChar2.name, traits:[] } });
+      });
+    }
+  }
+}
+
+// ═══════════════════════════════════════════
+// G: 프로젝트 온보딩 흐름
+// ═══════════════════════════════════════════
+function suggestNextOnboardingStep(reason) {
+  if (!S.cur) return;
+  // G5 수정: 씬 아닌 인물+시놉시스 등록 여부로만 판단
+  const hasChars = (S.cur.characters||[]).length > 0;
+  const hasSynopsis = !!(S.cur.synopsis && S.cur.synopsis.trim().length > 10);
+  if (hasChars && hasSynopsis) return; // 둘 다 있으면 스킵
+
+  setTimeout(() => {
+    if (reason === 'char_added') {
+      if (!hasSynopsis) {
+        addMsg('assistant', '첫 등장인물이 등록됐어요! 이야기의 뼈대가 될 시놉시스도 써볼까요? ✍️',
+          [{ type:'onboardingSynopsis', label:'✦ 시놉시스 쓰기', style:'amber' },
+           { type:'dismiss', label:'나중에', style:'' }]);
+      } else {
+        addMsg('assistant', '등장인물과 시놉시스가 모두 준비됐어요! 시퀀스를 구성해볼까요? 🎬',
+          [{ type:'startSequenceFromSynopsis', label:'✦ 시퀀스 구성하기', style:'amber' },
+           { type:'dismiss', label:'나중에', style:'' }]);
+      }
+    } else if (reason === 'synopsis_saved') {
+      if (!hasChars) {
+        addMsg('assistant', '시놉시스가 저장됐어요! 이야기를 이끌어갈 등장인물을 설정해볼까요? 🎭',
+          [{ type:'onboardingCharacter', label:'✦ 인물 설정하기', style:'amber' },
+           { type:'startSequenceFromSynopsis', label:'시퀀스 바로 구성', style:'' },
+           { type:'dismiss', label:'나중에', style:'' }]);
+      } else {
+        addMsg('assistant', '시놉시스가 저장됐어요! 등장인물도 있으니 바로 시퀀스를 구성해볼까요? 🎬',
+          [{ type:'startSequenceFromSynopsis', label:'✦ 시퀀스 구성하기', style:'amber' },
+           { type:'dismiss', label:'나중에', style:'' }]);
+      }
+    }
+  }, 500);
+}
+
 
 // ═══════════════════════════════════════════
 // TOAST
@@ -5093,13 +5415,18 @@ function appendMsgEl(msg, scroll = true) {
   const name = document.createElement('div'); name.className = 'msg-name';
   name.textContent = msg.role === 'user' ? '나' : 'Script Studio AI';
   const bubble = document.createElement('div'); bubble.className = 'msg-bubble';
-  // 가독성 렌더링: 줄바꿈, 볼드, 번호/구분자 색상
-  const formatted = (msg.text||'')
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
-    .replace(/(^|\n)(\d+\.|[-*])\s/g, '$1<span style="color:var(--accent);font-weight:600;">$2</span> ')
-    .replace(/\n/g,'<br>');
-  bubble.innerHTML = formatted;
+  // B: 플로 패널 HTML은 그대로 렌더링, 일반 텍스트는 포맷팅
+  if (msg._isFlowPanel && msg.text && msg.text.includes('flow-analysis-panel')) {
+    bubble.innerHTML = msg.text;
+    bubble.style.cssText = 'background:transparent;border:none;padding:0;';
+  } else {
+    const formatted = (msg.text||'')
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
+      .replace(/(^|\n)(\d+\.|[-*])\s/g, '$1<span style="color:var(--accent);font-weight:600;">$2</span> ')
+      .replace(/\n/g,'<br>');
+    bubble.innerHTML = formatted;
+  }
   body.appendChild(name); body.appendChild(bubble);
   if (msg.actions && msg.actions.length) {
     const acts = document.createElement('div'); acts.className = 'msg-actions';
@@ -5159,6 +5486,132 @@ function addMsg(role, text, actions) {
   S.cur.messages.push(m);
   save();
   appendMsgEl(m);
+}
+
+// 이미 히스토리에 push된 msgObj를 UI에만 렌더링 (중복 push 방지)
+function addMsgRaw(msgObj) {
+  appendMsgEl(msgObj);
+}
+
+// ═══════════════════════════════════════════
+// E-1: 미처리 제안 리마인더
+// ═══════════════════════════════════════════
+let _pendingReminderMsg = null; // 스크롤 대상 메시지 엘리먼트
+
+function setPendingReminder(text, msgObj) {
+  _pendingReminderMsg = msgObj;
+  const el = document.getElementById('pending-reminder');
+  const txt = document.getElementById('pr-text');
+  if (!el) return;
+  if (txt) txt.textContent = '💡 ' + (text || '미처리된 플로 제안이 있어요');
+  el.classList.add('show');
+}
+
+function pendingReminderCheck() {
+  const el = document.getElementById('pending-reminder');
+  if (el) el.classList.remove('show');
+  // 해당 메시지로 스크롤
+  if (_pendingReminderMsg) {
+    const container = document.getElementById('chat-msgs');
+    if (container) {
+      const msgs = container.querySelectorAll('.msg');
+      // 마지막 플로 패널 메시지로 스크롤
+      const last = Array.from(msgs).reverse().find(m => m.querySelector('.flow-analysis-panel'));
+      if (last) { last.scrollIntoView({ behavior:'smooth', block:'center' }); }
+      else { container.scrollTop = container.scrollHeight; }
+    }
+  }
+  switchTab('chat');
+  _pendingReminderMsg = null;
+}
+
+function pendingReminderDismiss() {
+  const el = document.getElementById('pending-reminder');
+  if (el) el.classList.remove('show');
+  _pendingReminderMsg = null;
+}
+
+// 프롬프터 전송 시 리마인더 체크
+function checkPendingBeforeSend() {
+  const el = document.getElementById('pending-reminder');
+  if (el && el.classList.contains('show')) {
+    el.style.animation = 'none';
+    el.offsetHeight; // reflow
+    el.style.animation = 'flashReminder 0.4s ease 2';
+    return false; // 리마인더 있음
+  }
+  return true; // 없음, 계속
+}
+
+// ═══════════════════════════════════════════
+// E-2: 콘텐츠 감지 토스트 (등장인물/시놉시스)
+// ═══════════════════════════════════════════
+let _contentToastQueue = [];
+let _contentToastActive = false;
+let _contentToastTimer = null;
+
+// 기본 토스트 (단순 텍스트)
+function showContentToast(icon, title, btnLabel, onConfirm) {
+  _contentToastQueue.push({ icon, title, btnLabel, onConfirm, traits:[], conflicts:[] });
+  if (!_contentToastActive) processContentToastQueue();
+}
+
+// 리치 토스트 (속성 미리보기 포함)
+function showContentToastRich(icon, title, btnLabel, onConfirm, traits, conflicts) {
+  _contentToastQueue.push({ icon, title, btnLabel, onConfirm, traits: traits||[], conflicts: conflicts||[] });
+  if (!_contentToastActive) processContentToastQueue();
+}
+
+function processContentToastQueue() {
+  if (!_contentToastQueue.length) { _contentToastActive = false; return; }
+  _contentToastActive = true;
+  clearTimeout(_contentToastTimer);
+  const item = _contentToastQueue.shift();
+  const el = document.getElementById('content-toast');
+  if (!el) return;
+
+  // 속성 태그 HTML 생성
+  let traitsHtml = '';
+  if (item.conflicts && item.conflicts.length) {
+    // 충돌 — 기존→새 표시
+    traitsHtml = '<div class="ct-traits">' +
+      item.conflicts.map(c =>
+        `<span class="ct-trait conflict-old">${escH(c.old)}</span>` +
+        `<span class="ct-arrow">→</span>` +
+        `<span class="ct-trait conflict-new">${escH(c.new)}</span>`
+      ).join('') +
+      '</div>';
+  } else if (item.traits && item.traits.length) {
+    // 일반 속성 미리보기
+    traitsHtml = '<div class="ct-traits">' +
+      item.traits.map(t => `<span class="ct-trait">${escH(t)}</span>`).join('') +
+      '</div>';
+  }
+
+  el.innerHTML = `
+    <span class="ct-icon">${item.icon}</span>
+    <div class="ct-body">
+      <div class="ct-title">${escH(item.title)}</div>
+      ${traitsHtml}
+      <button class="ct-btn" id="ct-action-btn">${escH(item.btnLabel)}</button>
+    </div>
+  `;
+  el.classList.add('show');
+
+  const btn = el.querySelector('#ct-action-btn');
+  if (btn) btn.onclick = () => {
+    el.classList.remove('show');
+    clearTimeout(_contentToastTimer);
+    item.onConfirm();
+    setTimeout(processContentToastQueue, 350);
+  };
+
+  // 10초 후 자동 사라짐 (속성 많으면 읽을 시간 더 줌)
+  const duration = item.traits.length > 2 ? 12000 : 9000;
+  _contentToastTimer = setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(processContentToastQueue, 350);
+  }, duration);
 }
 
 const _typingMsgs = [
@@ -5312,6 +5765,102 @@ function handleMsgAction(action) {
     const inp = document.getElementById('prompter-inp');
     if (inp) { inp.value = action.prompt || defaultLabel; inp.dispatchEvent(new Event('input')); }
     toast('✓ ' + sceneNums.length + '개 씬 선택됨 — 프롬프터에서 전송해주세요', 4000);
+
+  } else if (action.type === 'dismiss') {
+    // 닫기 — 리마인더 해제
+    pendingReminderDismiss();
+
+  // ── D: 방안N으로 개선하기 ──────────────────────
+  } else if (action.type === 'flowImprovePlan') {
+    pendingReminderDismiss();
+    flowImprovePlan(action.data);
+
+  } else if (action.type === 'flowImproveSynth') {
+    pendingReminderDismiss();
+    flowImproveSynth(action.data);
+
+  // ── F: 플로 콘텐츠 감지 액션 ──────────────────
+  } else if (action.type === 'saveSynopsisWithSequence') {
+    if (S.cur) {
+      const isFirst = !S.cur.synopsis;
+      S.cur.synopsis = action.data;
+      save();
+      toast('✓ 시놉시스 저장됨');
+      if (isFirst) {
+        suggestNextOnboardingStep('synopsis_saved');
+      }
+    }
+
+  } else if (action.type === 'onboardingSynopsis') {
+    // G6: 시놉시스 쓰기 → 플로 탭 전환 + AI가 먼저 질문
+    pendingReminderDismiss();
+    switchTab('chat');
+    setTimeout(async () => {
+      showTyping();
+      try {
+        const sys = '당신은 극작 AI 플로입니다. 작가가 시놉시스를 쓰도록 도와주세요. 친근하고 간결하게 한 가지 질문만 하세요.';
+        const charNames = (S.cur?.characters||[]).map(c=>c.name).join(', ');
+        const prompt = charNames
+          ? `등장인물 ${charNames}이(가) 등록된 프로젝트입니다. 시놉시스 작성을 도와주세요.`
+          : '새 프로젝트에서 시놉시스 작성을 도와주세요.';
+        const raw = await callClaude([{role:'user', content: prompt}], sys, 500);
+        hideTyping();
+        addMsg('assistant', cleanDisplayText(raw) || '어떤 이야기를 쓰고 싶으세요? 장르나 주인공, 핵심 갈등 중 하나만 말씀해 주세요 ✍️');
+      } catch(e) {
+        hideTyping();
+        addMsg('assistant', '어떤 이야기를 쓰고 싶으세요? 장르, 주인공, 핵심 갈등 중 하나만 먼저 말씀해 주세요 ✍️');
+      }
+    }, 200);
+
+  } else if (action.type === 'onboardingCharacter') {
+    // G6: 인물 설정하기 → 플로 탭 전환 + AI가 먼저 질문
+    pendingReminderDismiss();
+    switchTab('chat');
+    setTimeout(async () => {
+      showTyping();
+      try {
+        const sys = '당신은 극작 AI 플로입니다. 작가가 등장인물을 설정하도록 도와주세요. 친근하고 간결하게 한 가지 질문만 하세요. 주인공부터 시작하도록 안내하세요.';
+        const synopsis = S.cur?.synopsis || '';
+        const prompt = synopsis
+          ? `시놉시스: ${synopsis.slice(0,200)}\n이 이야기의 등장인물 설정을 도와주세요.`
+          : '새 프로젝트에서 등장인물 설정을 도와주세요.';
+        const raw = await callClaude([{role:'user', content: prompt}], sys, 500);
+        hideTyping();
+        addMsg('assistant', cleanDisplayText(raw) || '이 이야기의 주인공은 어떤 사람인가요? 이름, 직업, 이 이야기에서 원하는 것을 간단히 말씀해 주세요 🎭');
+      } catch(e) {
+        hideTyping();
+        addMsg('assistant', '이 이야기의 주인공은 어떤 사람인가요? 이름, 직업, 원하는 것을 간단히 말씀해 주세요 🎭');
+      }
+    }, 200);
+  } else if (action.type === 'startSequenceFromSynopsis') {
+    pendingReminderDismiss();
+    // 시놉시스 기반 시퀀스 제안 흐름
+    switchTab('chat');
+    setTimeout(() => {
+      const inp = document.getElementById('prompter-inp');
+      if (inp) {
+        inp.value = '현재 시놉시스를 바탕으로 시퀀스를 제안해줘';
+        inp.dispatchEvent(new Event('input'));
+        sendPrompt();
+      }
+    }, 200);
+  } else if (action.type === 'addCharacterFromChat') {
+    addCharsFromAI(action.data);
+  } else if (action.type === 'addCharAttrFromChat') {
+    // 기존 캐릭터에 속성 병합
+    const { charName, traits } = action.data;
+    const ch = (S.cur?.characters||[]).find(c => c.name === charName || c.name.includes(charName));
+    if (ch) {
+      if (!ch.traits) ch.traits = [];
+      (traits||[]).forEach(t => { if (!ch.traits.includes(t)) ch.traits.push(t); });
+      save(); renderCharList?.();
+      toast('✓ ' + charName + ' — 속성 추가됨');
+    } else {
+      toast('해당 인물을 찾을 수 없습니다: ' + charName);
+    }
+  } else if (action.type === 'settingUpdateScan') {
+    // F5: 전체 씬 영향도 스캔 → 라인 diff
+    flowSettingUpdateScan(action.data);
   }
 }
 
@@ -5396,6 +5945,15 @@ async function sendPrompt() {
   if (_aiWriteMode && S.activeTab === 'script') {
     await handleAiWriteSelected();
     return;
+  }
+  // E-1: 미처리 제안 리마인더 — 플로 탭에서만 체크
+  if (S.activeTab === 'chat') {
+    const rem = document.getElementById('pending-reminder');
+    if (rem && rem.classList.contains('show')) {
+      rem.classList.add('flash');
+      setTimeout(() => rem.classList.remove('flash'), 800);
+      return; // 리마인더 해제 전 전송 막음
+    }
   }
   inp.value = ''; inp.style.height = 'auto';
   S.autoSelectedIds.clear(); // 전송 후 자동선택 초기화
@@ -5691,6 +6249,10 @@ async function handleChatPrompt(text) {
       '- 씬 제목만 먼저 제안(내용 없이): <sequence_titles>[{"title":"씬제목","slug":"슬러그","hint":"한줄설명"}]</sequence_titles>\n' +
       '- 장면 아이디어 카드 3개: <scene_ideas>[{"title":"씬제목","idea":"한줄아이디어","mood":"분위기"}]</scene_ideas>\n' +
       '- 등장인물: <characters>[JSON]</characters>\n' +
+      '- 새 등장인물 1명 소개/설정: <character>{"name":"대본호칭","lastName":"성","firstName":"이름","title":"직함","role":"역할","gender":"남성 또는 여성 또는 논바이너리 (불명확하면 생략)","description":"설명","traits":["특성1","특성2"]}</character>\n' +
+      '  · gender는 대화 맥락에서 명확히 감지될 때만 포함. 호칭(그, 그녀, 오빠, 언니 등)으로도 추론 가능. 불확실하면 반드시 생략.\n' +
+      '  · lastName/firstName/title은 알 수 있을 때만 포함.\n' +
+      '- 기존 인물 설정 변경/핵심 설정 업데이트: <setting_update>변경된 설정 내용 (인물명, 변경 내용 포함)</setting_update>\n' +
       '- 태그는 응답 맨 끝에만, JSON을 본문에 직접 출력 금지.\n' +
       '- 이후 전개/시퀀스 제안 요청엔 <sequence_titles> 우선 사용 (내용은 승인 후 생성).\n' +
       '- 간단한 장면 아이디어 제안엔 <scene_ideas> 사용.\n' +
@@ -5814,7 +6376,9 @@ async function handleChatPrompt(text) {
       });
     }
     addMsg('assistant', displayText, actions);
-    // 인물+대사 키워드 감지 → 카드 보기 버튼 추가
+
+    // F: 플로 콘텐츠 감지 — character / synopsis / setting_update 태그
+    floDetectContent(raw, displayText);
     const charNames4 = (S.cur?.characters||[]).map(c=>c.name).filter(Boolean);
     const mentionedChar4 = charNames4.find(n => text.includes(n));
     const wantsDialogue = /대사|등장.*씬|장면.*보여|캐릭터.*분석|인물.*분석/.test(text);
@@ -9004,6 +9568,140 @@ async function handleScriptPrompt(text) {
 }
 
 // ═══════════════════════════════════════════
+// D: 방안N 개선 흐름
+// ═══════════════════════════════════════════
+async function flowImprovePlan(data) {
+  const { planNum, planTitle, planBody, allPlans, issueMap, problemNums } = data;
+  if (!S.cur) return;
+  showTyping();
+  try {
+    const scenes = S.cur.scenes || [];
+    const sceneList = scenes.map((s,i) => `SC${i+1}. "${s.title}": ${s.lines.slice(0,3).map(l=>l.text).join(' | ')}`).join('\n');
+    const sys = `당신은 대본 구조 개선 AI입니다.
+주어진 방안을 분석해서 다음 세 가지 중 가장 적합한 개선 방식을 판단하세요:
+1. 시퀀스 개선 — 씬 순서/구성을 새로 제안 → <action type="sequence">이유</action>
+2. 장면 재배치 — 특정 씬을 앞/뒤로 이동 → <action type="reorder">SC번호:이동위치</action>
+3. 씬 분할/병합 — 씬을 나누거나 합치기 → <action type="split_merge">SC번호:split 또는 merge</action>
+
+복합적이면 여러 action 태그 사용 가능.
+반드시 자연어로 판단 이유와 구체적 제안을 먼저 설명한 뒤 action 태그를 붙이세요.
+씬 제목 목록이 필요하면 <sequence_titles>[{"title":"씬제목","slug":"슬러그","hint":"한줄설명"}]</sequence_titles> 형식으로 제안하세요.`;
+
+    const prompt = `현재 씬 목록:\n${sceneList}\n\n적용할 방안:\n방안${planNum}: ${planTitle}\n${planBody}\n\n이 방안을 적용하면 어떻게 개선하는 게 좋을까요?`;
+    const raw = await callClaude([{role:'user', content: prompt}], sys, 4000);
+    hideTyping();
+
+    const actionTags = [];
+    const actPat = /<action\s+type="([^"]+)">([\s\S]*?)<\/action>/gi;
+    let am;
+    while ((am = actPat.exec(raw)) !== null) actionTags.push({ type: am[1], val: am[2].trim() });
+
+    const seqRaw = extractTag(raw, 'sequence_titles');
+    const displayText = cleanDisplayText(raw) || '개선 방향을 분석했어요.';
+
+    const actions = [];
+    if (seqRaw) {
+      let seqData = [];
+      try { seqData = JSON.parse(seqRaw); } catch {}
+      if (seqData.length) {
+        actions.push({ type:'approveSequence', data: seqData, label:'✦ 이 시퀀스로 구성하기', style:'amber' });
+        setPendingReminder(`방안${planNum} 시퀀스 제안이 있어요`, null);
+      }
+    }
+    actionTags.forEach(a => {
+      if (a.type === 'reorder') {
+        actions.push({ type:'gotoScriptFlow', data: problemNums, label:'✦ 라인에서 재배치하기', style:'amber', prompt: `방안${planNum} 적용: ${planTitle} — ${planBody.slice(0,100)}` });
+      }
+      if (a.type === 'split_merge') {
+        const scMatch = a.val.match(/SC(\d+)/i);
+        const scNum = scMatch ? parseInt(scMatch[1]) : null;
+        if (scNum) actions.push({ type:'gotoScriptEditSingle', data:{ scNum, prompt:`방안${planNum} 적용: SC${scNum} ${a.val.includes('split')?'분할':'병합'}해줘 — ${planBody.slice(0,80)}` }, label:`✦ SC${scNum} ${a.val.includes('split')?'분할':'병합'}하기`, style:'amber' });
+      }
+    });
+    actions.push({ type:'dismiss', label:'닫기', style:'' });
+
+    addMsg('assistant', displayText, actions);
+  } catch(e) {
+    hideTyping();
+    addMsg('assistant', '오류: ' + e.message);
+  }
+}
+
+async function flowImproveSynth(data) {
+  const { allPlans, issueMap, problemNums, rawText } = data;
+  if (!S.cur) return;
+  showTyping();
+  try {
+    const scenes = S.cur.scenes || [];
+    const sceneList = scenes.map((s,i) => `SC${i+1}. "${s.title}": ${s.lines.slice(0,3).map(l=>l.text).join(' | ')}`).join('\n');
+    const plansText = allPlans.length
+      ? allPlans.map(p => `방안${p.num}: ${p.title}\n${p.body}`).join('\n\n')
+      : rawText;
+    const sys = `당신은 대본 구조 개선 전문가입니다.
+여러 방안들을 종합 분석해서 가장 효과적인 개선 시퀀스를 제안하세요.
+반드시 <sequence_titles>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","hint":"한줄설명"}]</sequence_titles> 형식으로 최종 시퀀스를 제안하세요.
+제안 전에 각 방안의 핵심을 종합한 이유를 자연어로 먼저 설명하세요.`;
+
+    const prompt = `현재 씬 목록:\n${sceneList}\n\n분석된 방안들:\n${plansText}\n\n이 방안들을 종합해서 최적의 시퀀스를 제안해주세요.`;
+    const raw = await callClaude([{role:'user', content: prompt}], sys, 4000);
+    hideTyping();
+
+    const seqRaw = extractTag(raw, 'sequence_titles');
+    const displayText = cleanDisplayText(raw) || '종합 제안을 완료했어요.';
+    const actions = [];
+    if (seqRaw) {
+      let seqData = [];
+      try { seqData = JSON.parse(seqRaw); } catch {}
+      if (seqData.length) {
+        actions.push({ type:'approveSequence', data: seqData, label:'✦ 이 시퀀스로 구성하기', style:'amber' });
+        setPendingReminder('플로 종합 시퀀스 제안이 있어요', null);
+      }
+    }
+    actions.push({ type:'dismiss', label:'닫기', style:'' });
+    addMsg('assistant', displayText, actions);
+  } catch(e) {
+    hideTyping();
+    addMsg('assistant', '오류: ' + e.message);
+  }
+}
+
+// F5: 설정 변경 → 전체 씬 영향도 스캔 → 라인 diff
+async function flowSettingUpdateScan(data) {
+  const { settingText, affectedChars } = data;
+  if (!S.cur) return;
+  showTyping();
+  try {
+    const scenes = S.cur.scenes || [];
+    const sceneList = scenes.map((s,i) => `SC${i+1}. "${s.title}": ${s.lines.map(l=>l.text).join(' | ').slice(0,200)}`).join('\n');
+    const sys = `당신은 대본 일관성 검토 AI입니다.
+변경된 설정을 보고 영향받는 씬 번호를 분석하세요.
+반드시 <affected>[씬번호 배열]</affected> 태그로 결과를 주세요.
+영향받는 씬이 없으면 <affected>[]</affected>.
+자연어로 각 씬이 왜 영향받는지 간략히 설명하세요.`;
+    const raw = await callClaude([{role:'user', content:`변경된 설정:\n${settingText}\n\n씬 목록:\n${sceneList}`}], sys, 3000);
+    hideTyping();
+
+    const affRaw = extractTag(raw, 'affected');
+    let affNums = [];
+    try { affNums = JSON.parse(affRaw||'[]'); } catch {}
+    const displayText = cleanDisplayText(raw) || '영향도 분석 완료.';
+
+    const actions = [];
+    affNums.forEach(n => {
+      actions.push({ type:'gotoScriptEditSingle', data:{ scNum:n, prompt:`설정 변경사항을 SC${n}에 반영해줘: ${settingText.slice(0,100)}` }, label:`✦ SC${n} 반영하기`, style:'amber' });
+    });
+    if (affNums.length > 1) {
+      actions.push({ type:'gotoScriptFlow', data:affNums, prompt:`설정 변경사항을 반영해줘: ${settingText.slice(0,100)}`, label:'✦ 전체 반영하기', style:'amber' });
+    }
+    actions.push({ type:'dismiss', label:'닫기', style:'' });
+    addMsg('assistant', displayText, actions);
+  } catch(e) {
+    hideTyping();
+    addMsg('assistant', '오류: ' + e.message);
+  }
+}
+
+// ═══════════════════════════════════════════
 // CONSISTENCY CHECK
 // ═══════════════════════════════════════════
 async function handleFlowAnalysisInChat(text, mode) {
@@ -9015,7 +9713,8 @@ async function handleFlowAnalysisInChat(text, mode) {
       const key = s.lines.filter(l=>l.type==='dialogue').slice(0,2).map(l=>l.text).join(' / ');
       return 'SC'+(i+1)+'. "'+s.title+'"'+(key?' — '+key:'');
     }).join('\n');
-    const _planFmt2 = '\n\n개선 제안은 반드시 다음 형식으로 작성하세요:\n방안1: [제목]\n- 구체적 내용 (SC번호 포함)\n방안2: [제목]\n- 구체적 내용 (SC번호 포함)\n방안이 없으면 생략 가능.\n주의: 각 방안은 하나의 구체적인 방법만 포함하세요. "또는", "혹은"으로 대안을 같은 방안 안에 넣지 말고, 대안은 별도 방안으로 분리하세요. 마크다운 볼드(**) 사용 금지.';
+    const _planFmt2 = '\n\n개선 제안은 반드시 다음 형식으로 작성하세요:\n방안1: [제목]\n- 구체적 내용 (SC번호 포함)\n방안2: [제목]\n- 구체적 내용 (SC번호 포함)\n방안3: [제목]\n- 구체적 내용 (SC번호 포함)\n방안이 없으면 생략 가능.\n주의: 각 방안은 하나의 구체적인 방법만 포함하세요. "또는", "혹은" 금지. 마크다운 볼드(**) 사용 금지.';
+    const modeLabel = { flow:'씬 흐름 분석', emotion:'감정 흐름 분석', setting:'설정 일관성 분석' };
     const sysMap = {
       flow: '당신은 대본 흐름 분석 전문가입니다. 씬 연결이 매끄럽지 않은 부분을 찾아주세요.\n각 문제마다 <issue sc="씬번호">수정 제안 한 줄</issue> 태그를 붙이세요.' + _planFmt2,
       emotion: '당신은 극작 심리 분석 전문가입니다. 감정/심리 흐름의 부자연스러운 변화를 찾아주세요.\n각 문제마다 <issue sc="씬번호">수정 제안 한 줄</issue> 태그를 붙이세요.' + _planFmt2,
@@ -9028,12 +9727,12 @@ async function handleFlowAnalysisInChat(text, mode) {
       sys, 5000
     );
     hideTyping();
+
     const flowRaw = extractTag(raw, 'flowissues');
     let problemNums = [];
     if (flowRaw) { try { problemNums = JSON.parse(flowRaw); } catch {} }
-    const displayText = cleanDisplayText(raw) || '분석 완료됐습니다.';
 
-    // 씬별 수정 제안 추출
+    // 씬별 issue 태그 추출
     const issueMap = {};
     const issuePat = /<issue\s+sc="(\d+)">([\s\S]*?)<\/issue>/gi;
     let im;
@@ -9041,33 +9740,95 @@ async function handleFlowAnalysisInChat(text, mode) {
       issueMap[parseInt(im[1])] = im[2].trim();
     }
 
-    // 브레인스토밍 히스토리에 분석 결과 공유
-    if (!S.cur.messages) S.cur.messages = [];
-    S.cur.messages.push({ role:'assistant', text:'[흐름 분석 결과]\n' + displayText });
-    save(true);
-    // 브레인스토밍 탭이 아니어도 히스토리 UI 업데이트
-    if (S.activeTab !== 'chat') {
-      const container = document.getElementById('chat-msgs');
-      if (container) { const m = S.cur.messages[S.cur.messages.length-1]; appendMsgEl(m, false); }
+    // 방안 추출 (방안1/2/3)
+    const plans = [];
+    const planPat = /방안\s*(\d+)\s*[:：]\s*([^\n]+)([\s\S]*?)(?=방안\s*\d+\s*[:：]|$)/g;
+    let pm;
+    while ((pm = planPat.exec(raw)) !== null) {
+      const num = parseInt(pm[1]);
+      const title = pm[2].trim();
+      const body = pm[3].trim().replace(/^[-•]\s*/gm,'').slice(0,300);
+      if (num <= 5) plans.push({ num, title, body });
     }
 
-    const actions = [];
-    if (problemNums.length > 0) {
-      // 씬별 수정 버튼
-      problemNums.forEach(n => {
-        const suggestion = issueMap[n] || '';
-        const promptText = suggestion ? 'SC'+n+' 수정: '+suggestion : 'SC'+n+' 흐름 문제를 수정해줘';
-        actions.push({ type:'gotoScriptEditSingle', data:{ scNum:n, prompt:promptText }, label:'✦ SC'+n+' 수정하기 →', style:'amber' });
-      });
-      // 전체 수정 버튼
-      if (problemNums.length > 1) {
-        const allPrompt = '다음 흐름 문제들을 수정해줘:\n' +
-          problemNums.map(n => 'SC'+n+(issueMap[n]?': '+issueMap[n]:'')).join('\n');
-        actions.push({ type:'gotoScriptFlow', data:problemNums, label:'✦ 전체 수정하기 →', style:'amber', prompt:allPrompt });
+    // B: 패널 형태 HTML 렌더링
+    const label = modeLabel[mode] || '흐름 분석';
+    const cleanText = cleanDisplayText(raw) || '분석 완료됐습니다.';
+
+    // 문제점 섹션 파싱 (번호 목록)
+    const problemLines = cleanText.split('\n').filter(l => l.trim());
+    let panelHtml = `<div class="flow-analysis-panel">`;
+    panelHtml += `<div class="flow-analysis-header">✦ ${label} 결과</div>`;
+
+    // 문제점 + 방안 구조로 렌더링
+    if (plans.length > 0) {
+      // 도입 텍스트 (방안 이전)
+      const introEnd = raw.search(/방안\s*1\s*[:：]/);
+      const introRaw = introEnd > 0 ? raw.slice(0, introEnd) : '';
+      const introClean = cleanDisplayText(introRaw).trim();
+      if (introClean) {
+        panelHtml += `<div style="margin-bottom:12px;color:var(--text2);font-size:13px;line-height:1.65;">${introClean.replace(/\n/g,'<br>')}</div>`;
       }
-      actions.push({ type:'flowToBrainstorm', data:{nums:problemNums, text:displayText}, label:'💬 브레인스토밍에서 논의 →', style:'purple' });
+      // 방안별 렌더링
+      plans.forEach(p => {
+        panelHtml += `<div class="flow-plan" style="margin-bottom:10px;">`;
+        panelHtml += `<div class="flow-plan-title">방안${p.num} — ${escH(p.title)}</div>`;
+        if (p.body) panelHtml += `<div class="flow-plan-desc">${escH(p.body).replace(/\n/g,'<br>')}</div>`;
+        panelHtml += `</div>`;
+      });
+    } else {
+      // 방안 없으면 일반 텍스트
+      panelHtml += `<div style="color:var(--text);font-size:13px;line-height:1.7;">${escH(cleanText).replace(/\n/g,'<br>')}</div>`;
     }
-    addMsg('assistant', displayText, actions);
+    panelHtml += `</div>`;
+
+    // C: 버튼 구성 — 방안N으로 개선하기 + 플로 종합 제안 + 닫기
+    const actions = [];
+    if (plans.length > 0) {
+      plans.forEach(p => {
+        actions.push({
+          type: 'flowImprovePlan',
+          data: { planNum: p.num, planTitle: p.title, planBody: p.body, allPlans: plans, issueMap, problemNums },
+          label: `✦ 방안${p.num}으로 개선하기`,
+          style: 'amber'
+        });
+      });
+      // 플로 종합 제안 (방안 2개 이상일 때)
+      if (plans.length >= 2) {
+        actions.push({
+          type: 'flowImproveSynth',
+          data: { allPlans: plans, issueMap, problemNums, rawText: cleanText },
+          label: '✦ 플로 종합 제안',
+          style: 'purple'
+        });
+      }
+    } else if (problemNums.length > 0) {
+      // 방안 없고 문제 씬만 있을 때 — 시퀀스 개선으로
+      actions.push({
+        type: 'flowImproveSynth',
+        data: { allPlans: [], issueMap, problemNums, rawText: cleanText },
+        label: '✦ 시퀀스 개선하기',
+        style: 'purple'
+      });
+    }
+    actions.push({ type: 'dismiss', label: '닫기', style: '' });
+
+    // 히스토리 저장 (패널HTML 포함)
+    if (!S.cur.messages) S.cur.messages = [];
+    const msgObj = { role:'assistant', text: panelHtml, actions, _isFlowPanel: true };
+    S.cur.messages.push(msgObj);
+    save(true);
+    if (S.activeTab !== 'chat') {
+      const container = document.getElementById('chat-msgs');
+      if (container) appendMsgEl(msgObj, false);
+    }
+    addMsgRaw(msgObj);
+
+    // E-1: 리마인더 등록
+    if (actions.some(a => a.type === 'flowImprovePlan' || a.type === 'flowImproveSynth')) {
+      setPendingReminder('흐름 분석 개선 제안이 있어요', msgObj);
+    }
+
   } catch(e) {
     hideTyping();
     addMsg('assistant', '분석 오류: ' + e.message);
@@ -10536,10 +11297,15 @@ function saveChar(id) {
   const c = S.cur.characters.find(x=>x.id===id);
   if (!c) return;
   const oldName = c.name;
+  const oldAliases = buildCharAliases(c);
   const newName = document.getElementById('ce-name-'+id)?.value || '';
   c.name = newName;
   c.role = document.getElementById('ce-role-'+id)?.value || '';
   c.description = document.getElementById('ce-desc-'+id)?.value || '';
+  // H1: 이름 구조 필드 저장
+  c.lastName = document.getElementById('ce-lastname-'+id)?.value || c.lastName || '';
+  c.firstName = document.getElementById('ce-firstname-'+id)?.value || c.firstName || '';
+  c.title = document.getElementById('ce-title-'+id)?.value || c.title || '';
   // traits — 태그 pill에서 수집
   const traitWrap = document.getElementById('ce-traits-wrap-'+id);
   if (traitWrap) {
@@ -10550,17 +11316,22 @@ function saveChar(id) {
   } else {
     c.traits = (document.getElementById('ce-traits-'+id)?.value||'').split(',').map(s=>s.trim()).filter(Boolean);
   }
+  // H4: aliases 재생성
+  c.aliases = buildCharAliases(c);
   save(); closeCharEdit(id); renderCharsDrawer();
 
-  // 이름이 바뀐 경우 대본 치환 제안
+  // 이름이 바뀐 경우 대본 치환 제안 (aliases 전체 기준)
   if (newName && oldName && newName !== oldName) {
-    // 대본에 구 이름이 있는지 확인
     const hasInScript = (S.cur.scenes||[]).some(sc =>
-      (sc.lines||[]).some(l => l.text.includes(oldName))
+      (sc.lines||[]).some(l => oldAliases.some(a => l.text.includes(a)))
     );
     if (hasInScript) {
       toast(`저장됨 — 대본의 "${oldName}" 도 바꿀까요?`, 5000, () => {
-        replaceCharNameInScript(oldName, newName);
+        // aliases 전체 교체
+        oldAliases.forEach(oldAlias => {
+          const newAlias = oldAlias.replace(new RegExp(oldName.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'g'), newName);
+          if (oldAlias !== newAlias) replaceCharNameInScript(oldAlias, newAlias);
+        });
       }, '✓ 바꾸기');
     } else {
       toast('저장됨');
@@ -12211,6 +12982,16 @@ function cleanDisplayText(raw) {
     .replace(/<selected>[\s\S]*?<\/selected>/gi, '')
     .replace(/<selected>[\s\S]*/gi, '')
     .replace(/<flowissues[\s\S]*?<\/flowissues>/gi, '')
+    // A: 구조화 태그 추가 strip
+    .replace(/<sequence_titles[\s\S]*?<\/sequence_titles>/gi, '')
+    .replace(/<sequence_titles>[\s\S]*/gi, '')
+    .replace(/<scene_ideas[\s\S]*?<\/scene_ideas>/gi, '')
+    .replace(/<scene_ideas>[\s\S]*/gi, '')
+    .replace(/<issue\s[^>]*>[\s\S]*?<\/issue>/gi, '')
+    .replace(/<character[\s\S]*?<\/character>/gi, '')
+    .replace(/<character>[\s\S]*/gi, '')
+    .replace(/<setting_update[\s\S]*?<\/setting_update>/gi, '')
+    .replace(/<setting_update>[\s\S]*/gi, '')
     .replace(/```[\s\S]*?```/g, '')
     .replace(/\[[\s\S]{200,}\]/g, '')
     .replace(/\{[\s\S]{200,}\}/g, '')
