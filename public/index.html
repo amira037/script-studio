@@ -2141,29 +2141,80 @@ function showStreamPreview(scId) {
   if (el) return el;
   const sc = S.cur?.scenes?.find(s => s.id === scId);
   if (!sc) return null;
-  // 씬 블록 찾기
-  const block = document.querySelector('[data-scene-id="' + scId + '"]');
+  // 씬 블록 찾기 — id는 'sb-{scId}'
+  const block = document.getElementById('sb-' + scId);
   if (!block) return null;
   const preview = document.createElement('div');
   preview.id = 'stream-preview-' + scId;
-  preview.className = 'diff-wrap';
-  preview.style.cssText = 'border-color:rgba(110,168,200,.3);margin:0 0 8px 0;';
+  preview.style.cssText = [
+    'border:1px solid rgba(110,168,200,.3)',
+    'border-radius:var(--r)',
+    'margin:8px 12px',
+    'background:rgba(110,168,200,.04)',
+    'overflow:hidden',
+  ].join(';');
   preview.innerHTML = `
-    <div class="diff-hdr" style="background:rgba(110,168,200,.08);">
-      <span class="diff-label" style="color:var(--blue);">⟳ AI 작성 중...</span>
-      <span class="diff-badge" id="stream-chars-${scId}" style="background:var(--blue2);color:var(--blue);">0자</span>
+    <div style="display:flex;align-items:center;gap:8px;padding:7px 12px;background:rgba(110,168,200,.08);border-bottom:1px solid rgba(110,168,200,.15);">
+      <span style="font-size:11px;color:var(--blue);font-family:var(--fm);">⟳ AI 작성 중...</span>
+      <span id="stream-chars-${scId}" style="font-size:10px;color:var(--blue);opacity:.7;">0자</span>
     </div>
-    <div class="diff-lines" id="stream-lines-${scId}" style="font-family:var(--fm);font-size:11px;color:var(--text2);padding:8px;min-height:40px;white-space:pre-wrap;line-height:1.7;"></div>
+    <div id="stream-lines-${scId}" style="font-family:var(--fm);font-size:11px;color:var(--text2);padding:10px 12px;min-height:48px;max-height:200px;overflow-y:auto;white-space:pre-wrap;line-height:1.8;"></div>
   `;
-  block.insertBefore(preview, block.querySelector('.diff-wrap') || block.firstChild);
+  // diff-wrap 앞에 삽입, 없으면 헤더 다음에
+  const diffWrap = block.querySelector('.diff-wrap');
+  const sceneLines = block.querySelector('.scene-lines');
+  if (diffWrap) block.insertBefore(preview, diffWrap);
+  else if (sceneLines) block.insertBefore(preview, sceneLines);
+  else block.appendChild(preview);
   return preview;
 }
 
-function updateStreamPreview(scId, text) {
+function updateStreamPreview(scId, rawChunk) {
   const linesEl = document.getElementById('stream-lines-' + scId);
   const charsEl = document.getElementById('stream-chars-' + scId);
-  if (linesEl) linesEl.textContent = text.slice(-800); // 최근 800자만 표시
-  if (charsEl) charsEl.textContent = text.length + '자';
+  if (!linesEl) return;
+
+  // JSON 부분(<r>[...]</r>) 제거하고 읽기 쉬운 텍스트만 표시
+  // <r> 태그가 시작되면 그 앞 자연어 텍스트만 보여주고
+  // lines 배열에서 text 값들을 추출해서 대본 형식으로 표시
+  let display = rawChunk;
+
+  // <r> 태그 이전 자연어 텍스트
+  const rStart = rawChunk.indexOf('<r>');
+  const naturalText = rStart > 0 ? rawChunk.slice(0, rStart).trim() : '';
+
+  // <r> 내부에서 "text":"..." 패턴 추출 → 대본 미리보기
+  const textMatches = [];
+  let _searchPos = 0;
+  const _textKey = '"text":"';
+  while (true) {
+    const _ti = rawChunk.indexOf(_textKey, _searchPos);
+    if (_ti === -1) break;
+    const _valStart = _ti + _textKey.length;
+    let _valEnd = _valStart;
+    while (_valEnd < rawChunk.length) {
+      if (rawChunk[_valEnd] === '"' && rawChunk[_valEnd-1] !== '\\') break;
+      _valEnd++;
+    }
+    const _val = rawChunk.slice(_valStart, _valEnd).replace(/\\n/g,'\n').replace(/\\"/g,'"');
+    if (_val.trim()) textMatches.push(_val);
+    _searchPos = _valEnd + 1;
+  }
+
+  if (textMatches.length > 0) {
+    // 대본 줄들을 미리보기로 표시
+    display = (naturalText ? naturalText + '\n\n' : '') + textMatches.join('\n');
+  } else if (rStart > -1 && rStart < 10) {
+    // <r>로 시작하는데 아직 text 없으면 "작성 중..." 표시
+    display = '작성 중...';
+  } else {
+    display = naturalText || rawChunk.slice(-400);
+  }
+
+  linesEl.textContent = display.slice(-600);
+  // 자동 스크롤
+  linesEl.scrollTop = linesEl.scrollHeight;
+  if (charsEl) charsEl.textContent = textMatches.length + '줄';
 }
 
 function hideStreamPreview(scId) {
@@ -10822,12 +10873,15 @@ async function handleScriptPrompt(text) {
   text = await normalizeSceneNums(text);
 
   // L4: selectedIds가 있고 텍스트에 SC번호 없으면 자동 주입
+  // 단, 선택된 씬이 실제로 잠금 해제된 씬이 있을 때만 (오발동 방지)
   if (S.selectedIds.size > 0 && !/SC\s*\d+/i.test(text) && S.cur?.scenes?.length) {
-    const selLabels = [...S.selectedIds].map(id => {
-      const sc = (S.cur.scenes||[]).find(s => s.id === id);
-      return sc ? getSceneLabel(sc, S.cur.scenes) : null;
-    }).filter(Boolean);
-    if (selLabels.length > 0) {
+    const validSel = [...S.selectedIds]
+      .map(id => (S.cur.scenes||[]).find(s => s.id === id))
+      .filter(sc => sc && !sc.locked && !sc.draft);
+    // 선택된 씬이 있고, 텍스트에 씬 제목 일부도 없을 때만 주입
+    // (이미 제목이 텍스트에 있으면 normalizeSceneNums가 처리함)
+    if (validSel.length > 0) {
+      const selLabels = validSel.map(sc => getSceneLabel(sc, S.cur.scenes));
       text = selLabels.join(', ') + ' ' + text;
     }
   }
@@ -10934,12 +10988,15 @@ async function handleScriptPrompt(text) {
 
   // 분석/대사 관련 — Haiku 라우터
   const _analysisKw = /갈등|긴장|흐름|연결|감정|심리|설정|충돌|모순|일관성|검사|대사.*분석|주요.*대사|중요.*대사|대사.*어때|대사.*뽑아|대사.*목록|대사.*조회|어때|자연스럽|매끄럽|앞뒤|씬.*어때/.test(text);
+  // haikusRoute 결과를 편집 의도 판단에 재활용
+  let _routeIsEdit = false;
   if (_analysisKw) {
     showAnalyzing();
     const _cmd = await haikusRoute(text);
     hideAnalyzing();
     if (_cmd !== 'edit' && _cmd !== 'brainstorm') { await dispatchCmd(_cmd, text, 'script'); return; }
     if (_cmd === 'brainstorm') { showBrainstormSuggestion(text); return; }
+    _routeIsEdit = (_cmd === 'edit');
     // edit → 아래 편집 로직으로 계속
   }
 
@@ -11231,8 +11288,13 @@ async function handleScriptPrompt(text) {
     const _streamScId = selectedScenes.length === 1 ? selectedScenes[0].id : null;
     if (_streamScId) showStreamPreview(_streamScId);
     hideAnalyzing();
+    // haikusRoute가 edit 판단 or 분석 키워드 없는 직접 편집 → <r> 태그 강제
+    const _forceRTag = _routeIsEdit || !_analysisKw;
+    const _userContent = _forceRTag
+      ? `지시: ${text}\n\n씬 데이터:\n${sceneSummary}\n\n⚠️ 반드시 <r>[{"sceneId":sceneId값,"title":"씬제목","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용","locked":false}],"comment":"변경사항 한 줄"}]</r> 형식으로 씬 전체를 응답하세요.`
+      : `지시: ${text}\n\n씬 데이터:\n${sceneSummary}`;
     const raw = await callClaudeStream(
-      [{role:'user', content:`지시: ${text}\n\n씬 데이터:\n${sceneSummary}`}],
+      [{role:'user', content: _userContent}],
       sys, scriptMaxTokens, _scriptModel || 'claude-sonnet-4-20250514',
       (chunk, done) => {
         if (_streamScId && !done) updateStreamPreview(_streamScId, chunk);
@@ -11317,7 +11379,7 @@ async function handleScriptPrompt(text) {
       }
       if (choices && choices.length) showChoicesPanel(text, choices);
     } else {
-      // updates 없음 — AI가 <r> 태그 없이 응답한 경우
+      // updates 없음 — AI가 <r> 태그 없이 응답 (질문/제안/분석 응답)
       const commentText = cleanDisplayText(raw) || '';
       if (commentText) {
         showCommentPanel(commentText);
