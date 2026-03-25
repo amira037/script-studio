@@ -2069,19 +2069,32 @@ async function callClaude(messages, system, maxTokens = 2000, model = 'claude-so
   abortCurrentRequest();
   _currentAbortCtrl = new AbortController();
   const body = { model, max_tokens: maxTokens, system, messages };
-  try {
-    const resp = await fetch('/api/claude', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: _currentAbortCtrl.signal
-    });
-    if (!resp.ok) throw new Error(`API ${resp.status}: ${await resp.text()}`);
-    const data = await resp.json();
-    return data.content.map(b => b.text || '').join('');
-  } finally {
-    _currentAbortCtrl = null;
+  const maxRetries = 2;
+  let lastErr;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const resp = await fetch('/api/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: _currentAbortCtrl.signal
+      });
+      if (resp.status === 529) {
+        const retryAfter = attempt < maxRetries ? (attempt + 1) * 3000 : 0;
+        if (retryAfter) { await new Promise(r => setTimeout(r, retryAfter)); continue; }
+      }
+      if (!resp.ok) throw new Error(`API ${resp.status}: ${await resp.text()}`);
+      const data = await resp.json();
+      _currentAbortCtrl = null;
+      return data.content.map(b => b.text || '').join('');
+    } catch(e) {
+      if (e.name === 'AbortError') { _currentAbortCtrl = null; throw e; }
+      lastErr = e;
+      if (attempt < maxRetries) await new Promise(r => setTimeout(r, (attempt + 1) * 3000));
+    }
   }
+  _currentAbortCtrl = null;
+  throw lastErr;
 }
 
 // L6: 스트리밍 버전 callClaude — 라인 에디터용
@@ -2090,13 +2103,22 @@ async function callClaudeStream(messages, system, maxTokens = 4000, model = 'cla
   abortCurrentRequest();
   _currentAbortCtrl = new AbortController();
   const body = { model, max_tokens: maxTokens, system, messages, stream: true };
-  try {
-    const resp = await fetch('/api/claude', {
+  const maxRetries = 2;
+  let resp;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    resp = await fetch('/api/claude', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: _currentAbortCtrl.signal
     });
+    if (resp.status === 529 && attempt < maxRetries) {
+      await new Promise(r => setTimeout(r, (attempt + 1) * 3000));
+      continue;
+    }
+    break;
+  }
+  try {
     if (!resp.ok) throw new Error(`API ${resp.status}: ${await resp.text()}`);
     // SSE 스트리밍 지원 여부 확인
     const ct = resp.headers.get('content-type') || '';
@@ -8393,7 +8415,7 @@ async function generateScenesFromTitles(seqTitlesData) {
 
   showAnalyzing('시퀀스 내용을 쓰고 있습니다... ✍️');
   try {
-    const raw = await callClaude(
+    const raw = await callClaudeStream(
       [{role:'user', content:
         '작품: ' + S.cur.title + (synopsis ? '\n시놉시스: '+synopsis.slice(0,200) : '') + '\n'
         + '등장인물: ' + chars + '\n'
@@ -8402,7 +8424,9 @@ async function generateScenesFromTitles(seqTitlesData) {
         + seqTitlesData.map((s,i) => (i+1)+'. "'+s.title+'" — '+((s.slug && /^(INT|EXT)/i.test(s.slug)) ? s.slug : '장소 미정')+(s.hint?' ('+s.hint+')':'')).join('\n')
       }],
       '반드시 <scenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만. 각 씬 최소 5줄. slug는 반드시 "INT." 또는 "EXT."로 시작하는 실제 슬러그라인으로. 설명 없이.',
-      6000
+      6000,
+      'claude-sonnet-4-20250514',
+      null
     );
     hideAnalyzing();
     const sr = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
@@ -10006,7 +10030,7 @@ async function aiSceneFillSilent(sc, scenes) {
   const prevCtx = prevSc ? getSceneLabel(prevSc,scenes)+' "'+prevSc.title+'": '+(prevSc.lines||[]).map(l=>l.text).join(' ').slice(0,150) : '(없음)';
   const nextCtx = nextSc ? getSceneLabel(nextSc,scenes)+' "'+nextSc.title+'": '+(nextSc.lines||[]).map(l=>l.text).join(' ').slice(0,150) : '(없음)';
 
-  const raw = await callClaude(
+  const raw = await callClaudeStream(
     [{role:'user', content:
       '작품: ' + S.cur.title + (synopsis ? '\n시놉시스: ' + synopsis.slice(0,200) : '') + '\n'
       + '등장인물: ' + chars + '\n\n'
@@ -10015,7 +10039,9 @@ async function aiSceneFillSilent(sc, scenes) {
       + '앞뒤 흐름에 자연스럽게 맞는 장면을 써주세요.'
     }],
     '반드시 <scenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만. 설명 없이.',
-    4000
+    4000,
+    'claude-sonnet-4-20250514',
+    null
   );
   const sr = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
   if (!sr) return;
@@ -11308,7 +11334,9 @@ async function handleScriptPrompt(text) {
   // ── 2단계 Haiku 판단 (애매한 경우) ──────────────────────────────────
   const maybeReplace = /교체|바꿔|대안|이 버전|저 버전|-[A-Z]/.test(text);
   const maybeTrait = /추가|특성|속성|성격/.test(text) && (S.cur?.characters||[]).some(c => text.includes(c.name));
-  const maybeDiff = /적용|취소|되돌|수정|제안/.test(text);
+  // "수정"/"제안" 단독 매칭은 너무 광범위 — [플로 제안 참고] 같은 컨텍스트 블록이 오탐을 유발
+  // diff apply/cancel은 반드시 "적용"/"취소"/"되돌" 키워드가 있어야 함
+  const maybeDiff = /수정.*적용|제안.*적용|diff.*적용|전체.*적용|수정.*취소|제안.*취소|취소|되돌/.test(text);
 
   if (maybeReplace || maybeTrait || maybeDiff) {
     const intentRaw = await callClaude(
@@ -11316,9 +11344,9 @@ async function handleScriptPrompt(text) {
       '다음 중 하나로만 응답하세요:\n' +
       '<intent>replace</intent> — 대안 장면을 원본으로 교체하는 요청\n' +
       '<intent>trait</intent> — 등장인물 특성/속성 추가 요청\n' +
-      '<intent>apply</intent> — diff/수정 제안 적용 요청\n' +
-      '<intent>cancel</intent> — diff/수정 제안 취소/되돌리기 요청\n' +
-      '<intent>edit</intent> — 일반 대본 편집 요청',
+      '<intent>apply</intent> — 이미 생성된 diff/수정 제안을 "적용"하는 요청 (씬 수정 자체가 아님)\n' +
+      '<intent>cancel</intent> — diff/수정 제안을 취소하거나 되돌리는 요청\n' +
+      '<intent>edit</intent> — 일반 대본 편집 요청 (씬 수정, 대사 변경, 내용 추가 등)',
       40, 'claude-haiku-4-5-20251001'
     );
     const intent = extractTag(intentRaw, 'intent');
