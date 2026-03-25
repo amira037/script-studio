@@ -2081,6 +2081,65 @@ async function callClaude(messages, system, maxTokens = 2000, model = 'claude-so
   }
 }
 
+// 스트리밍 버전 — 플로 대화 전용
+async function callClaudeStream(messages, system, maxTokens = 4000, model = 'claude-haiku-4-5-20251001', onChunk) {
+  if (IS_ADMIN) { toast('ADMIN 모드에서는 AI를 사용할 수 없습니다.'); throw new Error('Admin mode'); }
+  abortCurrentRequest();
+  _currentAbortCtrl = new AbortController();
+  const body = { model, max_tokens: maxTokens, system, messages, stream: true };
+  let fullText = '';
+  try {
+    const resp = await fetch('/api/claude', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: _currentAbortCtrl.signal
+    });
+    if (!resp.ok) throw new Error(`API ${resp.status}: ${await resp.text()}`);
+
+    // SSE 스트리밍 지원 여부 확인
+    const contentType = resp.headers.get('content-type') || '';
+    if (!contentType.includes('text/event-stream')) {
+      // 스트리밍 미지원 — 일반 응답으로 폴백
+      const data = await resp.json();
+      fullText = data.content.map(b => b.text || '').join('');
+      if (onChunk) onChunk(fullText, true);
+      return fullText;
+    }
+
+    // SSE 스트리밍 처리
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // 마지막 불완전한 줄은 버퍼에 유지
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(data);
+          const delta = parsed.delta?.text || parsed.choices?.[0]?.delta?.content || '';
+          if (delta) {
+            fullText += delta;
+            if (onChunk) onChunk(fullText, false);
+          }
+        } catch {}
+      }
+    }
+    if (onChunk) onChunk(fullText, true);
+    return fullText;
+  } finally {
+    _currentAbortCtrl = null;
+  }
+}
+
 function buildProjectContext() {
   if (!S.cur) return '';
   const chars = (S.cur.characters||[]).map(c => c.name+'('+c.role+'): '+c.description+(c.traits?.length?' ['+c.traits.join(',')+']':'')).join('; ');
@@ -6256,8 +6315,11 @@ const _typingMsgs = [
 ];
 let _typingInterval = null;
 function showTyping() {
+  // 스트리밍 모드에서는 showStreamBubble이 대신함
+  // 비스트리밍 호출용 fallback
   const container = document.getElementById('chat-msgs');
   if (!container) return;
+  if (document.getElementById('typing-indicator')) return;
   const wrap = document.createElement('div'); wrap.className = 'msg'; wrap.id = 'typing-indicator';
   wrap.innerHTML = '<div class="msg-av ai">AI</div><div class="msg-body"><div class="msg-bubble" id="typing-msg" style="color:var(--text3);font-size:11px;font-style:italic;"></div></div>';
   container.appendChild(wrap); container.scrollTop = container.scrollHeight;
@@ -6273,6 +6335,29 @@ function showTyping() {
 function hideTyping() {
   clearInterval(_typingInterval);
   document.getElementById('typing-indicator')?.remove();
+  document.getElementById('stream-bubble')?.remove();
+}
+
+// 스트리밍 전용 — 실시간 텍스트 버블
+function showStreamBubble() {
+  hideTyping();
+  const container = document.getElementById('chat-msgs');
+  if (!container) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'msg'; wrap.id = 'stream-bubble';
+  wrap.innerHTML = '<div class="msg-av ai">AI</div><div class="msg-body"><div class="msg-bubble" id="stream-text" style="white-space:pre-wrap;word-break:break-word;"></div></div>';
+  container.appendChild(wrap);
+  container.scrollTop = container.scrollHeight;
+}
+
+function updateStreamBubble(text) {
+  const el = document.getElementById('stream-text');
+  if (!el) return;
+  // 구조화 태그 제거하고 표시
+  const display = cleanDisplayText(text);
+  el.textContent = display;
+  const container = document.getElementById('chat-msgs');
+  if (container) container.scrollTop = container.scrollHeight;
 }
 
 function handleMsgAction(action) {
@@ -7245,7 +7330,18 @@ async function handleChatPrompt(text) {
         return;
       }
     }
-    const raw = await callClaude([...history, { role:'user', content:text }], sys, needsMore ? 8000 : 4000, 'claude-haiku-4-5-20251001');
+    // 스트리밍으로 플로 응답 — 실시간 표시
+    showStreamBubble();
+    const raw = await callClaudeStream(
+      [...history, { role:'user', content:text }],
+      sys,
+      needsMore ? 8000 : 4000,
+      'claude-haiku-4-5-20251001',
+      (partialText, isDone) => {
+        if (!isDone) updateStreamBubble(partialText);
+      }
+    );
+    hideTyping(); // 스트림 버블 제거 (addMsg로 교체됨)
     hideTyping();
 
     // Parse special content
