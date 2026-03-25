@@ -5038,7 +5038,7 @@ function buildDiffBlock(sc) {
     </div>
     <div class="diff-lines">${buildDiffLines(sc.diff.lines)}</div>
     <div class="diff-acts">
-      <button class="diff-apply-btn" style="background:var(--purple2);color:var(--purple);border-color:rgba(168,158,221,.4);" onclick="suggestTraitFromDiff(${sc.id}, '${(sc.diff&&sc.diff.prompt)||''}')">👤 어투 속성 저장</button>
+      <button class="diff-apply-btn" style="background:var(--purple2);color:var(--purple);border-color:rgba(168,158,221,.4);" onclick="suggestTraitFromDiff(${sc.id}, '${(sc.diff&&sc.diff.prompt)||''}')">👤 ${buildTraitBtnLabel(sc)}속성 저장</button>
       <button class="diff-apply-btn" onclick="applyDiff(${sc.id})">✓ 바로 적용</button>
       <button class="diff-apply-btn" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);" onclick="saveAsDraft(${sc.id})">📝 대안으로 저장</button>
       <button class="diff-cancel-btn" onclick="cancelDiff(${sc.id})">✕ 취소</button>
@@ -5100,110 +5100,136 @@ function saveAsDraft(id) {
   toast('📝 대안 장면이 바로 아래에 추가됐습니다', 3000);
 }
 
+// diff 버튼 레이블 — 씬 내 등장인물명 + 프롬프트에서 속성 힌트 추출
+function buildTraitBtnLabel(sc) {
+  if (!sc || !sc.diff) return '';
+  // diff lines에서 character 타입 라인 추출
+  const charLines = (sc.diff.lines||[])
+    .filter(l => l.type === 'character')
+    .map(l => (l.text||'').trim())
+    .filter(Boolean);
+  // 등장인물 카드에 있는 이름과 매칭
+  const charNames = (S.cur?.characters||[]).map(c => c.name);
+  const matched = charLines.find(n => charNames.includes(n)) || charLines[0] || '';
+  return matched ? matched + ' ' : '';
+}
+
 async function suggestTraitFromDiff(sceneId, prompt) {
-  // diff 프롬프트에서 인물 + 속성 감지
-  if (!prompt || !S.cur) { toast('프롬프트 정보가 없습니다.'); return; }
+  if (!S.cur) return;
   const chars = S.cur.characters || [];
+  const sc = S.cur.scenes.find(s => s.id === sceneId);
+
+  // 프롬프트 없으면 씬 데이터에서 보완
+  if (!prompt && sc?.diff?.prompt) prompt = sc.diff.prompt;
+  // 씬 대사 컨텍스트 추가
+  const diffCtx = sc?.diff?.lines
+    ? sc.diff.lines.filter(l => l.type === 'add' || l.type === 'character')
+        .map(l => l.text).join(' / ').slice(0, 200)
+    : '';
+
+  if (!prompt && !diffCtx) { toast('분석할 정보가 없습니다.'); return; }
   if (chars.length === 0) { toast('등장인물을 먼저 등록해주세요.'); return; }
 
-  toast('✦ 속성 분석 중...', 2000);
+  // 버튼 로딩 표시
+  const btn = document.querySelector(`[onclick="suggestTraitFromDiff(${sceneId}, '${prompt?.replace(/'/g,"\\'")||''}')"]`);
+  const origLabel = btn?.textContent || '';
+  if (btn) { btn.textContent = '분석 중...'; btn.disabled = true; }
+
   try {
-    const charList = chars.map(c => c.name).join(', ');
-    const sys = '대본 프롬프트에서 등장인물과 어투/성격 속성을 추출하세요.\n' +
-      '반드시 <trait>{"char":"인물명","trait":"속성 (5자 이내 핵심 키워드)","reason":"한 줄 설명"}</trait> 형식으로만 응답하세요.\n' +
-      '인물이 목록에 없어도 프롬프트에서 감지되면 그 이름을 사용하세요. 인물을 전혀 특정할 수 없으면 <trait>null</trait>로 응답하세요.';
-    const raw = await callClaude(
-      [{role:'user', content:'등장인물 목록: ' + charList + '\n\n프롬프트: ' + prompt}],
-      sys, 200, 'claude-haiku-4-5-20251001'
-    );
+    const charList = chars.map(c => c.name + (c.traits?.length ? '(' + c.traits.slice(0,3).join(',') + ')' : '')).join(', ');
+    const sys = '대본 편집 프롬프트와 수정된 대사를 보고 등장인물의 어투/성격 속성을 추출하세요.\n' +
+      '반드시 <trait>{"char":"인물명","trait":"속성 (5자 이내 핵심 키워드)","reason":"이 속성을 추출한 이유 한 줄"}</trait> 형식으로만 응답하세요.\n' +
+      '인물이 목록에 없어도 대사에서 감지되면 그 이름을 사용하세요. 인물을 특정할 수 없으면 <trait>null</trait>로 응답하세요.';
+    const userMsg = '등장인물 목록: ' + charList +
+      (prompt ? '\n\n편집 지시: ' + prompt : '') +
+      (diffCtx ? '\n\n수정된 대사: ' + diffCtx : '');
+    const raw = await callClaude([{role:'user', content: userMsg}], sys, 200, 'claude-haiku-4-5-20251001');
     const traitRaw = extractTag(raw, 'trait');
+
+    if (btn) { btn.textContent = origLabel; btn.disabled = false; }
+
     if (!traitRaw || traitRaw === 'null') { toast('인물/속성을 감지하지 못했습니다.'); return; }
     let result;
     try { result = JSON.parse(traitRaw); } catch { toast('분석 오류'); return; }
 
-    const char = chars.find(c => c.name === result.char);
-    if (!char) {
-      // 등장인물 카드에 없는 인물 — 새로 등록 제안
+    // 확인창 표시
+    const showConfirmBar = (charObj, isNew) => {
+      // 기존 확인창 제거
+      document.getElementById('trait-confirm-bar')?.remove();
       const bar = document.createElement('div');
+      bar.id = 'trait-confirm-bar';
       bar.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);' +
-        'background:var(--bg4);border:1px solid var(--accent2);border-radius:var(--r2);' +
-        'padding:12px 16px;z-index:500;display:flex;flex-direction:column;gap:8px;' +
-        'min-width:280px;max-width:90vw;box-shadow:0 8px 24px rgba(0,0,0,.5);';
-      const msg = document.createElement('div');
-      msg.style.cssText = 'font-size:12px;color:var(--text);line-height:1.6;';
-      msg.innerHTML = '<span style="color:var(--accent);">👤 ' + escH(result.char) + '</span>이(가) 등장인물 카드에 없습니다.<br>' +
-        '<span style="font-size:10px;color:var(--text3);">새 인물로 등록하고 "' + escH(result.trait) + '" 속성을 추가할까요?</span>';
+        'background:var(--bg4);border:1.5px solid var(--purple);border-radius:var(--r2);' +
+        'padding:14px 16px;z-index:500;display:flex;flex-direction:column;gap:10px;' +
+        'min-width:300px;max-width:92vw;box-shadow:0 8px 24px rgba(0,0,0,.6);';
+
+      const header = document.createElement('div');
+      header.style.cssText = 'font-size:11px;color:var(--text3);font-family:var(--fm);letter-spacing:.06em;text-transform:uppercase;';
+      header.textContent = isNew ? '새 등장인물 + 속성 등록' : '속성 저장';
+
+      const content = document.createElement('div');
+      content.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+
+      const charRow = document.createElement('div');
+      charRow.style.cssText = 'display:flex;align-items:center;gap:8px;';
+      charRow.innerHTML = '<span style="font-size:13px;color:var(--purple);">👤</span>' +
+        '<span style="font-size:14px;font-weight:600;color:var(--text);">' + escH(result.char) + '</span>';
+
+      const traitRow = document.createElement('div');
+      traitRow.style.cssText = 'display:flex;align-items:center;gap:8px;';
+      traitRow.innerHTML =
+        '<span style="font-size:9px;padding:2px 8px;border-radius:3px;background:var(--purple2);color:var(--purple);font-family:var(--fm);">' + escH(result.trait) + '</span>' +
+        '<span style="font-size:11px;color:var(--text3);">' + escH(result.reason||'') + '</span>';
+
+      content.append(charRow, traitRow);
+
       const btns = document.createElement('div');
       btns.style.cssText = 'display:flex;gap:6px;';
+
       const okBtn = document.createElement('button');
-      okBtn.textContent = '✓ 새 인물로 등록';
-      okBtn.style.cssText = 'flex:1;background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:6px;font-size:11px;cursor:pointer;font-weight:600;';
+      okBtn.textContent = isNew ? '✓ 새 인물로 등록' : '✓ 저장하기';
+      okBtn.style.cssText = 'flex:1;background:var(--purple);color:#fff;border:none;border-radius:var(--r);padding:7px;font-size:11px;cursor:pointer;font-weight:600;';
       okBtn.onclick = () => {
-        if (!S.cur.characters) S.cur.characters = [];
-        const newChar = {
-          id: Date.now() + Math.floor(Math.random() * 100000),
-          name: result.char,
-          role: '',
-          description: '',
-          traits: [result.trait],
-          importance: 3,
-        };
-        S.cur.characters.push(newChar);
+        if (isNew) {
+          if (!S.cur.characters) S.cur.characters = [];
+          const newChar = { id: Date.now(), name: result.char, role:'', description:'', traits:[result.trait], aliases:[] };
+          newChar.aliases = buildCharAliases(newChar);
+          S.cur.characters.push(newChar);
+        } else {
+          if (!charObj.traits) charObj.traits = [];
+          if (!charObj.traits.includes(result.trait)) charObj.traits.push(result.trait);
+          charObj.aliases = buildCharAliases(charObj);
+        }
         save();
         bar.remove();
-        toast('✓ ' + result.char + ' 등록 + "' + result.trait + '" 속성 추가됨', 3000);
+        toast('✓ ' + result.char + ' — "' + result.trait + '" 저장됨', 3000);
         if (document.getElementById('drawer-chars')?.classList.contains('open')) renderCharsDrawer();
       };
+
       const cancelBtn = document.createElement('button');
-      cancelBtn.textContent = '나중에';
-      cancelBtn.style.cssText = 'background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text3);padding:6px 12px;font-size:11px;cursor:pointer;';
+      cancelBtn.textContent = '취소';
+      cancelBtn.style.cssText = 'background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text3);padding:7px 12px;font-size:11px;cursor:pointer;';
       cancelBtn.onclick = () => bar.remove();
+
       btns.append(okBtn, cancelBtn);
-      bar.append(msg, btns);
+      bar.append(header, content, btns);
       document.body.appendChild(bar);
-      setTimeout(() => bar?.remove(), 10000);
-      return;
-    }
-    if ((char.traits||[]).includes(result.trait)) {
-      toast('"' + result.trait + '"은 이미 등록된 속성입니다.'); return;
+      setTimeout(() => bar?.remove(), 15000);
+    };
+
+    const char = chars.find(c => c.name === result.char);
+    if (!char) {
+      showConfirmBar(null, true); // 새 인물
+    } else if ((char.traits||[]).includes(result.trait)) {
+      toast('"' + result.trait + '"은 이미 등록된 속성이에요.');
+    } else {
+      showConfirmBar(char, false); // 기존 인물에 추가
     }
 
-    // 확인 바 표시
-    const bar = document.createElement('div');
-    bar.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);' +
-      'background:var(--bg4);border:1px solid var(--purple);border-radius:var(--r2);' +
-      'padding:12px 16px;z-index:500;display:flex;flex-direction:column;gap:8px;' +
-      'min-width:280px;max-width:90vw;box-shadow:0 8px 24px rgba(0,0,0,.5);';
-    const msg = document.createElement('div');
-    msg.style.cssText = 'font-size:12px;color:var(--text);line-height:1.6;';
-    msg.innerHTML = '<span style="color:var(--purple);">👤 ' + escH(char.name) + '</span>에 ' +
-      '<span style="color:var(--accent);">"' + escH(result.trait) + '"</span> 속성을 등록할까요?<br>' +
-      '<span style="font-size:10px;color:var(--text3);">' + escH(result.reason) + '</span>';
-    const btns = document.createElement('div');
-    btns.style.cssText = 'display:flex;gap:6px;';
-    const okBtn = document.createElement('button');
-    okBtn.textContent = '✓ 등록';
-    okBtn.style.cssText = 'flex:1;background:var(--purple);color:#fff;border:none;border-radius:var(--r);padding:6px;font-size:11px;cursor:pointer;font-weight:600;';
-    okBtn.onclick = () => {
-      if (!char.traits) char.traits = [];
-      char.traits.push(result.trait);
-      save();
-      bar.remove();
-      toast('✓ ' + char.name + ' — "' + result.trait + '" 속성 등록됨', 3000);
-      // 등장인물 드로어 열려있으면 갱신
-      if (document.getElementById('drawer-chars')?.classList.contains('open')) {
-        renderCharsDrawer();
-      }
-    };
-    const cancelBtn = document.createElement('button');
-    cancelBtn.textContent = '나중에';
-    cancelBtn.style.cssText = 'background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text3);padding:6px 12px;font-size:11px;cursor:pointer;';
-    cancelBtn.onclick = () => bar.remove();
-    btns.append(okBtn, cancelBtn);
-    bar.append(msg, btns);
-    document.body.appendChild(bar);
-    setTimeout(() => bar?.remove(), 10000);
-  } catch(e) { toast('오류: ' + e.message); }
+  } catch(e) {
+    if (btn) { btn.textContent = origLabel; btn.disabled = false; }
+    toast('오류: ' + e.message);
+  }
 }
 
 async function aiCharTypeSuggest(id) {
@@ -9290,6 +9316,52 @@ async function handleTitleChange(text) {
 // ── 빈 핸들러 제거 (위에서 중복 정의된 것) ──────────────────────────
 async function handleScriptPrompt(text) {
   text = await normalizeSceneNums(text);
+
+  // ── 부분 제목 매칭 → 씬 선택 UI ─────────────────────────────────────
+  // SC번호가 없고, 텍스트에 씬 제목의 일부가 포함된 경우 감지
+  if (!/SC\s*\d+/i.test(text) && S.cur?.scenes?.length) {
+    const allSc = S.cur.scenes;
+    // 텍스트에서 2글자 이상 키워드로 씬 제목 부분 매칭
+    const matched = allSc.filter(s => {
+      if (!s.title || s.title.length < 2) return false;
+      // 제목의 의미있는 단어(2글자↑)가 텍스트에 포함되면 매칭
+      const words = s.title.replace(/[^가-힣a-zA-Z0-9]/g,' ').split(/\s+/).filter(w=>w.length>=2);
+      return words.some(w => text.includes(w));
+    });
+    // 2개 이상 매칭되고, 수정/편집 키워드가 있을 때만 선택 UI
+    const isEditIntent = /수정|고쳐|바꿔|편집|채워|써줘|넣어|다듬|강화|약화|삭제|추가/.test(text);
+    if (matched.length >= 2 && isEditIntent) {
+      return new Promise(resolve => {
+        const choices = matched.map(s => {
+          const lbl = getSceneLabel(s, allSc);
+          return lbl + ' — ' + s.title;
+        });
+        showChoicesPanelCb(
+          '어떤 장면인가요?',
+          choices,
+          async (selected) => {
+            // 선택된 씬 번호 추출 → selectedIds 설정 후 재실행
+            const scMatch = selected.match(/SC\s*(\d+)/i);
+            if (scMatch) {
+              const n = parseInt(scMatch[1]);
+              const sc = allSc.find(s => getSceneLabel(s, allSc) === 'SC ' + n);
+              if (sc) {
+                S.selectedIds.clear();
+                S.selectedIds.add(sc.id);
+                renderScriptBody(); renderNavSceneList();
+                // SC번호를 텍스트에 명시해서 재호출
+                const newText = 'SC' + n + ' ' + text;
+                setWaiting(true);
+                try { await handleScriptPrompt(newText); }
+                finally { setWaiting(false); }
+              }
+            }
+            resolve();
+          }
+        );
+      });
+    }
+  }
   // "또는/혹은/이거나" 패턴 — Haiku가 컨텍스트 보고 판단
   if (/또는|혹은|이거나|아니면/.test(text) && !S._skipOrCheck) {
     await handleOrPattern(text);
@@ -9616,7 +9688,7 @@ async function handleScriptPrompt(text) {
 
   const sceneSummary = selectedScenes.map((s) => {
     const label = getSceneLabel(s, S.cur.scenes);
-    return label + '[id:' + s.id + '] "' + s.title + '": ' + JSON.stringify(s.lines.map(l=>({type:l.type,text:l.text,locked:l.locked})));
+    return label + '[sceneId:' + s.id + '] "' + s.title + '": ' + JSON.stringify(s.lines.map(l=>({type:l.type,text:l.text,locked:l.locked})));
   }).join('\n');
 
   const memoCtxScript = getChatMemos().length > 0
@@ -9627,21 +9699,18 @@ async function handleScriptPrompt(text) {
     memoCtxScript +
     '[전체 씬 목록 — 참조용]\n' + fullSceneList + '\n\n' +
     '[편집 가능한 씬 데이터]\n' +
+    '⚠️ 중요: 씬 데이터에 표시된 sceneId를 반드시 그대로 사용하세요. SC번호(1,2,3...)가 아닌 sceneId 숫자값을 그대로 써야 합니다.\n' +
     '잠금(locked:true)된 줄과 중요 대사(keyline:true)는 절대 수정하지 마세요.\n' +
-    '편집 시 반드시 <r>[{"sceneId":숫자,"title":"씬제목","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용","locked":false}],"comment":"변경사항 한 줄"}]</r> 형식으로 응답하세요.\n' +
+    '편집 시 반드시 <r>[{"sceneId":씬데이터의sceneId값,"title":"씬제목","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용","locked":false}],"comment":"변경사항 한 줄"}]</r> 형식으로 응답하세요.\n' +
     '편집 없이 제안/질문에 답할 때는 자연어로만 응답하세요.\n' +
-    '방향 선택이 필요하면 <choices>["선택지1","선택지2"]</choices>도 추가하세요.\n' +
-    'sceneId를 모를 때는 title 필드에 씬 제목을 정확히 적으면 자동 매칭됩니다.';
+    '방향 선택이 필요하면 <choices>["선택지1","선택지2"]</choices>도 추가하세요.';
 
   try {
     // 씬 줄 수 기반 동적 max_tokens
     const totalLines = selectedScenes.reduce((sum, s) => sum + (s.lines||[]).length, 0);
     const scriptMaxTokens = totalLines <= 50 ? 4000 : totalLines <= 100 ? 8000 : totalLines <= 200 ? 15000 : 20000;
     const raw = await callClaude([{role:'user', content:`지시: ${text}\n\n씬 데이터:\n${sceneSummary}`}], sys, scriptMaxTokens);
-    console.log('[DEBUG] raw 응답 앞 300자:', raw.slice(0,300));
-    console.log('[DEBUG] <r> 태그 있음?', raw.includes('<r>'));
     const resultRaw = extractTag(raw, 'r') || extractTag(raw, 'result');
-    console.log('[DEBUG] resultRaw:', resultRaw ? resultRaw.slice(0,100) : 'null');
     const choicesRaw = extractTag(raw, 'choices');
     const newscenesRaw = extractTag(raw, 'newscenes');
     let updates = null;
@@ -9667,10 +9736,13 @@ async function handleScriptPrompt(text) {
     if (updates && Array.isArray(updates)) {
       let applied = 0;
       updates.forEach(u => {
-        // id로 먼저 찾고, 없으면 제목으로 폴백
-        const sc = S.cur.scenes.find(s => s.id === u.sceneId)
-          || S.cur.scenes.find(s => s.title === u.title)
-          || S.cur.scenes.find(s => u.title && s.title.includes(u.title.slice(0, 6)));
+        // sceneId로 먼저 찾기 (가장 정확) — selectedScenes 내에서만
+        const sc = selectedScenes.find(s => s.id === u.sceneId)
+          // 없으면 전체에서 id로
+          || S.cur.scenes.find(s => s.id === u.sceneId)
+          // id 없으면 제목 완전 일치만 (부분 매칭 금지)
+          || (u.title ? selectedScenes.find(s => s.title === u.title) : null)
+          || (u.title ? S.cur.scenes.find(s => s.title === u.title) : null);
         if (!sc) return;
         // 제목 즉시 반영 (diff 없이)
         if (u.title && u.title !== sc.title) {
