@@ -9638,7 +9638,10 @@ async function handleScriptPrompt(text) {
     const totalLines = selectedScenes.reduce((sum, s) => sum + (s.lines||[]).length, 0);
     const scriptMaxTokens = totalLines <= 50 ? 4000 : totalLines <= 100 ? 8000 : totalLines <= 200 ? 15000 : 20000;
     const raw = await callClaude([{role:'user', content:`지시: ${text}\n\n씬 데이터:\n${sceneSummary}`}], sys, scriptMaxTokens);
+    console.log('[DEBUG] raw 응답 앞 300자:', raw.slice(0,300));
+    console.log('[DEBUG] <r> 태그 있음?', raw.includes('<r>'));
     const resultRaw = extractTag(raw, 'r') || extractTag(raw, 'result');
+    console.log('[DEBUG] resultRaw:', resultRaw ? resultRaw.slice(0,100) : 'null');
     const choicesRaw = extractTag(raw, 'choices');
     const newscenesRaw = extractTag(raw, 'newscenes');
     let updates = null;
