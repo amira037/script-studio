@@ -9638,7 +9638,7 @@ async function handleScriptPrompt(text) {
     const totalLines = selectedScenes.reduce((sum, s) => sum + (s.lines||[]).length, 0);
     const scriptMaxTokens = totalLines <= 50 ? 4000 : totalLines <= 100 ? 8000 : totalLines <= 200 ? 15000 : 20000;
     const raw = await callClaude([{role:'user', content:`지시: ${text}\n\n씬 데이터:\n${sceneSummary}`}], sys, scriptMaxTokens);
-    const resultRaw = extractTag(raw, 'result');
+    const resultRaw = extractTag(raw, 'r') || extractTag(raw, 'result');
     const choicesRaw = extractTag(raw, 'choices');
     const newscenesRaw = extractTag(raw, 'newscenes');
     let updates = null;
@@ -9705,8 +9705,13 @@ async function handleScriptPrompt(text) {
       }
       if (choices && choices.length) showChoicesPanel(text, choices);
     } else {
-      // Show as comment in response panel
-      showCommentPanel(cleanDisplayText(raw) || '처리 완료');
+      // updates 없음 — AI가 <r> 태그 없이 응답한 경우
+      const commentText = cleanDisplayText(raw) || '';
+      if (commentText) {
+        showCommentPanel(commentText);
+      } else {
+        showCommentPanel('AI 응답을 처리하지 못했어요. 다시 시도해주세요.');
+      }
     }
   } catch(e) {
     if (e.name !== 'AbortError') showCommentPanel('오류: ' + e.message);
