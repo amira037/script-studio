@@ -1434,7 +1434,10 @@ function closeResponsePanel() {
         <div id="chat-memo-wrap" style="display:none;border-bottom:1px solid var(--border);background:var(--bg3);">
           <div id="chat-memo-hdr" style="display:flex;align-items:center;justify-content:space-between;padding:7px 14px;cursor:pointer;" onclick="toggleChatMemo()">
             <span style="font-size:11px;color:var(--accent);font-weight:500;">📌 핵심 결정사항</span>
-            <span id="chat-memo-arr" style="font-size:10px;color:var(--text3);">▼</span>
+            <div style="display:flex;align-items:center;gap:8px;" onclick="event.stopPropagation()">
+              <button onclick="organizeMemos()" style="font-size:9px;padding:2px 7px;border-radius:var(--r);border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;" title="히스토리 분석 후 설정/인물/스토리/반전으로 정리">✦ 정리하기</button>
+              <span id="chat-memo-arr" style="font-size:10px;color:var(--text3);cursor:pointer;" onclick="toggleChatMemo()">▼</span>
+            </div>
           </div>
           <div id="chat-memo-body" style="padding:0 14px 10px;display:none;">
             <div id="chat-memo-list" style="margin-bottom:8px;"></div>
@@ -2108,6 +2111,25 @@ function extractJSON(text) {
 // ═══════════════════════════════════════════
 // H: 등장인물 이름 구조 헬퍼
 // ═══════════════════════════════════════════
+
+// A1~A3: 한국/외국 이름 자동 분리
+function parseKoreanName(name) {
+  if (!name) return { lastName:'', firstName:'' };
+  const trimmed = name.trim();
+  // 외국 이름 — 영문 포함이면 분리 안 함
+  if (/[a-zA-Z]/.test(trimmed)) return { lastName:'', firstName:'' };
+  // 한국 성씨 목록 (1~2글자)
+  const twoCharSurnames = ['남궁','선우','황보','독고','제갈','사공','서문','동방','장곡'];
+  const twoChar = twoCharSurnames.find(s => trimmed.startsWith(s));
+  if (twoChar && trimmed.length > twoChar.length) {
+    return { lastName: twoChar, firstName: trimmed.slice(twoChar.length) };
+  }
+  // 일반 1글자 성 — 2글자 이상 이름만 분리
+  if (trimmed.length >= 2) {
+    return { lastName: trimmed[0], firstName: trimmed.slice(1) };
+  }
+  return { lastName:'', firstName: trimmed };
+}
 function buildCharAliases(ch) {
   const aliases = new Set();
   const ln = (ch.lastName||'').trim();
@@ -2146,8 +2168,106 @@ function findCharByName(nameStr) {
 }
 
 
-// ═══════════════════════════════════════════
-// F: 플로 콘텐츠 감지 (character / synopsis / setting_update)
+// J1~J3: 씬 작성 유도 조건 체크
+function checkSceneWritingCondition(trigger, category) {
+  if (!S.cur || S.activeTab !== 'chat') return;
+
+  const scenes = (S.cur.scenes||[]).filter(s=>!s.draft);
+  const hasChars = (S.cur.characters||[]).length > 0
+    || !!(S.cur.chatMemosStructured?.characters?.length);
+  const hasSynopsis = !!(S.cur.synopsis && S.cur.synopsis.trim().length > 10);
+
+  // 이미 제안했으면 스킵
+  if (S.cur._sceneWritingDone) return;
+
+  // J2+J3: 등장인물 추가 시
+  if (trigger === 'char') {
+    if (!hasChars) return;
+    S.cur._sceneWritingDone = true;
+    save(true);
+    setTimeout(() => {
+      if (scenes.length === 0) {
+        // 씬 없음 → sequence_titles + newscenes 제안
+        addMsg('assistant',
+          '등장인물이 등록됐어요! 이제 씬을 시작해볼까요? 🎬\n첫 씬 구조를 제안하거나 바로 씬을 만들 수 있어요.',
+          [
+            { type:'startSequenceFromSynopsis', label:'✨ 시퀀스 구성하기', style:'amber' },
+            { type:'sceneWriteNow', label:'✦ 바로 씬 만들기', style:'amber' },
+            { type:'dismiss', label:'나중에', style:'' }
+          ]
+        );
+      } else {
+        // 씬 있음 → newscenes + editscenes 제안
+        addMsg('assistant',
+          '새 등장인물이 추가됐어요! 기존 씬에 반영하거나 새 씬을 추가해볼까요?',
+          [
+            { type:'sceneWriteNow', label:'✦ 새 씬 추가하기', style:'amber' },
+            { type:'sceneImproveCurrent', label:'✦ 기존 씬에 반영하기', style:'' },
+            { type:'dismiss', label:'나중에', style:'' }
+          ]
+        );
+      }
+    }, 600);
+    return;
+  }
+
+  // J3: 메모 카테고리 추가 시
+  if (trigger === 'memo') {
+    if (!S.cur._sceneWritingDone) S.cur._sceneWritingDone = true;
+    save(true);
+    setTimeout(() => {
+      if (category === 'twist') {
+        addMsg('assistant',
+          '반전/복선이 추가됐어요! 기존 씬에 반영하거나 새 씬을 추가할까요?',
+          [
+            { type:'sceneImproveCurrent', label:'✦ 기존 씬에 반영하기', style:'amber' },
+            { type:'sceneWriteNow', label:'✦ 새 씬 추가하기', style:'' },
+            { type:'dismiss', label:'나중에', style:'' }
+          ]
+        );
+      } else {
+        addMsg('assistant',
+          (category === 'story' ? '스토리 방향' : '설정') + '이 추가됐어요! 씬으로 만들어볼까요?',
+          [
+            { type:'sceneWriteNow', label:'✦ 씬 추가하기', style:'amber' },
+            { type:'startSequenceFromSynopsis', label:'✦ 시퀀스 개선하기', style:'' },
+            { type:'dismiss', label:'나중에', style:'' }
+          ]
+        );
+      }
+    }, 600);
+  }
+}
+
+// J3: 2턴 연속 스토리 키워드 감지 (JS 패턴)
+function checkStoryTurnPattern() {
+  if (!S.cur || S.cur._sceneWritingDone) return;
+  const msgs = (S.cur.messages||[]).filter(m => m.role === 'assistant' && !m._isFlowPanel && !m._isDetectPanel);
+  if (msgs.length < 2) return;
+  const last2 = msgs.slice(-2);
+  const hasStoryKw = m => /스토리|장면|씬|반전|복선|갈등|전개|플롯|시퀀스|이야기.*방향|다음.*장면/.test(cleanDisplayText(m.text||''));
+  if (last2.every(hasStoryKw)) {
+    checkSceneWritingCondition('memo', 'story');
+  }
+}
+
+function buildSceneSummaryBasic(sc) {
+  if (!sc) return null;
+  const chars = [...new Set((sc.lines||[]).filter(l=>l.type==='character').map(l=>l.text.trim()))];
+  const slug = (sc.lines||[]).find(l=>l.type==='slug')?.text || '';
+  const preview = (sc.lines||[]).find(l=>l.type==='action')?.text?.slice(0,80) || '';
+  const lineCount = (sc.lines||[]).length;
+  const dialogueCount = (sc.lines||[]).filter(l=>l.type==='dialogue').length;
+  return { chars, slug, preview, lineCount, dialogueCount, conflictScore: sc.summary?.conflictScore ?? null, conflictType: sc.summary?.conflictType ?? null, updatedAt: Date.now() };
+}
+
+function getSceneSummary(sc) {
+  if (!sc) return null;
+  if (!sc.summary || !sc.summary.updatedAt) {
+    sc.summary = buildSceneSummaryBasic(sc);
+  }
+  return sc.summary;
+}
 // ═══════════════════════════════════════════
 
 // 충돌 속성 그룹
@@ -2170,6 +2290,135 @@ function detectTraitConflicts(existingTraits, newTraits) {
   return conflicts;
 }
 
+
+// ═══════════════════════════════════════════
+// J9~J11: 플로에서 씬 형식 감지 + 위치 추천
+// ═══════════════════════════════════════════
+
+function detectSceneInFlowText(raw, displayText) {
+  if (!raw || !S.cur) return;
+  const hasSceneNum = /SC\s*\d+[.\s]/i.test(displayText);
+  const hasSlug = /\b(INT|EXT)\.\s+[가-힣A-Za-z\s]+\s*[-—]\s*(낮|밤|황혼|새벽|아침|저녁|day|night|dawn)/i.test(displayText);
+  const hasDialogue = (displayText.match(/\n[가-힣A-Z\s]{1,10}\n/g)||[]).length >= 1;
+  if (!((hasSceneNum && hasSlug) || (hasSlug && hasDialogue))) return;
+  setTimeout(() => {
+    const container = document.getElementById('chat-msgs');
+    if (!container || container.querySelector('.scene-add-from-flo-btn')) return;
+    const btn = document.createElement('button');
+    btn.className = 'scene-add-from-flo-btn';
+    btn.style.cssText = 'display:block;width:calc(100% - 28px);margin:4px 14px;padding:8px 12px;background:var(--accent3);color:var(--accent);border:1px solid var(--accent2);border-radius:var(--r);font-size:12px;cursor:pointer;text-align:left;font-weight:500;';
+    btn.textContent = '✦ 이 씬을 대본에 추가하기';
+    btn.onclick = () => { btn.remove(); addSceneFromFloText(displayText); };
+    container.appendChild(btn);
+  }, 300);
+}
+
+async function addSceneFromFloText(sceneText) {
+  if (!S.cur) return;
+  const scenes = (S.cur.scenes||[]).filter(s=>!s.draft);
+  const titleMatch = sceneText.match(/SC\s*\d+[.\s]+([^\n（(]+)/i) || sceneText.match(/^([^\n]{2,20})\n/);
+  const scTitle = titleMatch ? titleMatch[1].trim() : '새 장면';
+  const slugMatch = sceneText.match(/(INT|EXT)\.[^\n]+/i);
+  const slugText = slugMatch ? slugMatch[0] : 'INT. 장소 - 낮';
+  const textLines = sceneText.split('\n').map(l=>l.trim()).filter(Boolean);
+  const scLines = [{ type:'slug', text:slugText, locked:false }];
+  let lastType = 'action';
+  textLines.forEach(l => {
+    if (/(INT|EXT)\./i.test(l)) return;
+    if (/^[가-힣A-Z\s]{1,10}$/.test(l) && l.length <= 10) {
+      scLines.push({ type:'character', text:l, locked:false }); lastType = 'character';
+    } else if (lastType === 'character') {
+      scLines.push({ type:'dialogue', text:l, locked:false }); lastType = 'dialogue';
+    } else {
+      scLines.push({ type:'action', text:l, locked:false }); lastType = 'action';
+    }
+  });
+  if (scenes.length === 0) { insertSceneAtPosition(scTitle, scLines, null); return; }
+  toast('✦ 최적 위치 분석 중...', 2000);
+  try {
+    const sceneList = scenes.map((s,i) => {
+      const sum = getSceneSummary(s);
+      return `SC${i+1}. "${s.title}" [${sum?.slug||''}] 등장: ${(sum?.chars||[]).join(',')}`;
+    }).join('\n');
+    const raw = await callClaude(
+      [{role:'user', content:`새 씬: "${scTitle}" (${slugText})\n\n기존 씬:\n${sceneList}\n\n어디에 삽입하면 좋을까요?`}],
+      '스토리 흐름상 최적 삽입 위치를 추천하세요.\n<insert>{"after":"SC번호 (맨 앞이면 0, 맨 뒤면 -1)","reason":"한줄이유"}</insert> 형식으로만.',
+      150, 'claude-haiku-4-5-20251001'
+    );
+    let insertData = null;
+    try { insertData = JSON.parse(extractTag(raw, 'insert')); } catch {}
+    showSceneInsertPositionPanel(scTitle, scLines, insertData, scenes);
+  } catch(e) { insertSceneAtPosition(scTitle, scLines, null); }
+}
+
+function showSceneInsertPositionPanel(scTitle, scLines, recommendation, scenes) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(2px);';
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);padding:18px;width:100%;max-width:400px;max-height:80vh;overflow-y:auto;display:flex;flex-direction:column;gap:10px;';
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'font-size:13px;font-weight:500;color:var(--text);';
+  hdr.textContent = '"' + scTitle + '" — 어디에 추가할까요?';
+  panel.appendChild(hdr);
+  if (recommendation?.reason) {
+    const rec = document.createElement('div');
+    rec.style.cssText = 'background:var(--accent3);border:1px solid var(--accent2);border-radius:var(--r);padding:8px 10px;font-size:11px;color:var(--accent);';
+    const afterNum = parseInt(recommendation.after);
+    const recLabel = afterNum === 0 ? '맨 앞' : afterNum === -1 ? '맨 뒤' : `SC${afterNum} 뒤`;
+    rec.innerHTML = `✦ 추천: <strong>${recLabel}</strong><br><span style="color:var(--text3);font-size:10px;">${recommendation.reason}</span>`;
+    panel.appendChild(rec);
+  }
+  const posWrap = document.createElement('div');
+  posWrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto;';
+  // 맨 앞
+  const firstBtn = document.createElement('button');
+  const isFirstRec = recommendation && parseInt(recommendation.after) === 0;
+  firstBtn.style.cssText = `text-align:left;padding:6px 10px;font-size:11px;border-radius:var(--r);cursor:pointer;border:1px solid ${isFirstRec?'var(--accent)':'var(--border)'};background:${isFirstRec?'var(--accent3)':'var(--bg3)'};color:${isFirstRec?'var(--accent)':'var(--text2)'};`;
+  firstBtn.textContent = (isFirstRec?'✦ ':'') + '맨 앞에';
+  firstBtn.onclick = () => { overlay.remove(); insertSceneAtPosition(scTitle, scLines, null, true); };
+  posWrap.appendChild(firstBtn);
+  // 각 씬 뒤
+  scenes.forEach((s,i) => {
+    const btn = document.createElement('button');
+    const isRec = recommendation && parseInt(recommendation.after) === i+1;
+    btn.style.cssText = `text-align:left;padding:6px 10px;font-size:11px;border-radius:var(--r);cursor:pointer;border:1px solid ${isRec?'var(--accent)':'var(--border)'};background:${isRec?'var(--accent3)':'var(--bg3)'};color:${isRec?'var(--accent)':'var(--text2)'};`;
+    btn.textContent = (isRec?'✦ ':'') + `SC${i+1} "${s.title}" 뒤`;
+    btn.onclick = () => { overlay.remove(); insertSceneAtPosition(scTitle, scLines, s.id); };
+    posWrap.appendChild(btn);
+  });
+  // 맨 뒤
+  const lastBtn = document.createElement('button');
+  const isLastRec = recommendation && parseInt(recommendation.after) === -1;
+  lastBtn.style.cssText = `text-align:left;padding:6px 10px;font-size:11px;border-radius:var(--r);cursor:pointer;border:1px solid ${isLastRec?'var(--accent)':'var(--border)'};background:${isLastRec?'var(--accent3)':'var(--bg3)'};color:${isLastRec?'var(--accent)':'var(--text2)'};`;
+  lastBtn.textContent = (isLastRec?'✦ ':'') + '맨 뒤에';
+  lastBtn.onclick = () => { overlay.remove(); insertSceneAtPosition(scTitle, scLines, null); };
+  posWrap.appendChild(lastBtn);
+  panel.appendChild(posWrap);
+  const cancelBtn = document.createElement('button');
+  cancelBtn.style.cssText = 'background:none;border:none;color:var(--text3);font-size:11px;cursor:pointer;';
+  cancelBtn.textContent = '취소';
+  cancelBtn.onclick = () => overlay.remove();
+  panel.appendChild(cancelBtn);
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+}
+
+function insertSceneAtPosition(title, lines, afterId, isFirst=false) {
+  if (!S.cur) return;
+  if (!S.cur.scenes) S.cur.scenes = [];
+  const newSc = { id:Date.now()+Math.floor(Math.random()*10000), title, locked:false, draft:false, storyboard:[], diff:null, lines };
+  newSc.summary = buildSceneSummaryBasic(newSc);
+  if (isFirst) { S.cur.scenes.unshift(newSc); }
+  else if (afterId) {
+    const idx = S.cur.scenes.findIndex(s=>s.id===afterId);
+    S.cur.scenes.splice(idx !== -1 ? idx+1 : S.cur.scenes.length, 0, newSc);
+  } else { S.cur.scenes.push(newSc); }
+  save(); renderScriptBody(); renderNavSceneList();
+  toast('✓ "' + title + '" 씬이 추가됐어요', 3000);
+  switchTab('script');
+  setTimeout(() => scrollToScene(newSc.id), 200);
+}
+
 function floDetectContent(raw, displayText) {
   if (!S.cur || S.activeTab !== 'chat') return;
 
@@ -2187,9 +2436,12 @@ function floDetectContent(raw, displayText) {
       if (!existing) {
         showContentToastRich('🎭', `새 등장인물: ${charData.name}`, '✦ 등장인물 추가', () => {
           if (!S.cur.characters) S.cur.characters = [];
+          // A: 이름 자동 분리
+          const parsed = parseKoreanName(charData.name);
           const newChar = {
             id: Date.now(), name: charData.name,
-            lastName: charData.lastName||'', firstName: charData.firstName||'',
+            lastName: charData.lastName || parsed.lastName,
+            firstName: charData.firstName || parsed.firstName,
             title: charData.title||'', role: charData.role||'',
             description: charData.description||'', traits: newTraits, aliases: []
           };
@@ -2198,6 +2450,8 @@ function floDetectContent(raw, displayText) {
           save(); renderCharList?.();
           toast('✓ ' + charData.name + ' 등록됨');
           suggestNextOnboardingStep('char_added');
+          // J2: 씬 작성 유도
+          checkSceneWritingCondition('char');
         }, newTraits, []);
       } else {
         const existingTraits = existing.traits || [];
@@ -2948,6 +3202,7 @@ async function doPickCreateProject(synopsis) {
   };
 
   // 장면 3개 생성
+  let sceneGenFailed = false;
   try {
     const raw = await callClaude(
       [{ role: 'user', content:
@@ -2956,11 +3211,15 @@ async function doPickCreateProject(synopsis) {
       '이 시놉시스를 기반으로 오프닝 장면 3개를 작성하세요. '
       + '반드시 <scenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만. '
       + '각 씬은 최소 5줄 이상. 설명 없이.',
-      3000, 'claude-sonnet-4-20250514'
+      4000, 'claude-sonnet-4-20250514'
     );
     const sr = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
     if (sr) {
-      const scenesData = JSON.parse(sr);
+      let scenesData = null;
+      try { scenesData = JSON.parse(sr); } catch(jsonErr) {
+        console.warn('Pick scene JSON parse failed', jsonErr);
+        sceneGenFailed = true;
+      }
       if (Array.isArray(scenesData)) {
         scenesData.slice(0,3).forEach((sd, i) => {
           const lines = [{ type:'slug', text: sd.slug || 'INT. 장소 - 낮', locked:false }];
@@ -2972,8 +3231,31 @@ async function doPickCreateProject(synopsis) {
           });
         });
       }
+    } else {
+      sceneGenFailed = true;
     }
-  } catch(e) { console.warn('Pick scene gen failed', e); }
+  } catch(e) {
+    console.warn('Pick scene gen failed', e);
+    sceneGenFailed = true;
+  }
+
+  // 씬 생성 실패 시 빈 씬 3개 폴백
+  if (proj.scenes.length === 0) {
+    const fallbackTitles = ['오프닝', '전개', '전환'];
+    fallbackTitles.forEach((title, i) => {
+      proj.scenes.push({
+        id: Date.now() + i + 1,
+        title,
+        locked: false, draft: false, storyboard: [], diff: null,
+        lines: [
+          { type:'slug', text:'INT. 장소 - 낮', locked:false },
+          { type:'action', text:'지문을 입력하세요.', locked:false },
+          { type:'character', text:'캐릭터', locked:false },
+          { type:'dialogue', text:'대사를 입력하세요.', locked:false },
+        ],
+      });
+    });
+  }
 
   // 플로 메모 자동 저장 (새 프로젝트 — 픽이 유일한 맥락)
   const pickMemo = '[픽] ' + _pickState.words.join('·') + ' / ' + _pickState.genre + ' / ' + (durationLabel[_pickState.duration]||'');
@@ -2986,7 +3268,9 @@ async function doPickCreateProject(synopsis) {
         + '단어: ' + _pickState.words.join(' · ') + '\n'
         + '장르: ' + _pickState.genre + ' / ' + (durationLabel[_pickState.duration]||'') + '\n\n'
         + synopsis + '\n\n'
-        + '장면 ' + proj.scenes.length + '개가 준비됐어요. 대본 탭에서 확인해보세요 😊',
+        + (sceneGenFailed
+          ? '⚠️ 장면 자동 생성에 실패해서 빈 장면 3개로 시작해요. 라인 탭에서 직접 작성하거나 AI로 채워보세요!'
+          : '장면 ' + proj.scenes.length + '개가 준비됐어요. 대본 탭에서 확인해보세요 😊'),
     },
     {
       role: 'assistant',
@@ -3023,7 +3307,7 @@ async function renderPickSequence() {
         '현재 대본:\n' + sceneList + (synopsis ? '\n시놉시스: '+synopsis.slice(0,200) : '') + '\n\n'
         + '픽 단어: ' + _pickState.words.join(', ') + '\n장르 힌트: ' + _pickState.genre }],
       '현재 대본의 흐름을 이어갈 시퀀스를 제안하세요. '
-      + '반드시 <sequence>{"title":"시퀀스 제목","scenes":[{"title":"씬제목","slug":"슬러그"}]}</sequence> 형식으로만. '
+      + '반드시 <sequence>{"title":"시퀀스 제목","scenes":[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간"}]}</sequence> 형식으로만. '
       + '씬은 3~6개. 설명 없이.',
       500, 'claude-sonnet-4-20250514'
     );
@@ -3270,8 +3554,9 @@ function openProject(id) {
   renderNavSceneList();
   renderScriptBody();
   renderChatMsgs();
+  renderChatMemoWrap();
   // 메모가 있으면 자동 펼치기
-  if ((p.chatMemos||[]).length > 0) {
+  if ((p.chatMemos||[]).length > 0 || p.chatMemosStructured) {
     const body = document.getElementById('chat-memo-body');
     const arr = document.getElementById('chat-memo-arr');
     if (body) body.style.display = 'block';
@@ -3603,12 +3888,32 @@ function renderNavSceneList() {
     const draftBadge = sc.draft ? '<span class="draft-badge">대안</span>' : '';
     const navLabel = getSceneLabel(sc, S.cur.scenes || []);
     const diffDot = sc.diff ? '<span class="diff-badge" title="수정 제안 있음"></span>' : '';
+
+    // K1-d: 대안 장면 수치 비교
+    let draftCompare = '';
+    if (sc.draft && sc.draftOf) {
+      const original = (S.cur.scenes||[]).find(s => s.id === sc.draftOf);
+      if (original) {
+        const origSum = getSceneSummary(original);
+        const draftSum = getSceneSummary(sc);
+        if (origSum && draftSum) {
+          const conflictDiff = draftSum.conflictScore != null && origSum.conflictScore != null
+            ? draftSum.conflictScore - origSum.conflictScore : null;
+          const dialogueDiff = (draftSum.dialogueCount||0) - (origSum.dialogueCount||0);
+          const parts = [];
+          if (conflictDiff != null && conflictDiff !== 0) parts.push((conflictDiff > 0 ? '↑' : '↓') + '갈등');
+          if (dialogueDiff !== 0) parts.push((dialogueDiff > 0 ? '↑' : '↓') + '대사');
+          if (parts.length) draftCompare = '<span style="font-size:9px;color:var(--accent);margin-left:4px;">' + parts.join(' ') + '</span>';
+        }
+      }
+    }
     info.innerHTML = '<div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;">' +
       '<div class="sc-nav-num" style="' + (sc.draft ? 'color:var(--accent);' : '') + '">' + escH(navLabel) + '</div>' +
-      (sc.draft ? '<span class="draft-badge">대안</span>' : '') +
+      (sc.draft ? '<span class="draft-badge">대안</span>' + draftCompare : '') +
       '</div>' +
       '<div class="sc-nav-name" style="display:flex;align-items:center;gap:4px;">' + escH(sc.title) + diffDot + '</div>' +
-      (slugTxt ? '<div class="sc-nav-slug">' + escH(slugTxt) + '</div>' : '');
+      (slugTxt ? '<div class="sc-nav-slug">' + escH(slugTxt) + '</div>' : '') +
+      (sc.draft ? '<button onclick="event.stopPropagation();compareDraftScene(' + sc.id + ')" style="font-size:9px;padding:2px 6px;border-radius:3px;border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;margin-top:2px;">🔍 비교</button>' : '');
     item.appendChild(info);
 
     // ── 잠금 아이콘 ──
@@ -4080,6 +4385,7 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
           ],
           storyboard: [], diff: null,
         };
+        newSc.summary = buildSceneSummaryBasic(newSc);
         if (!S.cur.scenes) S.cur.scenes = [];
         if (!insertAfter || insertAfter === 'null') {
           S.cur.scenes.push(newSc);
@@ -5059,8 +5365,22 @@ function applyDiff(id) {
   if (!sc || !sc.diff) return;
   const mergeDeleteId = sc.diff.mergeDeleteId;
   const mergeDeleteIds = sc.diff.mergeDeleteIds;
+
+  // B: diff 적용 전 새 character 라인 감지
+  const newLines = sc.diff.newLines || [];
+  const existingCharNames = (S.cur.characters||[]).flatMap(c => buildCharAliases(c));
+  const newCharNames = [...new Set(
+    newLines
+      .filter(l => l.type === 'character' && l.text?.trim())
+      .map(l => l.text.trim().replace(/\s*[\(（].*[\)）]/,'').trim())
+      .filter(name => name && !existingCharNames.some(a => a === name))
+  )];
+
   sc.lines = sc.diff.newLines;
   sc.diff = null;
+  // K1: summary 갱신
+  sc.summary = buildSceneSummaryBasic(sc);
+
   // 씬 합치기 — 삭제 처리
   if (mergeDeleteIds?.length) {
     S.cur.scenes = S.cur.scenes.filter(s => !mergeDeleteIds.includes(s.id));
@@ -5072,6 +5392,29 @@ function applyDiff(id) {
     toast('✓ 적용됨');
   }
   save(); renderScriptBody(); renderNavSceneList();
+
+  // B: 새 인물 감지 토스트+채팅 메시지
+  newCharNames.forEach(name => {
+    const nameParsed = parseKoreanName(name);
+    const newCharObj = {
+      id: null, name,
+      lastName: nameParsed.lastName,
+      firstName: nameParsed.firstName,
+      title: '', role:'', description:'', traits:[], aliases:[]
+    };
+    showContentToastRich('🎭', `새 배역 감지: ${name}`, '✦ 등장인물 추가', () => {
+      if (!S.cur.characters) S.cur.characters = [];
+      newCharObj.id = Date.now() + Math.floor(Math.random() * 100000);
+      newCharObj.aliases = buildCharAliases(newCharObj);
+      S.cur.characters.push(newCharObj);
+      save(); renderCharsDrawer?.();
+      toast('✓ ' + name + ' 등록됨');
+      suggestNextOnboardingStep('char_added');
+    },
+    // 미리보기 태그 — 성/이름 분리 결과
+    [nameParsed.lastName, nameParsed.firstName].filter(Boolean),
+    []);
+  });
 }
 function cancelDiff(id) {
   const sc = S.cur.scenes.find(s=>s.id===id);
@@ -5083,21 +5426,62 @@ function cancelDiff(id) {
 function saveAsDraft(id) {
   const sc = S.cur.scenes.find(s=>s.id===id);
   if (!sc || !sc.diff) return;
-  // 대안 씬 생성 — 원본 바로 뒤에 삽입
   const draftSc = {
     id: Date.now() + Math.floor(Math.random() * 100000),
     title: sc.title + ' (대안)',
-    locked: false,
-    draft: true,
-    draftOf: sc.id,
+    locked: false, draft: true, draftOf: sc.id,
     lines: sc.diff.newLines.map(l => ({...l})),
     storyboard: [], diff: null,
   };
+  // K1-d: 대안 씬 summary 즉시 생성
+  draftSc.summary = buildSceneSummaryBasic(draftSc);
   const idx = S.cur.scenes.indexOf(sc);
   S.cur.scenes.splice(idx + 1, 0, draftSc);
   sc.diff = null;
   save(); renderScriptBody(); renderNavSceneList();
   toast('📝 대안 장면이 바로 아래에 추가됐습니다', 3000);
+}
+
+// K1-e,f: 대안 장면 비교
+async function compareDraftScene(draftId) {
+  const draft = S.cur?.scenes.find(s=>s.id===draftId);
+  if (!draft || !draft.draftOf) return;
+  const original = S.cur.scenes.find(s=>s.id===draft.draftOf);
+  if (!original) return;
+
+  const origSum = getSceneSummary(original);
+  const draftSum = getSceneSummary(draft);
+
+  // 수치 비교 (즉시)
+  const compareParts = [];
+  if (origSum && draftSum) {
+    const cDiff = (draftSum.conflictScore??0) - (origSum.conflictScore??0);
+    const dDiff = (draftSum.dialogueCount||0) - (origSum.dialogueCount||0);
+    const lDiff = (draftSum.lineCount||0) - (origSum.lineCount||0);
+    if (cDiff !== 0) compareParts.push(`갈등 ${cDiff>0?'+':''}${cDiff}`);
+    if (dDiff !== 0) compareParts.push(`대사 ${dDiff>0?'+':''}${dDiff}줄`);
+    if (lDiff !== 0) compareParts.push(`전체 ${lDiff>0?'+':''}${lDiff}줄`);
+  }
+
+  // 라인 에디터로 이동 + 두 씬 선택 + 프롬프터 자동 입력
+  S.selectedIds.clear();
+  S.selectedIds.add(original.id);
+  S.selectedIds.add(draft.id);
+  save(true); renderScriptBody(); renderNavSceneList();
+  switchTab('script');
+  setTimeout(() => scrollToScene(original.id), 200);
+
+  const compareText = [
+    '원본 "' + original.title + '"과 대안 "' + draft.title + '"을 비교해서 어떤 버전이 더 나은지 판단해줘.',
+    compareParts.length ? '수치 차이: ' + compareParts.join(', ') : '',
+    '각 버전의 장단점을 분석하고 추천해줘.'
+  ].filter(Boolean).join('\n');
+
+  setTimeout(() => {
+    const inp = document.getElementById('prompter-inp');
+    if (inp) { inp.value = compareText; inp.dispatchEvent(new Event('input')); inp.focus(); }
+  }, 300);
+  toast('🔍 두 버전을 선택했어요. 프롬프터에서 비교 분석을 실행하세요.', 4000);
 }
 
 // diff 버튼 레이블 — 씬 내 등장인물명 + 프롬프트에서 속성 힌트 추출
@@ -5578,12 +5962,99 @@ function appendMsgEl(msg, scroll = true) {
     body.appendChild(btnWrap);
   }
   if (msg.role === 'user') { wrap.append(body, av); } else { wrap.append(av, body); }
+
+  // J7: 길게 누르기 → 다시 논의하기
+  if (msg.role === 'assistant' && msg.text && msg.text.length > 10) {
+    let pressTimer = null;
+    const startPress = () => {
+      pressTimer = setTimeout(() => {
+        showReDiscussMenu(wrap, msg);
+      }, 600);
+    };
+    const cancelPress = () => clearTimeout(pressTimer);
+    wrap.addEventListener('touchstart', startPress, { passive:true });
+    wrap.addEventListener('touchend', cancelPress);
+    wrap.addEventListener('touchmove', cancelPress);
+    wrap.addEventListener('mousedown', startPress);
+    wrap.addEventListener('mouseup', cancelPress);
+    wrap.addEventListener('mouseleave', cancelPress);
+  }
+
   container.appendChild(wrap);
   if (scroll) container.scrollTop = container.scrollHeight;
   return wrap;
 }
 
+// J7: 다시 논의하기 메뉴
+function showReDiscussMenu(wrapEl, msg) {
+  document.getElementById('re-discuss-menu')?.remove();
+  const menu = document.createElement('div');
+  menu.id = 're-discuss-menu';
+  menu.style.cssText = 'position:fixed;z-index:500;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r2);padding:4px;box-shadow:0 4px 16px rgba(0,0,0,.5);min-width:160px;';
+  const rect = wrapEl.getBoundingClientRect();
+  menu.style.top = Math.min(rect.bottom + 4, window.innerHeight - 120) + 'px';
+  menu.style.left = Math.max(rect.left, 8) + 'px';
+
+  const items = [
+    { label:'💬 다시 논의하기', fn: () => reDiscussMessage(msg) },
+    { label:'📌 메모로 저장', fn: () => addChatMemoFromText(msg.text||'') },
+  ];
+  items.forEach(item => {
+    const btn = document.createElement('button');
+    btn.style.cssText = 'display:block;width:100%;text-align:left;padding:8px 12px;font-size:12px;color:var(--text2);background:none;border:none;cursor:pointer;border-radius:var(--r);transition:background .1s;';
+    btn.textContent = item.label;
+    btn.onmouseover = () => btn.style.background = 'var(--bg4)';
+    btn.onmouseout = () => btn.style.background = 'none';
+    btn.onclick = () => { menu.remove(); item.fn(); };
+    menu.appendChild(btn);
+  });
+
+  document.body.appendChild(menu);
+  setTimeout(() => document.addEventListener('click', () => menu.remove(), { once:true }), 100);
+}
+
+async function reDiscussMessage(msg) {
+  if (!S.cur) return;
+  switchTab('chat');
+  const ctx = cleanDisplayText(msg.text || '').slice(0, 400);
+  showTyping();
+  try {
+    const sceneCtx = (S.cur.scenes||[]).length > 0
+      ? '\n현재 씬 수: ' + S.cur.scenes.filter(s=>!s.draft).length + '개' : '';
+    const raw = await callClaude(
+      [{role:'user', content: '이전에 다음 내용을 논의했어요. 이 내용을 다시 이야기해주세요:\n\n' + ctx}],
+      (S.cur._floSys || '') + sceneCtx,
+      1000
+    );
+    hideTyping();
+    const displayText = cleanDisplayText(raw) || '다시 정리해볼게요.';
+    const seqRaw = extractTag(raw, 'sequence_titles');
+    const editRaw = extractTag(raw, 'editscenes');
+    const actions = [];
+    if (seqRaw) {
+      let seqData = []; try { seqData = JSON.parse(seqRaw); } catch {}
+      if (seqData.length) actions.push({ type:'approveSequence', data:seqData, label:'✨ 이 구조로 씬 만들기', style:'amber' });
+    }
+    if (editRaw) {
+      const scNums = editRaw.split(',').map(s=>s.trim()).filter(Boolean);
+      if (scNums.length) actions.push({ type:'gotoScriptEdit', data:{scNums, prompt:ctx}, label:'✦ 해당 씬들 수정하기', style:'amber' });
+    }
+    actions.push({ type:'dismiss', label:'닫기', style:'' });
+    addMsg('assistant', displayText, actions);
+  } catch(e) {
+    hideTyping();
+    addMsg('assistant', '오류: ' + e.message);
+  }
+}
+
 function addMsg(role, text, actions) {
+  // J6: 새 AI 메시지 추가 시 이전 액션 버튼 DOM에서 제거
+  if (role === 'assistant') {
+    const container = document.getElementById('chat-msgs');
+    if (container) {
+      container.querySelectorAll('.msg-actions').forEach(el => el.remove());
+    }
+  }
   const m = { role, text, actions };
   if (!S.cur.messages) S.cur.messages = [];
   S.cur.messages.push(m);
@@ -5817,23 +6288,8 @@ function handleMsgAction(action) {
   } else if (action.type === 'addCharacters') {
     addCharsFromAI(action.data);
   } else if (action.type === 'gotoScriptEdit') {
-    // 씬 수정하기 → 대본 에디터 + 씬 선택 + 프롬프터 입력
-    const { scNums, prompt } = action.data;
-    const allSc = S.cur?.scenes || [];
-    S.selectedIds.clear();
-    scNums.forEach(lbl => {
-      const found = allSc.find(s => getSceneLabel(s, allSc) === lbl || getSceneLabel(s, allSc).replace('SC ','SC') === lbl);
-      if (found) S.selectedIds.add(found.id);
-    });
-    save(true); renderScriptBody(); renderNavSceneList();
-    switchTab('script');
-    const firstLbl = scNums[0];
-    const firstSc = allSc.find(s => getSceneLabel(s, allSc) === firstLbl || getSceneLabel(s, allSc).replace('SC ','SC') === firstLbl);
-    if (firstSc) setTimeout(() => scrollToScene(firstSc.id), 200);
-    setTimeout(() => {
-      const inp = document.getElementById('prompter-inp');
-      if (inp) { inp.value = prompt; inp.dispatchEvent(new Event('input')); inp.focus(); }
-    }, 250);
+    // I1: 씬 체크박스 + 2버튼 분기 패널
+    showSceneEditBranchPanel(action.data);
   } else if (action.type === 'deleteSceneSuggest') {
     // 씬 삭제 확인
     const lbl = action.data;
@@ -5930,7 +6386,59 @@ function handleMsgAction(action) {
     // 닫기 — 리마인더 해제
     pendingReminderDismiss();
 
-  } else if (action.type === 'detectConfirm') {
+  } else if (action.type === 'specifyAddChar') {
+    // I2: 미등록 인물 추가 후 설정 흐름 계속
+    const { name, scNums, floPrompt, specItems } = action.data;
+    const parsed = parseKoreanName(name);
+    const newChar = { id: Date.now(), name, lastName: parsed.lastName, firstName: parsed.firstName, title:'', role:'', description:'', traits:[], aliases:[] };
+    newChar.aliases = buildCharAliases(newChar);
+    if (!S.cur.characters) S.cur.characters = [];
+    S.cur.characters.push(newChar);
+    save(); renderCharsDrawer?.();
+    toast('✓ ' + name + ' 등록됨');
+    // 나머지 미등록 인물 있으면 다시 체크, 없으면 설정 질문으로
+    setTimeout(() => startSpecifyFlow(scNums, floPrompt, specItems), 300);
+
+  } else if (action.type === 'specifySkipChar') {
+    // I2: 인물 추가 건너뛰고 설정 질문으로
+    const { scNums, floPrompt, specItems } = action.data;
+    askSpecifyItems(scNums, floPrompt, specItems);
+
+  } else if (action.type === 'specifySelectItem') {
+    // I3: 항목 선택 → 플로가 해당 항목 질문
+    const { item, scNums, floPrompt, specItems, answeredItems } = action.data;
+    showTyping();
+    callClaude(
+      [{role:'user', content:`설정 항목: ${item.text}\n작가에게 이 설정을 구체화하는 질문을 한 가지만 해주세요.`}],
+      '당신은 극작 AI 플로입니다. 간결하게 한 가지 질문만.',
+      200, 'claude-haiku-4-5-20251001'
+    ).then(raw => {
+      hideTyping();
+      // 답변 받으면 저장할 준비
+      window._specifyCtx = { item, scNums, floPrompt, specItems, answeredItems };
+      addMsg('assistant', cleanDisplayText(raw) || item.text + '에 대해 말씀해 주세요.', [
+        { type:'specifyAnswer', data: action.data, label:'답변 후 → 씬 수정하기', style:'amber' }
+      ]);
+    }).catch(() => { hideTyping(); goScriptEditDirect(scNums, floPrompt); });
+
+  } else if (action.type === 'specifyAll') {
+    // I3: 전부 AI가 알아서 → 바로 라인으로
+    const { scNums, floPrompt } = action.data;
+    goScriptEditDirect(scNums, floPrompt);
+
+  } else if (action.type === 'specifyAnswer') {
+    // I3: 답변 확인 후 씬 수정 — 현재 프롬프터 내용 + 컨텍스트로 라인 이동
+    const { scNums, floPrompt } = action.data;
+    const ctx = window._specifyCtx;
+    // 프롬프터에 입력된 답변 가져오기
+    const inp = document.getElementById('prompter-inp');
+    const answer = inp?.value?.trim() || '';
+    if (answer && ctx?.item) {
+      // I3: 캐릭터 태그 or 플로 메모 분류 저장
+      saveSpecifySetting(ctx.item.text, answer);
+    }
+    goScriptEditDirect(scNums, floPrompt + (answer ? '\n\n확정 설정: ' + (ctx?.item?.text||'') + ' — ' + answer : ''));
+    window._specifyCtx = null;
     // 감지 패널 확인 버튼 — 토스트도 완료 처리
     const item = action.data;
     if (item._done) { toast('이미 처리됐어요'); return; }
@@ -5938,9 +6446,48 @@ function handleMsgAction(action) {
     item.onConfirm();
 
   } else if (action.type === 'detectDismiss') {
-    // 감지 패널 나중에 버튼
     const item = action.data;
     _markDetectDone(item);
+
+  } else if (action.type === 'sceneWriteNow') {
+    // J4: 바로 씬 만들기 → 플로가 시퀀스 제안
+    pendingReminderDismiss();
+    switchTab('chat');
+    setTimeout(async () => {
+      showTyping();
+      try {
+        const synopsis = S.cur?.synopsis || '';
+        const chars = (S.cur?.characters||[]).map(c=>c.name+'('+c.role+')').join(', ');
+        const scenes = (S.cur?.scenes||[]).filter(s=>!s.draft);
+        const sceneCtx = scenes.length > 0
+          ? '\n현재 씬: ' + scenes.map((s,i)=>`SC${i+1}. "${s.title}"`).join(', ') : '';
+        const raw = await callClaude(
+          [{role:'user', content:`시놉시스: ${synopsis}\n등장인물: ${chars}${sceneCtx}\n\n다음에 올 씬 구조를 제안해주세요.`}],
+          '반드시 <sequence_titles>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","hint":"한줄설명"}]</sequence_titles> 형식으로 씬 2~4개 제안. 앞에 한 줄 설명 추가.',
+          1000
+        );
+        hideTyping();
+        const seqRaw = extractTag(raw, 'sequence_titles');
+        const displayText = cleanDisplayText(raw) || '이런 씬 구조는 어떨까요?';
+        const acts = [];
+        if (seqRaw) {
+          let seqData = []; try { seqData = JSON.parse(seqRaw); } catch {}
+          if (seqData.length) acts.push({ type:'approveSequence', data:seqData, label:'✨ 이 구조로 씬 만들기 ('+seqData.length+'개)', style:'amber' });
+        }
+        acts.push({ type:'dismiss', label:'닫기', style:'' });
+        addMsg('assistant', displayText, acts);
+      } catch(e) { hideTyping(); addMsg('assistant', '오류: ' + e.message); }
+    }, 200);
+
+  } else if (action.type === 'sceneImproveCurrent') {
+    // J4: 기존 씬에 반영
+    const memos = getChatMemos();
+    const recentMemo = memos[memos.length - 1] || '';
+    handleMsgAction({ type:'settingUpdateScan', data:{ settingText: recentMemo, affectedChars:[] } });
+
+  } else if (action.type === 'memoPreviewSave') {
+    // J12: 미리보기 후 저장
+    showOrganizeMemoPanel(action.data.organized);
 
   // ── D: 방안N으로 개선하기 ──────────────────────
   } else if (action.type === 'flowImprovePlan') {
@@ -6150,16 +6697,76 @@ async function sendPrompt() {
 // CHAT MEMO (핵심 결정사항)
 // ═══════════════════════════════════════════
 
-function getChatMemos() { return S.cur?.chatMemos || []; }
+function getChatMemos() {
+  const plain = S.cur?.chatMemos || [];
+  const structured = S.cur?.chatMemosStructured;
+  if (!structured) return plain;
+  // 구조화 메모를 플랫하게 변환 (AI 컨텍스트용)
+  const flat = [];
+  if (structured.setting?.length)    flat.push(...structured.setting.map(m => '[설정] ' + m));
+  if (structured.characters?.length) flat.push(...structured.characters.map(m => '[인물] ' + m));
+  if (structured.story?.length)      flat.push(...structured.story.map(m => '[스토리] ' + m));
+  if (structured.twist?.length)      flat.push(...structured.twist.map(m => '[반전] ' + m));
+  return [...flat, ...plain];
+}
 
 function renderChatMemoWrap() {
   const memos = getChatMemos();
+  const structured = S.cur?.chatMemosStructured;
   const wrap = document.getElementById('chat-memo-wrap');
   if (!wrap) return;
-  wrap.style.display = memos.length > 0 ? '' : 'none';
+  wrap.style.display = (memos.length > 0 || structured) ? '' : 'none';
   const list = document.getElementById('chat-memo-list');
   if (!list) return;
   list.innerHTML = '';
+
+  // 구조화 메모가 있으면 카테고리별로 표시
+  if (structured) {
+    const cats = [
+      { key:'setting', icon:'⚙️', label:'설정' },
+      { key:'characters', icon:'🎭', label:'인물' },
+      { key:'story', icon:'📖', label:'스토리' },
+      { key:'twist', icon:'🔄', label:'반전/복선' },
+    ];
+    cats.forEach(cat => {
+      const items = structured[cat.key] || [];
+      if (!items.length) return;
+      const section = document.createElement('div');
+      section.style.cssText = 'margin-bottom:8px;';
+      const catHdr = document.createElement('div');
+      catHdr.style.cssText = 'font-size:9px;color:var(--text3);font-family:var(--fm);letter-spacing:.06em;margin-bottom:3px;display:flex;align-items:center;gap:4px;';
+      catHdr.innerHTML = `${cat.icon} <span style="text-transform:uppercase;">${cat.label}</span>`;
+      section.appendChild(catHdr);
+      items.forEach((m, i) => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:flex-start;gap:6px;padding:2px 0;';
+        const dot = document.createElement('span');
+        dot.style.cssText = 'color:var(--accent);font-size:10px;flex-shrink:0;padding-top:2px;';
+        dot.textContent = '•';
+        const txt = document.createElement('span');
+        txt.style.cssText = 'font-size:11px;color:var(--text2);flex:1;line-height:1.5;';
+        txt.textContent = m;
+        const del = document.createElement('button');
+        del.style.cssText = 'font-size:9px;background:none;border:none;color:var(--text3);cursor:pointer;flex-shrink:0;';
+        del.textContent = '✕';
+        del.onclick = () => {
+          structured[cat.key].splice(i, 1);
+          save(true); renderChatMemoWrap();
+        };
+        row.append(dot, txt, del);
+        section.appendChild(row);
+      });
+      list.appendChild(section);
+    });
+    // 비구조화 메모도 있으면 아래에 표시
+    if (memos.length > 0) {
+      const divider = document.createElement('div');
+      divider.style.cssText = 'border-top:1px solid var(--border);margin:6px 0;';
+      list.appendChild(divider);
+    }
+  }
+
+  // 일반 메모 목록
   memos.forEach((m, i) => {
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;align-items:flex-start;gap:6px;padding:3px 0;';
@@ -6194,13 +6801,51 @@ function addChatMemo(text) {
   if (!S.cur) return;
   if (!S.cur.chatMemos) S.cur.chatMemos = [];
   if (S.cur.chatMemos.includes(text)) return;
+  // 구조화 메모에 이미 있으면 스킵
+  const structured = S.cur.chatMemosStructured;
+  if (structured && Object.values(structured).some(arr => arr.includes(text))) return;
+
   S.cur.chatMemos.push(text);
   save(true); renderChatMemoWrap();
-  // 메모 영역 자동 펼치기
   const body = document.getElementById('chat-memo-body');
   const arr = document.getElementById('chat-memo-arr');
   if (body) body.style.display = 'block';
   if (arr) arr.textContent = '▲';
+
+  // 백그라운드 자동 분류 (Haiku)
+  classifyMemoInBackground(text);
+}
+
+// Haiku가 메모 1개를 카테고리로 분류해서 구조화에 추가
+async function classifyMemoInBackground(text) {
+  try {
+    const raw = await callClaude(
+      [{role:'user', content:`이 메모를 분류하세요: "${text}"`}],
+      '대본 창작 메모를 4가지 중 하나로 분류하세요.\n' +
+      '<cat>setting</cat> — 세계관/시간/장소/사건 설정\n' +
+      '<cat>characters</cat> — 등장인물 정보/관계/속성\n' +
+      '<cat>story</cat> — 플롯/시퀀스/구조/전개\n' +
+      '<cat>twist</cat> — 반전/복선/숨겨진 정보\n' +
+      '반드시 <cat>카테고리명</cat> 형식으로만.',
+      30, 'claude-haiku-4-5-20251001'
+    );
+    const cat = extractTag(raw, 'cat');
+    const validCats = ['setting', 'characters', 'story', 'twist'];
+    if (!cat || !validCats.includes(cat)) return;
+
+    if (!S.cur) return;
+    if (!S.cur.chatMemosStructured) S.cur.chatMemosStructured = { setting:[], characters:[], story:[], twist:[] };
+    const bucket = S.cur.chatMemosStructured[cat];
+    if (!bucket.includes(text)) {
+      bucket.push(text);
+      S.cur.chatMemos = (S.cur.chatMemos||[]).filter(m => m !== text);
+      save(true); renderChatMemoWrap();
+      // J3: 메모 카테고리 추가 시 씬 작성 유도
+      if (['story','setting','twist'].includes(cat)) {
+        checkSceneWritingCondition('memo', cat);
+      }
+    }
+  } catch(e) { /* 실패해도 일반 메모에 남아있음 — 문제없음 */ }
 }
 
 function addChatMemoManual() {
@@ -6228,25 +6873,154 @@ async function addChatMemoFromText(text) {
   } catch(e) { toast('메모 추출 실패'); }
 }
 
+
+async function organizeMemos() {
+  if (!S.cur) return;
+  const btn = document.querySelector('[onclick="organizeMemos()"]');
+  if (btn) { btn.textContent = '분석 중...'; btn.disabled = true; }
+  try {
+    // 저장된 메모만 (히스토리 읽지 않음)
+    const plainMemos = S.cur.chatMemos || [];
+    const structured = S.cur.chatMemosStructured;
+    const existingFlat = structured
+      ? Object.entries(structured).flatMap(([k,v]) => v.map(m => `[${k}] ${m}`))
+      : [];
+    const allMemos = [...existingFlat, ...plainMemos];
+
+    if (!allMemos.length) { toast('정리할 메모가 없어요.'); return; }
+
+    const sys = '대본 창작 메모들을 4가지 카테고리로 분류해서 정리하세요.\n' +
+      '반드시 다음 형식으로만:\n' +
+      '<organized>{"setting":["항목"],"characters":["항목"],"story":["항목"],"twist":["항목"]}</organized>\n' +
+      '각 항목 30자 이내. 중복 제거. 없으면 빈 배열.\n' +
+      'setting=세계관/장소/시간/사건, characters=인물정보, story=플롯/구조, twist=반전/복선';
+
+    const raw = await callClaude(
+      [{role:'user', content: '정리할 메모:\n' + allMemos.join('\n')}],
+      sys, 800, 'claude-haiku-4-5-20251001'
+    );
+    const organizedRaw = extractTag(raw, 'organized');
+    if (!organizedRaw) { toast('정리 실패 — 다시 시도해주세요.'); return; }
+    let organized;
+    try { organized = JSON.parse(organizedRaw); } catch { toast('파싱 오류'); return; }
+    showOrganizeMemoPanel(organized);
+  } catch(e) { toast('오류: ' + e.message); }
+  finally { if (btn) { btn.textContent = '✦ 정리하기'; btn.disabled = false; } }
+}
+
+function showOrganizeMemoPanel(organized) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(3px);';
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);padding:20px;width:100%;max-width:420px;max-height:85vh;overflow-y:auto;display:flex;flex-direction:column;gap:14px;';
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;';
+  hdr.innerHTML = '<span style="font-size:14px;font-weight:500;color:var(--text);">📌 메모 정리 결과</span><span style="font-size:11px;color:var(--text3);">검토 후 저장하세요</span>';
+  panel.appendChild(hdr);
+  const cats = [
+    { key:'setting',    icon:'⚙️', label:'설정',      color:'var(--blue)' },
+    { key:'characters', icon:'🎭', label:'인물',      color:'var(--purple)' },
+    { key:'story',      icon:'📖', label:'스토리',    color:'var(--accent)' },
+    { key:'twist',      icon:'🔄', label:'반전/복선', color:'var(--green)' },
+  ];
+  const editData = {};
+  cats.forEach(cat => {
+    const items = organized[cat.key] || [];
+    editData[cat.key] = [...items];
+    if (!items.length) return;
+    const section = document.createElement('div');
+    section.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+    const catHdr = document.createElement('div');
+    catHdr.style.cssText = `font-size:11px;font-weight:600;color:${cat.color};display:flex;align-items:center;gap:5px;`;
+    catHdr.innerHTML = `${cat.icon} ${cat.label}`;
+    section.appendChild(catHdr);
+    const itemWrap = document.createElement('div');
+    itemWrap.style.cssText = 'display:flex;flex-direction:column;gap:3px;';
+    items.forEach((item, i) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;background:var(--bg3);border-radius:var(--r);padding:5px 8px;';
+      const inp = document.createElement('input');
+      inp.type = 'text'; inp.value = item;
+      inp.style.cssText = 'flex:1;background:none;border:none;outline:none;font-size:11px;color:var(--text2);font-family:var(--fb);';
+      inp.oninput = () => { editData[cat.key][i] = inp.value; };
+      const del = document.createElement('button');
+      del.style.cssText = 'font-size:9px;background:none;border:none;color:var(--text3);cursor:pointer;flex-shrink:0;';
+      del.textContent = '✕';
+      del.onclick = () => { editData[cat.key].splice(i,1); row.remove(); };
+      row.append(inp, del);
+      itemWrap.appendChild(row);
+    });
+    section.appendChild(itemWrap);
+    panel.appendChild(section);
+  });
+  const btns = document.createElement('div');
+  btns.style.cssText = 'display:flex;gap:8px;margin-top:4px;';
+  const saveBtn = document.createElement('button');
+  saveBtn.style.cssText = 'flex:1;background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:9px;font-size:12px;font-weight:600;cursor:pointer;';
+  saveBtn.textContent = '✓ 저장하기';
+  saveBtn.onclick = () => {
+    S.cur.chatMemosStructured = {
+      setting:    (editData.setting||[]).filter(Boolean),
+      characters: (editData.characters||[]).filter(Boolean),
+      story:      (editData.story||[]).filter(Boolean),
+      twist:      (editData.twist||[]).filter(Boolean),
+    };
+    S.cur.chatMemos = [];
+    save(); renderChatMemoWrap();
+    const body = document.getElementById('chat-memo-body');
+    const arr = document.getElementById('chat-memo-arr');
+    if (body) body.style.display = 'block';
+    if (arr) arr.textContent = '▲';
+    overlay.remove();
+    toast('📌 메모가 정리됐어요', 3000);
+  };
+  const cancelBtn = document.createElement('button');
+  cancelBtn.style.cssText = 'background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);padding:9px 14px;font-size:12px;cursor:pointer;';
+  cancelBtn.textContent = '취소';
+  cancelBtn.onclick = () => overlay.remove();
+  btns.append(saveBtn, cancelBtn);
+  panel.appendChild(btns);
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+}
+
 async function autoExtractMemoFromHistory() {
   if (!S.cur) return;
-  const msgs = (S.cur.messages||[]).slice(-15);
-  const aiMsgs = msgs.filter(m => m.role === 'assistant' && m.text?.length > 50);
-  if (aiMsgs.length < 3) return;
-  const combined = aiMsgs.map(m => m.text).join('\n\n').slice(0, 1500);
+  // J12: 최근 10개 메시지에서 결정사항 추출 → 미리보기 후 저장
+  const msgs = (S.cur.messages||[]).slice(-10);
+  const aiMsgs = msgs.filter(m => m.role === 'assistant'
+    && m.text?.length > 50
+    && !m._isFlowPanel && !m._isDetectPanel);
+  if (aiMsgs.length < 2) return;
+
+  const combined = aiMsgs.map(m => cleanDisplayText(m.text)).join('\n\n').slice(0, 1500);
   try {
+    const sys = '대본 창작 대화에서 결정사항을 4가지 카테고리로 분류하세요.\n' +
+      '반드시: <organized>{"setting":["항목"],"characters":["항목"],"story":["항목"],"twist":["항목"]}</organized>\n' +
+      '각 항목 30자 이내. 결정사항 없으면 빈 배열. 이미 알려진 사실은 제외.';
     const raw = await callClaude(
-      [{role:'user', content:'다음 대화에서 창작 결정사항을 최대 3개 추출하세요:\n\n' + combined}],
-      '반드시 <memos>["결정사항1","결정사항2"]</memos> 형식으로만 응답하세요. 각 항목 30자 이내.',
-      150, 'claude-haiku-4-5-20251001'
+      [{role:'user', content:'최근 대화:\n\n' + combined}],
+      sys, 500, 'claude-haiku-4-5-20251001'
     );
-    const memosRaw = extractTag(raw, 'memos');
-    if (memosRaw) {
-      let memos = [];
-      try { memos = JSON.parse(memosRaw); } catch {}
-      memos.forEach(m => { if (m && m.trim()) addChatMemo(m.trim()); });
-      if (memos.length > 0) toast('📌 ' + memos.length + '개 핵심 결정사항이 자동 저장됐습니다', 3000);
-    }
+    const organizedRaw = extractTag(raw, 'organized');
+    if (!organizedRaw) return;
+    let organized;
+    try { organized = JSON.parse(organizedRaw); } catch { return; }
+
+    // 새로운 항목이 있는지 확인
+    const allNew = Object.values(organized).flat().filter(Boolean);
+    const existingAll = getChatMemos();
+    const trulyNew = allNew.filter(m => !existingAll.some(e => e.includes(m.slice(0,10))));
+    if (!trulyNew.length) return;
+
+    // 미리보기 버튼으로 제안 (자동 저장 안 함)
+    addMsg('assistant',
+      `💬 대화에서 결정사항 ${trulyNew.length}개를 발견했어요. 저장할까요?`,
+      [
+        { type:'memoPreviewSave', data:{ organized }, label:'📌 미리보기 후 저장', style:'amber' },
+        { type:'dismiss', label:'건너뛰기', style:'' }
+      ]
+    );
   } catch(e) { console.warn('auto memo failed', e); }
 }
 
@@ -6418,7 +7192,8 @@ async function handleChatPrompt(text) {
       '- 씬 순서 재배치: <reorderscenes>[{"id":"씬제목또는SC번호","newIndex":0부터시작}]</reorderscenes> — 전체 순서를 바꿀 때만\n' +
       '- 시놉시스: <synopsis>내용</synopsis>\n' +
       '- 씬 생성: <scenes>[JSON]</scenes>\n' +
-      '- 씬 제목만 먼저 제안(내용 없이): <sequence_titles>[{"title":"씬제목","slug":"슬러그","hint":"한줄설명"}]</sequence_titles>\n' +
+      '- 씬 제목만 먼저 제안(내용 없이): <sequence_titles>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","hint":"한줄설명"}]</sequence_titles>\n' +
+      '- 새 씬 1~3개 추가/삽입: <newscenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[...]}]</newscenes> (맨 뒤 추가시 insertRef 생략, 사이 삽입시 insertRef:"SC번호")\n' +
       '- 장면 아이디어 카드 3개: <scene_ideas>[{"title":"씬제목","idea":"한줄아이디어","mood":"분위기"}]</scene_ideas>\n' +
       '- 등장인물: <characters>[JSON]</characters>\n' +
       '- 새 등장인물 1명 소개/설정: <character>{"name":"대본호칭","lastName":"성","firstName":"이름","title":"직함","role":"역할","gender":"남성 또는 여성 또는 논바이너리 (불명확하면 생략)","description":"설명","traits":["특성1","특성2"]}</character>\n' +
@@ -6426,11 +7201,20 @@ async function handleChatPrompt(text) {
       '  · lastName/firstName/title은 알 수 있을 때만 포함.\n' +
       '- 기존 인물 설정 변경/핵심 설정 업데이트: <setting_update>변경된 설정 내용 (인물명, 변경 내용 포함)</setting_update>\n' +
       '- 태그는 응답 맨 끝에만, JSON을 본문에 직접 출력 금지.\n' +
+      // J8: 씬 액션 태그 우선 사용 지침
+      '★ 씬 액션 태그 사용 규칙 (매우 중요):\n' +
+      '- 씬이 없을 때: 반드시 <sequence_titles> 포함\n' +
+      '- 전체 구조 재편 필요: <sequence_titles> 사용\n' +
+      '- 씬 1~3개 추가/삽입: <newscenes> 사용 (맨 뒤면 insertRef 생략)\n' +
+      '- 기존 씬 수정 필요: <editscenes> 사용\n' +
+      '- 씬 있고 새 방향 나올 때: <sequence_titles> 또는 <newscenes> 중 하나 + <editscenes> 함께\n' +
+      '- 스토리/설정/인물 대화 2턴 이상 이어지면: 위 태그 중 맥락에 맞는 둘 반드시 포함\n' +
+      '- 씬 내용을 직접 쓰고 싶을 때: <sequence_titles>로 제목 먼저 제안. 작가가 명시적으로 "써줘" 요청시만 직접 작성.\n' +
+      '- <suggest>characters</suggest>는 씬이 없을 때는 사용 금지 (등장인물 분석은 씬이 있어야 의미있음)\n' +
       '- 이후 전개/시퀀스 제안 요청엔 <sequence_titles> 우선 사용 (내용은 승인 후 생성).\n' +
       '- 간단한 장면 아이디어 제안엔 <scene_ideas> 사용.\n' +
       '- 갈등 분석 데이터가 없거나 부족할 때: <suggest>conflict</suggest>\n' +
       '- 시놉시스가 없거나 부족할 때: <suggest>synopsis</suggest>\n' +
-      '- 등장인물 정보가 부족할 때: <suggest>characters</suggest>\n' +
       '- suggest 태그는 꼭 필요할 때만, 응답 맨 끝에 붙이세요.';
     // 씬 재구성 요청이면 토큰 더 많이 + 씬 수 감지
     const needsMore = /씬.*다시|재구성|전체.*씬|씬.*구성|씬.*만들/.test(text);
@@ -6536,21 +7320,27 @@ async function handleChatPrompt(text) {
       try { mchoices = JSON.parse(multichoicesRaw); } catch {}
       if (mchoices?.length) actions.push({ type:'showMultiChoices', data:{prompt:text, choices:mchoices}, label:'선택하기', style:'purple' });
     }
-    // 분석 제안 버튼
+    // 분석 제안 버튼 — J5: 씬 없을 때 characters 분석 억제
     if (suggestRaw) {
+      const hasScenes = (S.cur?.scenes||[]).filter(s=>!s.draft).length > 0;
       const suggestMap = {
         conflict:    { label:'⚔ 갈등 분석', type:'suggestAnalysis', data:'conflict' },
         synopsis:    { label:'📋 시놉시스 분석', type:'suggestAnalysis', data:'synopsis' },
         characters:  { label:'👥 등장인물 분석', type:'suggestAnalysis', data:'characters' },
       };
       suggestRaw.split(',').map(s=>s.trim()).forEach(key => {
-        if (suggestMap[key]) actions.push({ ...suggestMap[key], style:'amber', originalPrompt: text });
+        if (!suggestMap[key]) return;
+        // J5: 씬 없을 때 characters/conflict 분석 버튼 억제
+        if (!hasScenes && (key === 'characters' || key === 'conflict')) return;
+        actions.push({ ...suggestMap[key], style:'amber', originalPrompt: text });
       });
     }
     addMsg('assistant', displayText, actions);
 
     // F: 플로 콘텐츠 감지 — character / synopsis / setting_update 태그
     floDetectContent(raw, displayText);
+    // J9: 씬 형식 감지
+    detectSceneInFlowText(raw, displayText);
     const charNames4 = (S.cur?.characters||[]).map(c=>c.name).filter(Boolean);
     const mentionedChar4 = charNames4.find(n => text.includes(n));
     const wantsDialogue = /대사|등장.*씬|장면.*보여|캐릭터.*분석|인물.*분석/.test(text);
@@ -6581,6 +7371,8 @@ async function handleChatPrompt(text) {
     if (msgCount > 0 && msgCount % 10 === 0) {
       setTimeout(() => autoExtractMemoFromHistory(), 1000);
     }
+    // J3: 2턴 연속 스토리 키워드 패턴 감지
+    setTimeout(() => checkStoryTurnPattern(), 800);
     renderChatMemoWrap();
   } catch(e) {
     hideTyping();
@@ -6640,64 +7432,331 @@ async function handleSequenceSuggestFromScript() {
 function showStuckPanel() { showSequenceSuggestPanel(); }
 
 // ── 시퀀스 제목 승인 → 내용 생성 패널 ───────────────────────────────
+// ═══════════════════════════════════════════
+// I: 씬 수정 분기 패널 (I1~I5)
+// ═══════════════════════════════════════════
+
+// I1: 씬 체크박스 + 2버튼 분기 패널
+function showSceneEditBranchPanel(data) {
+  const { scNums, prompt: floPrompt } = data;
+  const allSc = S.cur?.scenes || [];
+
+  // 대상 씬 목록
+  const targetScenes = scNums.map(lbl => {
+    return allSc.find(s => getSceneLabel(s, allSc) === lbl
+      || getSceneLabel(s, allSc).replace('SC ','SC') === lbl);
+  }).filter(Boolean);
+
+  if (!targetScenes.length) {
+    // 씬 못 찾으면 구버전 동작으로 폴백
+    goScriptEditDirect(scNums, floPrompt);
+    return;
+  }
+
+  // I5: 번호 목록 감지 (1. 2. 3. 패턴)
+  const specItems = [];
+  const numPat = /^\s*(\d+)[.．、]\s*(.+)/gm;
+  let nm;
+  while ((nm = numPat.exec(floPrompt || '')) !== null) {
+    if (specItems.length < 6) specItems.push({ num: nm[1], text: nm[2].trim() });
+  }
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(2px);';
+
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);padding:18px;width:100%;max-width:400px;max-height:85vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;';
+
+  // 헤더
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'font-size:14px;font-weight:500;color:var(--text);';
+  hdr.textContent = '✦ 씬 수정';
+  panel.appendChild(hdr);
+
+  // 씬 체크박스 목록
+  const scLabel = document.createElement('div');
+  scLabel.style.cssText = 'font-size:10px;color:var(--text3);font-family:var(--fm);letter-spacing:.05em;';
+  scLabel.textContent = '수정할 씬';
+  panel.appendChild(scLabel);
+
+  const scList = document.createElement('div');
+  scList.style.cssText = 'display:flex;flex-direction:column;gap:5px;';
+  targetScenes.forEach(sc => {
+    const lbl = getSceneLabel(sc, allSc);
+    const row = document.createElement('label');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);cursor:pointer;background:var(--bg3);border-radius:var(--r);padding:7px 10px;border:1px solid var(--border);';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = true;
+    cb.dataset.scId = sc.id;
+    cb.style.accentColor = 'var(--accent)';
+    row.innerHTML = `<span style="font-size:10px;color:var(--text3);font-family:var(--fm);flex-shrink:0;">${escH(lbl)}</span><span style="flex:1;">${escH(sc.title)}</span>`;
+    row.prepend(cb);
+    scList.appendChild(row);
+  });
+  panel.appendChild(scList);
+
+  // 분기 버튼
+  const btnWrap = document.createElement('div');
+  btnWrap.style.cssText = 'display:flex;flex-direction:column;gap:7px;margin-top:4px;';
+
+  const editBtn = document.createElement('button');
+  editBtn.style.cssText = 'background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:10px;font-size:12px;font-weight:600;cursor:pointer;';
+  editBtn.textContent = '✦ 해당 씬들 수정하기';
+  editBtn.onclick = () => {
+    const checked = [...panel.querySelectorAll('input[type=checkbox]:checked')];
+    const selectedIds = checked.map(cb => parseInt(cb.dataset.scId)).filter(Boolean);
+    const selectedLabels = targetScenes
+      .filter(sc => selectedIds.includes(sc.id))
+      .map(sc => getSceneLabel(sc, allSc));
+    overlay.remove();
+    goScriptEditDirect(selectedLabels, floPrompt);
+  };
+
+  const specBtn = document.createElement('button');
+  specBtn.style.cssText = 'background:var(--bg3);border:1px solid var(--accent2);color:var(--accent);border-radius:var(--r);padding:10px;font-size:12px;font-weight:600;cursor:pointer;';
+  specBtn.textContent = '✦ 구체화 설정 먼저 잡기';
+  specBtn.onclick = () => {
+    const checked = [...panel.querySelectorAll('input[type=checkbox]:checked')];
+    const selectedIds = checked.map(cb => parseInt(cb.dataset.scId)).filter(Boolean);
+    const selectedLabels = targetScenes
+      .filter(sc => selectedIds.includes(sc.id))
+      .map(sc => getSceneLabel(sc, allSc));
+    overlay.remove();
+    startSpecifyFlow(selectedLabels, floPrompt, specItems);
+  };
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.style.cssText = 'background:none;border:none;color:var(--text3);font-size:11px;cursor:pointer;padding:4px;';
+  cancelBtn.textContent = '취소';
+  cancelBtn.onclick = () => overlay.remove();
+
+  btnWrap.append(editBtn, specBtn, cancelBtn);
+  panel.appendChild(btnWrap);
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+}
+
+// I4: 바로 라인으로 — 플로 제안 컨텍스트 포함
+function goScriptEditDirect(scNums, floPrompt) {
+  const allSc = S.cur?.scenes || [];
+  S.selectedIds.clear();
+  scNums.forEach(lbl => {
+    const found = allSc.find(s => getSceneLabel(s, allSc) === lbl
+      || getSceneLabel(s, allSc).replace('SC ','SC') === lbl);
+    if (found) S.selectedIds.add(found.id);
+  });
+  save(true); renderScriptBody(); renderNavSceneList();
+  switchTab('script');
+  const firstSc = allSc.find(s => S.selectedIds.has(s.id));
+  if (firstSc) setTimeout(() => scrollToScene(firstSc.id), 200);
+
+  // 플로 제안에서 씬별 수정 힌트 추출해서 프롬프터에 삽입
+  const promptText = buildEditPromptFromFlo(scNums, floPrompt);
+  setTimeout(() => {
+    const inp = document.getElementById('prompter-inp');
+    if (inp) { inp.value = promptText; inp.dispatchEvent(new Event('input')); inp.focus(); }
+  }, 250);
+}
+
+// 플로 제안에서 구체적 프롬프터 텍스트 생성
+function buildEditPromptFromFlo(scNums, floPrompt) {
+  if (!floPrompt) return scNums.join(', ') + ' 씬을 수정해줘';
+  // 씬별 힌트 추출 (SC번호 포함 문장)
+  const hints = [];
+  scNums.forEach(lbl => {
+    const scNum = lbl.replace(/\s/g,'');
+    const pat = new RegExp(scNum + '[^\\n]*[\\n]?([^\\n]+)', 'i');
+    const m = floPrompt.match(pat);
+    if (m) hints.push(scNum + ': ' + m[1].trim().slice(0, 80));
+  });
+  const base = scNums.join(', ') + ' 씬 수정';
+  if (hints.length) return base + '\n' + hints.join('\n');
+  // 힌트 없으면 플로 제안 앞부분 포함
+  const cleanFlo = floPrompt.replace(/\n{3,}/g,'\n\n').slice(0, 300);
+  return base + '\n\n[플로 제안 참고]\n' + cleanFlo;
+}
+
+// I2~I3: 구체화 설정 흐름
+async function startSpecifyFlow(scNums, floPrompt, specItems) {
+  switchTab('chat');
+
+  // I2: 등장인물 미등록 감지
+  const charNames = extractCharNamesFromText(floPrompt || '');
+  const unregistered = charNames.filter(n =>
+    !(S.cur?.characters||[]).some(c => buildCharAliases(c).includes(n) || c.name === n)
+  );
+
+  if (unregistered.length > 0) {
+    // 미등록 인물 추가 유도 먼저
+    const actions = unregistered.map(name => ({
+      type: 'specifyAddChar',
+      data: { name, scNums, floPrompt, specItems },
+      label: `✦ ${name} 추가`,
+      style: 'amber'
+    }));
+    actions.push({
+      type: 'specifySkipChar',
+      data: { scNums, floPrompt, specItems },
+      label: '건너뛰기',
+      style: ''
+    });
+    addMsg('assistant',
+      `${unregistered.join(', ')}이(가) 등장인물에 없어요. 설정을 저장하려면 먼저 추가하는 게 좋아요.`,
+      actions
+    );
+    return;
+  }
+
+  // I3: 구체화 항목 질문 시작
+  await askSpecifyItems(scNums, floPrompt, specItems);
+}
+
+// 텍스트에서 인물명 추출 (등장인물 카드 + 패턴 기반)
+function extractCharNamesFromText(text) {
+  const existing = (S.cur?.characters||[]).map(c => c.name).filter(Boolean);
+  const found = existing.filter(n => n.length >= 2 && text.includes(n));
+  return [...new Set(found)];
+}
+
+// I3: 구체화 항목 질문
+async function askSpecifyItems(scNums, floPrompt, specItems) {
+  if (!specItems || !specItems.length) {
+    // 번호 목록 없으면 바로 수정
+    goScriptEditDirect(scNums, floPrompt);
+    return;
+  }
+
+  showTyping();
+  try {
+    // Haiku가 첫 번째 항목 질문 생성
+    const itemsText = specItems.map(i => `${i.num}. ${i.text}`).join('\n');
+    const sys = '당신은 극작 AI 플로입니다. 대본 설정을 구체화하는 질문을 해주세요. 첫 번째 항목에 대해 간결하게 한 가지 질문만 하세요.';
+    const raw = await callClaude(
+      [{role:'user', content:`구체화할 설정 목록:\n${itemsText}\n\n첫 번째 항목(${specItems[0].text})에 대해 작가에게 질문해주세요.`}],
+      sys, 300, 'claude-haiku-4-5-20251001'
+    );
+    hideTyping();
+
+    const actions = specItems.map(item => ({
+      type: 'specifySelectItem',
+      data: { item, scNums, floPrompt, specItems, answeredItems: [] },
+      label: `${item.num}. ${item.text.slice(0, 20)}${item.text.length > 20 ? '...' : ''}`,
+      style: ''
+    }));
+    actions.push({
+      type: 'specifyAll',
+      data: { scNums, floPrompt, specItems },
+      label: '✦ 전부 AI가 알아서',
+      style: 'amber'
+    });
+
+    addMsg('assistant',
+      (cleanDisplayText(raw) || `설정을 구체화해볼게요. 어떤 항목부터 잡을까요?`),
+      actions
+    );
+  } catch(e) {
+    hideTyping();
+    goScriptEditDirect(scNums, floPrompt);
+  }
+}
+
 function showApproveSequencePanel(seqTitlesData) {
   const overlay = document.createElement('div');
   overlay.id = 'approve-seq-panel';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(2px);';
   const panel = document.createElement('div');
-  panel.style.cssText = 'background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);padding:18px;width:100%;max-width:400px;max-height:85vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;';
+  panel.style.cssText = 'background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);padding:18px;width:100%;max-width:440px;max-height:85vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;';
 
   const hdr = document.createElement('div');
   hdr.style.cssText = 'font-size:14px;font-weight:500;color:var(--text);';
   hdr.textContent = '✨ 제안 시퀀스 — ' + seqTitlesData.length + '개 씬';
   panel.appendChild(hdr);
 
-  const sub = document.createElement('div');
-  sub.style.cssText = 'font-size:11px;color:var(--text3);';
-  sub.textContent = '이 구조로 씬을 만들까요? 내용은 AI가 채워드려요.';
-  panel.appendChild(sub);
+  const existingScenes = (S.cur?.scenes||[]).filter(s => !s.draft);
+  const overlaps = detectSeqOverlaps(seqTitlesData, existingScenes);
 
-  // 씬 제목 목록
+  if (overlaps.length > 0) {
+    const overlapNotice = document.createElement('div');
+    overlapNotice.style.cssText = 'background:var(--amber2);border:1px solid rgba(232,168,74,.3);border-radius:var(--r);padding:9px 11px;font-size:11px;color:var(--amber);line-height:1.6;';
+    overlapNotice.innerHTML = '⚠️ 기존 씬과 겹치는 장면이 <strong>' + overlaps.length + '개</strong> 감지됐어요.<br><span style="font-size:10px;color:var(--text3);">아래에서 교체할 씬을 선택하세요.</span>';
+    panel.appendChild(overlapNotice);
+  } else if (existingScenes.length > 0) {
+    const sub = document.createElement('div');
+    sub.style.cssText = 'font-size:11px;color:var(--text3);';
+    sub.textContent = '기존 ' + existingScenes.length + '개 씬에 이어서 추가돼요.';
+    panel.appendChild(sub);
+  }
+
   const list = document.createElement('div');
   list.style.cssText = 'display:flex;flex-direction:column;gap:5px;';
   seqTitlesData.forEach((s, i) => {
+    const overlap = overlaps.find(o => o.newIdx === i);
     const row = document.createElement('div');
-    row.style.cssText = 'background:var(--bg3);border-left:2px solid var(--accent2);border-radius:0 var(--r) var(--r) 0;padding:8px 10px;';
-    row.innerHTML = '<div style="font-size:12px;font-weight:500;color:var(--accent);margin-bottom:2px;">' + escH(s.title||'씬 '+(i+1)) + '</div>'
-      + '<div style="font-size:11px;color:var(--text3);font-family:var(--fm);">' + escH(s.slug||'') + '</div>'
-      + (s.hint ? '<div style="font-size:11px;color:var(--text2);margin-top:2px;">' + escH(s.hint) + '</div>' : '');
+    row.style.cssText = 'background:var(--bg3);border-left:2px solid ' + (overlap ? 'var(--amber)' : 'var(--accent2)') + ';border-radius:0 var(--r) var(--r) 0;padding:8px 10px;';
+    row.innerHTML = '<div style="font-size:12px;font-weight:500;color:' + (overlap ? 'var(--amber)' : 'var(--accent)') + ';margin-bottom:2px;">' + escH(s.title||'씬 '+(i+1)) + '</div>'
+      + (s.slug && /^(INT|EXT)/i.test(s.slug) ? '<div style="font-size:10px;color:var(--text3);font-family:var(--fm);">' + escH(s.slug) + '</div>' : '')
+      + (s.hint ? '<div style="font-size:11px;color:var(--text2);margin-top:2px;">' + escH(s.hint) + '</div>' : '')
+      + (overlap ? '<div style="font-size:10px;color:var(--amber);margin-top:3px;">↔ ' + escH(overlap.existingTitle) + ' 대체 가능</div>' : '');
     list.appendChild(row);
   });
   panel.appendChild(list);
 
+  if (overlaps.length > 0) {
+    const replaceWrap = document.createElement('div');
+    replaceWrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+    const replaceLabel = document.createElement('div');
+    replaceLabel.style.cssText = 'font-size:10px;color:var(--text3);font-family:var(--fm);letter-spacing:.05em;';
+    replaceLabel.textContent = '겹치는 기존 씬 처리';
+    replaceWrap.appendChild(replaceLabel);
+    overlaps.forEach(o => {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);cursor:pointer;';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.checked = true;
+      cb.dataset.scId = o.existingId;
+      cb.style.accentColor = 'var(--amber)';
+      row.append(cb, document.createTextNode('"' + o.existingTitle + '" 삭제'));
+      replaceWrap.appendChild(row);
+    });
+    panel.appendChild(replaceWrap);
+  }
+
   const btns = document.createElement('div');
-  btns.style.cssText = 'display:flex;gap:8px;';
+  btns.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;';
+
   const approveBtn = document.createElement('button');
-  approveBtn.style.cssText = 'flex:1;background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:9px;font-size:12px;font-weight:600;cursor:pointer;';
+  approveBtn.style.cssText = 'flex:1;background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:9px;font-size:12px;font-weight:600;cursor:pointer;min-width:120px;';
   approveBtn.textContent = '✨ 이 구조로 씬 만들기';
   approveBtn.onclick = async () => {
+    const checkedIds = [...panel.querySelectorAll('input[type=checkbox]:checked')].map(cb => parseInt(cb.dataset.scId)).filter(Boolean);
+    if (checkedIds.length > 0) { S.cur.scenes = S.cur.scenes.filter(s => !checkedIds.includes(s.id)); save(); }
     overlay.remove();
     await generateScenesFromTitles(seqTitlesData);
   };
+
   const asEmptyBtn = document.createElement('button');
   asEmptyBtn.style.cssText = 'background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);padding:9px 10px;font-size:12px;cursor:pointer;';
   asEmptyBtn.textContent = '빈 씬으로 추가';
-  asEmptyBtn.onclick = () => {
+  asEmptyBtn.onclick = async () => {
+    const checkedIds = [...panel.querySelectorAll('input[type=checkbox]:checked')].map(cb => parseInt(cb.dataset.scId)).filter(Boolean);
+    if (checkedIds.length > 0) { S.cur.scenes = S.cur.scenes.filter(s => !checkedIds.includes(s.id)); }
     overlay.remove();
     const emptyScenes = seqTitlesData.map((s, i) => ({
       id: Date.now() + i + Math.floor(Math.random()*10000),
-      title: s.title || '새 장면',
-      locked: false, draft: false, storyboard: [], diff: null,
-      lines: [{ type:'slug', text: s.slug || 'INT. 장소 - 낮', locked:false },
-              { type:'action', text:'지문을 입력하세요.', locked:false },
-              { type:'character', text:'캐릭터', locked:false },
-              { type:'dialogue', text:'대사를 입력하세요.', locked:false }],
+      title: s.title || '새 장면', locked: false, draft: false, storyboard: [], diff: null,
+      lines: [
+        { type:'slug', text: (s.slug && /^(INT|EXT)/i.test(s.slug)) ? s.slug : 'INT. 장소 - 낮', locked:false },
+        { type:'action', text:'지문을 입력하세요.', locked:false },
+        { type:'character', text:'캐릭터', locked:false },
+        { type:'dialogue', text:'대사를 입력하세요.', locked:false }
+      ],
     }));
     if (!S.cur.scenes) S.cur.scenes = [];
     S.cur.scenes.push(...emptyScenes);
     save(); renderScriptBody(); renderNavSceneList();
     toast('✨ 빈 씬 ' + emptyScenes.length + '개 추가됐어요', 3000);
   };
+
   const cancelBtn = document.createElement('button');
   cancelBtn.style.cssText = 'background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);padding:9px 10px;font-size:12px;cursor:pointer;';
   cancelBtn.textContent = '취소';
@@ -6706,6 +7765,24 @@ function showApproveSequencePanel(seqTitlesData) {
   panel.appendChild(btns);
   overlay.appendChild(panel);
   document.body.appendChild(overlay);
+}
+
+function detectSeqOverlaps(newSeqs, existingScenes) {
+  const overlaps = [];
+  newSeqs.forEach((ns, ni) => {
+    const newTitle = (ns.title||'').replace(/\s/g,'');
+    existingScenes.forEach(es => {
+      const exTitle = (es.title||'').replace(/\s/g,'');
+      if (!newTitle || !exTitle || newTitle.length < 2 || exTitle.length < 2) return;
+      const shorter = newTitle.length <= exTitle.length ? newTitle : exTitle;
+      const longer  = newTitle.length <= exTitle.length ? exTitle  : newTitle;
+      if (shorter.length >= 2 && longer.includes(shorter)) {
+        overlaps.push({ newIdx: ni, existingId: es.id, existingTitle: es.title });
+      }
+    });
+  });
+  const seen = new Set();
+  return overlaps.filter(o => { if (seen.has(o.existingId)) return false; seen.add(o.existingId); return true; });
 }
 
 async function generateScenesFromTitles(seqTitlesData) {
@@ -6724,9 +7801,9 @@ async function generateScenesFromTitles(seqTitlesData) {
         + '등장인물: ' + chars + '\n'
         + (lastCtx ? '직전 씬: '+lastCtx+'\n\n' : '\n')
         + '다음 씬들을 작성해주세요:\n'
-        + seqTitlesData.map((s,i) => (i+1)+'. "'+s.title+'" — '+s.slug+(s.hint?' ('+s.hint+')':'')).join('\n')
+        + seqTitlesData.map((s,i) => (i+1)+'. "'+s.title+'" — '+((s.slug && /^(INT|EXT)/i.test(s.slug)) ? s.slug : '장소 미정')+(s.hint?' ('+s.hint+')':'')).join('\n')
       }],
-      '반드시 <scenes>[{"title":"씬제목","slug":"슬러그","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만. 각 씬 최소 5줄. 설명 없이.',
+      '반드시 <scenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만. 각 씬 최소 5줄. slug는 반드시 "INT." 또는 "EXT."로 시작하는 실제 슬러그라인으로. 설명 없이.',
       6000
     );
     hideAnalyzing();
@@ -6734,11 +7811,79 @@ async function generateScenesFromTitles(seqTitlesData) {
     if (!sr) { toast('씬 생성 실패. 다시 시도해주세요.'); return; }
     const scenesData = JSON.parse(sr);
     if (!scenesData?.length) return;
+    await fixSlugsPass(scenesData);
     showSmartSceneAddPanel(scenesData);
   } catch(e) {
     hideAnalyzing();
     if (e.name !== 'AbortError') toast('오류: ' + e.message);
   }
+}
+
+async function fixSlugsPass(scenesData) {
+  const needsFix = scenesData.filter(s => !s.slug || !/^(INT|EXT)/i.test(s.slug));
+  if (!needsFix.length) return;
+  try {
+    const list = needsFix.map((s,i) => `${i+1}. "${s.title}" — ${(s.lines||[]).find(l=>l.type==='action')?.text?.slice(0,60)||''}`).join('\n');
+    const raw = await callClaude(
+      [{role:'user', content: '각 씬에 어울리는 슬러그라인을 만들어주세요:\n' + list}],
+      '반드시 <slugs>["INT./EXT. 장소 - 시간", ...]</slugs> 형식으로만. 씬 순서대로 배열로. 설명 없이.',
+      300, 'claude-haiku-4-5-20251001'
+    );
+    const slugsRaw = extractTag(raw, 'slugs');
+    if (!slugsRaw) return;
+    const slugs = JSON.parse(slugsRaw);
+    needsFix.forEach((s, i) => { if (slugs[i] && /^(INT|EXT)/i.test(slugs[i])) s.slug = slugs[i]; });
+  } catch(e) { /* 실패해도 계속 */ }
+}
+
+
+// I3: 설정 저장 — 캐릭터 태그 or 플로 메모 자동 분류
+async function saveSpecifySetting(itemText, answer) {
+  if (!S.cur) return;
+  try {
+    const chars = (S.cur.characters||[]).map(c => c.name).join(', ');
+    const raw = await callClaude(
+      [{role:'user', content:`설정 항목: "${itemText}"\n답변: "${answer}"\n등장인물: ${chars}`}],
+      '이 설정이 특정 등장인물의 속성인지(char), 이야기 전체 구조에 관한 것인지(story), 특정 씬에만 해당하는지(scene) 분류하세요.\n' +
+      'char이면: <save type="char" name="인물명" tag="짧은태그(6자이내)"></save>\n' +
+      'story이면: <save type="story" memo="메모 한 줄"></save>\n' +
+      'scene이면: <save type="scene"></save>',
+      150, 'claude-haiku-4-5-20251001'
+    );
+    const saveRaw = extractTag(raw, 'save');
+    if (!saveRaw && !raw.includes('<save')) return;
+
+    // type 추출
+    const typeMatch = raw.match(/<save\s+type="([^"]+)"/);
+    const saveType = typeMatch?.[1];
+
+    if (saveType === 'char') {
+      const nameMatch = raw.match(/name="([^"]+)"/);
+      const tagMatch = raw.match(/tag="([^"]+)"/);
+      const charName = nameMatch?.[1];
+      const tag = tagMatch?.[1];
+      if (charName && tag) {
+        const ch = (S.cur.characters||[]).find(c => c.name === charName || buildCharAliases(c).includes(charName));
+        if (ch) {
+          if (!ch.traits) ch.traits = [];
+          if (!ch.traits.includes(tag)) ch.traits.push(tag);
+          ch.aliases = buildCharAliases(ch);
+          save();
+          toast('✓ ' + charName + ' — [' + tag + '] 태그 저장됨', 2500);
+        }
+      }
+    } else if (saveType === 'story') {
+      const memoMatch = raw.match(/memo="([^"]+)"/);
+      const memo = memoMatch?.[1];
+      if (memo) {
+        if (!S.cur.chatMemos) S.cur.chatMemos = [];
+        S.cur.chatMemos.push(memo);
+        save();
+        toast('📌 플로 메모 저장됨', 2500);
+      }
+    }
+    // scene → 저장 안 함
+  } catch(e) { /* 실패해도 계속 */ }
 }
 
 // ── 장면 아이디어 카드 ───────────────────────────────────────────────
@@ -6796,7 +7941,7 @@ async function generateSceneFromIdea(idea) {
         + '아이디어: ' + idea.idea + '\n'
         + (idea.mood ? '분위기: ' + idea.mood : '')
       }],
-      '반드시 <scenes>[{"title":"씬제목","slug":"슬러그","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만. 최소 5줄. 설명 없이.',
+      '반드시 <scenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만. 최소 5줄. 설명 없이.',
       3000
     );
     hideAnalyzing();
@@ -7189,13 +8334,22 @@ ${charList}`}],
         if (!c.name) return;
         const exists = (S.cur.characters || []).find(x => x.name.toLowerCase() === c.name.toLowerCase());
         if (exists) return;
-        S.cur.characters.push({
+        // C: 이름 자동 분리
+        const nameParsed = parseKoreanName(c.name);
+        const newChar = {
           id: Date.now() + Math.floor(Math.random() * 100000),
-          name: c.name, role: c.role || '',
+          name: c.name,
+          lastName: nameParsed.lastName,
+          firstName: nameParsed.firstName,
+          title: '',
+          role: c.role || '',
           description: c.description || '',
           traits: Array.isArray(c.traits) ? c.traits : [],
           importance: c.importance ?? 999,
-        });
+          aliases: []
+        };
+        newChar.aliases = buildCharAliases(newChar);
+        S.cur.characters.push(newChar);
       });
       const excluded = newChars.length - parsed.length;
       save();
@@ -8444,7 +9598,7 @@ async function handleSceneRewrite() {
         [{role:'user', content:
           scLabel + ' 재구성\n등장인물: ' + chars + '\n\n' +
           '현재 내용:\n' + content + '\n\n지시: ' + instruction}],
-        '반드시 <scenes>[{"title":"제목","slug":"슬러그","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만 응답하세요.',
+        '반드시 <scenes>[{"title":"제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만 응답하세요.',
         6000
       );
       const sr = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
@@ -8679,7 +9833,7 @@ async function executeMerge(targetScenes) {
         allLabels + '을 ' + lblA + ' 기준으로 자연스럽게 합쳐주세요.\n' +
         lblA + '의 제목과 슬러그를 유지하고, 모든 씬의 내용을 순서대로 자연스럽게 이어주세요.\n\n' +
         combinedContent}],
-      '반드시 <scenes>[{"title":"씬 제목","slug":"슬러그","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만 응답하세요.',
+      '반드시 <scenes>[{"title":"씬 제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만 응답하세요.',
       8000
     );
     hideAnalyzing();
@@ -9811,7 +10965,7 @@ async function flowImprovePlan(data) {
 
 복합적이면 여러 action 태그 사용 가능.
 반드시 자연어로 판단 이유와 구체적 제안을 먼저 설명한 뒤 action 태그를 붙이세요.
-씬 제목 목록이 필요하면 <sequence_titles>[{"title":"씬제목","slug":"슬러그","hint":"한줄설명"}]</sequence_titles> 형식으로 제안하세요.`;
+씬 제목 목록이 필요하면 <sequence_titles>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","hint":"한줄설명"}]</sequence_titles> 형식으로 제안하세요.`;
 
     const prompt = `현재 씬 목록:\n${sceneList}\n\n적용할 방안:\n방안${planNum}: ${planTitle}\n${planBody}\n\n이 방안을 적용하면 어떻게 개선하는 게 좋을까요?`;
     const raw = await callClaude([{role:'user', content: prompt}], sys, 4000);
@@ -10907,18 +12061,26 @@ function confirmOrphanDelete(deleteOrphans) {
     const delIds = missingFromScript.map(c => c.id);
     S.cur.characters = (S.cur.characters || []).filter(c => !delIds.includes(c.id));
   }
-  // 새 인물 추가 (중복 제외)
+  // 새 인물 추가 (중복 제외) — 이름 자동 분리 포함
   parsed.forEach(c => {
     if (!c.name) return;
     const exists = (S.cur.characters || []).find(x => x.name.toLowerCase() === c.name.toLowerCase());
     if (exists) return;
-    S.cur.characters.push({
+    const nameParsed = parseKoreanName(c.name);
+    const newChar = {
       id: Date.now() + Math.floor(Math.random() * 100000),
-      name: c.name, role: c.role || '',
+      name: c.name,
+      lastName: nameParsed.lastName,
+      firstName: nameParsed.firstName,
+      title: '',
+      role: c.role || '',
       description: c.description || '',
       traits: Array.isArray(c.traits) ? c.traits : [],
       importance: c.importance ?? 999,
-    });
+      aliases: []
+    };
+    newChar.aliases = buildCharAliases(newChar);
+    S.cur.characters.push(newChar);
   });
   const excluded = newCharsLen - parsed.length;
   const delMsg = deleteOrphans && missingFromScript.length > 0 ? ', 대본 없는 ' + missingFromScript.length + '명 삭제' : '';
@@ -11358,12 +12520,18 @@ function buildCharCard(c) {
   }).join('');
 
   const viewDiv = document.createElement('div'); viewDiv.className = 'char-card-view';
+  // 이름 표시 — 배역명 + 풀네임(성+이름+직함)
+  const fullNameParts = [c.lastName, c.firstName].filter(Boolean).join('');
+  const fullNameDisplay = fullNameParts && fullNameParts !== c.name
+    ? `<span style="font-size:10px;color:var(--text3);font-family:var(--fm);margin-left:5px;">${escH(fullNameParts)}${c.title ? ' ' + escH(c.title) : ''}</span>`
+    : (c.title ? `<span style="font-size:10px;color:var(--text3);font-family:var(--fm);margin-left:5px;">${escH(c.title)}</span>` : '');
+
   viewDiv.innerHTML = `
     <div class="char-drag-handle" title="드래그로 순서 변경">⠿</div>
     <div class="char-av">${initial}</div>
     <div class="char-info">
       <div class="char-role">${escH((c.role||'').replace(/\s*\(\d+씬[^)]*\)/,'').trim())}${escH(statsLine)}</div>
-      <div class="char-name">${escH(c.name)}</div>
+      <div class="char-name">${escH(c.name)}${fullNameDisplay}</div>
       <div class="char-desc">${escH(c.description||'')}</div>
       <div class="char-traits">${traitsHTML}</div>
       ${sceneChips ? '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;">'+sceneChips+'</div>' : ''}
@@ -11395,7 +12563,12 @@ function buildCharCard(c) {
   // 편집창
   const editDiv = document.createElement('div'); editDiv.className = 'char-card-editing'; editDiv.id = 'char-edit-'+c.id; editDiv.style.display='none';
   editDiv.innerHTML = `
-    <div class="char-edit-field-wrap"><div class="char-edit-label">이름</div><input class="char-edit-inp" id="ce-name-${c.id}" value="${escH(c.name||'')}"></div>
+    <div class="char-edit-field-wrap"><div class="char-edit-label">배역명 (대본 표기)</div><input class="char-edit-inp" id="ce-name-${c.id}" value="${escH(c.name||'')}"></div>
+    <div style="display:flex;gap:6px;">
+      <div class="char-edit-field-wrap" style="flex:1"><div class="char-edit-label">성 (姓)</div><input class="char-edit-inp" id="ce-lastname-${c.id}" value="${escH(c.lastName||'')}" placeholder="김"></div>
+      <div class="char-edit-field-wrap" style="flex:2"><div class="char-edit-label">이름</div><input class="char-edit-inp" id="ce-firstname-${c.id}" value="${escH(c.firstName||'')}" placeholder="민지"></div>
+      <div class="char-edit-field-wrap" style="flex:1"><div class="char-edit-label">직함</div><input class="char-edit-inp" id="ce-title-${c.id}" value="${escH(c.title||'')}" placeholder="과장"></div>
+    </div>
     <div class="char-edit-field-wrap"><div class="char-edit-label">역할</div><input class="char-edit-inp" id="ce-role-${c.id}" value="${escH((c.role||'').replace(/\s*\(\d+씬[^)]*\)/,'').trim())}"></div>
     <div class="char-edit-field-wrap"><div class="char-edit-label">설명</div><input class="char-edit-inp" id="ce-desc-${c.id}" value="${escH(c.description||'')}"></div>
     <div class="char-edit-field-wrap">
@@ -11406,6 +12579,7 @@ function buildCharCard(c) {
       </div>
       <input type="hidden" id="ce-traits-${c.id}" value="${escH((c.traits||[]).join(', '))}">
     </div>
+    ${(c.aliases||[]).length > 0 ? `<div class="char-edit-field-wrap"><div class="char-edit-label">호칭 (자동생성)</div><div style="font-size:10px;color:var(--text3);font-family:var(--fm);line-height:1.8;">${escH((c.aliases||[]).join(' · '))}</div></div>` : ''}
     <div class="char-edit-acts">
       <button class="char-save-btn" onclick="saveChar(${c.id})">저장</button>
       <button class="char-cancel-btn" onclick="closeCharEdit(${c.id})">취소</button>
@@ -11545,6 +12719,8 @@ function saveChar(id) {
   // H4: aliases 재생성
   c.aliases = buildCharAliases(c);
   save(); closeCharEdit(id); renderCharsDrawer();
+  // J2: 등장인물 저장 시 씬 작성 유도 체크
+  checkSceneWritingCondition('char');
 
   // 이름이 바뀐 경우 대본 치환 제안 (aliases 전체 기준)
   if (newName && oldName && newName !== oldName) {
