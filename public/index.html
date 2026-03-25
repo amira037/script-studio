@@ -2081,13 +2081,12 @@ async function callClaude(messages, system, maxTokens = 2000, model = 'claude-so
   }
 }
 
-// 스트리밍 버전 — 플로 대화 전용
-async function callClaudeStream(messages, system, maxTokens = 4000, model = 'claude-haiku-4-5-20251001', onChunk) {
+// L6: 스트리밍 버전 callClaude — 라인 에디터용
+async function callClaudeStream(messages, system, maxTokens = 4000, model = 'claude-sonnet-4-20250514', onChunk) {
   if (IS_ADMIN) { toast('ADMIN 모드에서는 AI를 사용할 수 없습니다.'); throw new Error('Admin mode'); }
   abortCurrentRequest();
   _currentAbortCtrl = new AbortController();
   const body = { model, max_tokens: maxTokens, system, messages, stream: true };
-  let fullText = '';
   try {
     const resp = await fetch('/api/claude', {
       method: 'POST',
@@ -2096,38 +2095,34 @@ async function callClaudeStream(messages, system, maxTokens = 4000, model = 'cla
       signal: _currentAbortCtrl.signal
     });
     if (!resp.ok) throw new Error(`API ${resp.status}: ${await resp.text()}`);
-
     // SSE 스트리밍 지원 여부 확인
-    const contentType = resp.headers.get('content-type') || '';
-    if (!contentType.includes('text/event-stream')) {
-      // 스트리밍 미지원 — 일반 응답으로 폴백
+    const ct = resp.headers.get('content-type') || '';
+    if (!ct.includes('text/event-stream')) {
+      // 폴백: 일반 JSON
       const data = await resp.json();
-      fullText = data.content.map(b => b.text || '').join('');
-      if (onChunk) onChunk(fullText, true);
-      return fullText;
+      const text = data.content.map(b => b.text || '').join('');
+      if (onChunk) onChunk(text, true);
+      return text;
     }
-
     // SSE 스트리밍 처리
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
+    let fullText = '';
     let buffer = '';
-
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop(); // 마지막 불완전한 줄은 버퍼에 유지
-
+      buffer = lines.pop() || '';
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
         const data = line.slice(6).trim();
         if (data === '[DONE]') continue;
         try {
-          const parsed = JSON.parse(data);
-          const delta = parsed.delta?.text || parsed.choices?.[0]?.delta?.content || '';
-          if (delta) {
-            fullText += delta;
+          const evt = JSON.parse(data);
+          if (evt.type === 'content_block_delta' && evt.delta?.text) {
+            fullText += evt.delta.text;
             if (onChunk) onChunk(fullText, false);
           }
         } catch {}
@@ -2138,6 +2133,41 @@ async function callClaudeStream(messages, system, maxTokens = 4000, model = 'cla
   } finally {
     _currentAbortCtrl = null;
   }
+}
+
+// L6: 라인 스트리밍 미리보기 패널
+function showStreamPreview(scId) {
+  const el = document.getElementById('stream-preview-' + scId);
+  if (el) return el;
+  const sc = S.cur?.scenes?.find(s => s.id === scId);
+  if (!sc) return null;
+  // 씬 블록 찾기
+  const block = document.querySelector('[data-scene-id="' + scId + '"]');
+  if (!block) return null;
+  const preview = document.createElement('div');
+  preview.id = 'stream-preview-' + scId;
+  preview.className = 'diff-wrap';
+  preview.style.cssText = 'border-color:rgba(110,168,200,.3);margin:0 0 8px 0;';
+  preview.innerHTML = `
+    <div class="diff-hdr" style="background:rgba(110,168,200,.08);">
+      <span class="diff-label" style="color:var(--blue);">⟳ AI 작성 중...</span>
+      <span class="diff-badge" id="stream-chars-${scId}" style="background:var(--blue2);color:var(--blue);">0자</span>
+    </div>
+    <div class="diff-lines" id="stream-lines-${scId}" style="font-family:var(--fm);font-size:11px;color:var(--text2);padding:8px;min-height:40px;white-space:pre-wrap;line-height:1.7;"></div>
+  `;
+  block.insertBefore(preview, block.querySelector('.diff-wrap') || block.firstChild);
+  return preview;
+}
+
+function updateStreamPreview(scId, text) {
+  const linesEl = document.getElementById('stream-lines-' + scId);
+  const charsEl = document.getElementById('stream-chars-' + scId);
+  if (linesEl) linesEl.textContent = text.slice(-800); // 최근 800자만 표시
+  if (charsEl) charsEl.textContent = text.length + '자';
+}
+
+function hideStreamPreview(scId) {
+  document.getElementById('stream-preview-' + scId)?.remove();
 }
 
 function buildProjectContext() {
@@ -2301,13 +2331,161 @@ function checkSceneWritingCondition(trigger, category) {
 // J3: 2턴 연속 스토리 키워드 감지 (JS 패턴)
 function checkStoryTurnPattern() {
   if (!S.cur || S.cur._sceneWritingDone) return;
-  const msgs = (S.cur.messages||[]).filter(m => m.role === 'assistant' && !m._isFlowPanel && !m._isDetectPanel);
-  if (msgs.length < 2) return;
-  const last2 = msgs.slice(-2);
-  const hasStoryKw = m => /스토리|장면|씬|반전|복선|갈등|전개|플롯|시퀀스|이야기.*방향|다음.*장면/.test(cleanDisplayText(m.text||''));
-  if (last2.every(hasStoryKw)) {
-    checkSceneWritingCondition('memo', 'story');
+
+  // L9: 등장인물 또는 시놉시스 최소 하나는 있어야
+  const hasChars = (S.cur.characters||[]).length > 0
+    || !!(S.cur.chatMemosStructured?.characters?.length);
+  const hasSynopsis = !!(S.cur.synopsis?.trim().length > 10);
+  if (!hasChars && !hasSynopsis) return;
+
+  // L9: AI 응답이 아닌 사용자 입력 기준으로 스토리 키워드 감지
+  // (AI가 단순히 "씬"이라는 단어를 쓴 것으로 트리거 방지)
+  const userMsgs = (S.cur.messages||[]).filter(m => m.role === 'user');
+  if (userMsgs.length < 2) return;
+  const lastUserMsgs = userMsgs.slice(-2);
+  const hasUserStoryKw = lastUserMsgs.some(m =>
+    /시놉시스|줄거리|이야기.*방향|스토리.*방향|다음.*전개|반전|복선|갈등.*구조|플롯|시퀀스.*제안/.test(m.text||'')
+  );
+  if (!hasUserStoryKw) return;
+
+  // AI 응답에도 스토리 방향 내용이 있어야 (단순 제안 목록 제외)
+  const aiMsgs = (S.cur.messages||[]).filter(m => m.role === 'assistant' && !m._isFlowPanel && !m._isDetectPanel && !m._isLineLog);
+  if (aiMsgs.length < 1) return;
+  const lastAiMsg = aiMsgs[aiMsgs.length - 1];
+  const hasAiStoryContent = /시놉시스|줄거리|반전|복선|갈등|플롯|이야기.*흘러|전개|장면.*이어/.test(cleanDisplayText(lastAiMsg.text||''));
+  if (!hasAiStoryContent) return;
+
+  checkSceneWritingCondition('memo', 'story');
+}
+
+// L7: 씬 summary 마이그레이션 + 백그라운드 갈등 점수 큐
+async function migrateSummaries(proj) {
+  if (!proj || !proj.scenes) return;
+  const conflictData = proj.conflictData?.scenes || [];
+  const needsCalc = [];
+
+  proj.scenes.forEach(sc => {
+    // summary 없으면 즉시 Basic 생성
+    if (!sc.summary) sc.summary = buildSceneSummaryBasic(sc);
+
+    // conflictData에 점수 있으면 즉시 복사 (API 없음)
+    const entry = conflictData.find(c => c.sceneId === sc.id);
+    if (entry?.intensity != null) {
+      sc.summary.conflictScore = entry.intensity;
+      sc.summary.conflictType = entry.type || null;
+    } else if (sc.summary.conflictScore == null && !sc.draft) {
+      needsCalc.push(sc);
+    }
+  });
+
+  // 변경사항 저장
+  if (conflictData.length > 0) save(true);
+
+  // 백그라운드 큐 — 갈등 점수 없는 씬만 Haiku로 계산
+  if (needsCalc.length > 0) {
+    _summaryQueue = needsCalc;
+    processSummaryQueue();
   }
+}
+
+let _summaryQueue = [];
+let _summaryQueueRunning = false;
+
+async function processSummaryQueue() {
+  if (_summaryQueueRunning || !_summaryQueue.length) return;
+  _summaryQueueRunning = true;
+  while (_summaryQueue.length > 0) {
+    if (!S.cur) break; // 프로젝트 바뀌면 중단
+    const sc = _summaryQueue.shift();
+    if (!sc || sc.summary?.conflictScore != null) continue;
+    try {
+      await calcConflictScoreBackground(sc);
+    } catch(e) { /* 실패해도 계속 */ }
+    await new Promise(r => setTimeout(r, 1800)); // 1.8초 간격
+  }
+  _summaryQueueRunning = false;
+}
+
+async function calcConflictScoreBackground(sc) {
+  if (!sc || !S.cur) return;
+  const text = (sc.lines||[]).map(l=>l.text).join(' ').slice(0,400);
+  if (!text || text.length < 20) return;
+  try {
+    const raw = await callClaude(
+      [{role:'user', content:'씬 내용:\n' + text}],
+      '이 씬의 갈등 강도를 0~5로 평가하세요.\n' +
+      '갈등 유형도 romantic/external/internal/none 중 하나로.\n' +
+      '반드시 <score>{"intensity":숫자,"type":"유형"}</score> 형식으로만.',
+      60, 'claude-haiku-4-5-20251001'
+    );
+    const scoreRaw = extractTag(raw, 'score');
+    if (scoreRaw) {
+      const data = JSON.parse(scoreRaw);
+      if (!sc.summary) sc.summary = buildSceneSummaryBasic(sc);
+      sc.summary.conflictScore = data.intensity ?? null;
+      sc.summary.conflictType = data.type || null;
+      save(true);
+    }
+  } catch(e) { console.warn('bg conflict calc failed', e); }
+}
+
+// 갈등 분석 완료 후 summary 동기화
+function syncConflictDataToSummaries() {
+  if (!S.cur?.conflictData?.scenes) return;
+  const conflictScenes = S.cur.conflictData.scenes;
+  (S.cur.scenes||[]).forEach(sc => {
+    const entry = conflictScenes.find(c => c.sceneId === sc.id);
+    if (entry?.intensity != null) {
+      if (!sc.summary) sc.summary = buildSceneSummaryBasic(sc);
+      sc.summary.conflictScore = entry.intensity;
+      sc.summary.conflictType = entry.type || null;
+    }
+  });
+  save(true);
+}
+
+// L5: 라인 작업 결과 → 플로 히스토리 자동 요약
+async function logLineWorkToChat(type, scLabel, detail) {
+  if (!S.cur) return;
+  // 플로 채팅 탭이 아니어도 히스토리에만 추가
+  const typeLabels = {
+    edit: '✍️ 씬 편집',
+    apply: '✓ 적용',
+    draft: '📝 대안 저장',
+    fill: '✨ 씬 채움',
+    rewrite: '🔄 재구성',
+    rename: '✏️ 이름 변경',
+    insert: '➕ 씬 추가',
+  };
+  const label = typeLabels[type] || type;
+  const summary = `${label}: ${scLabel}${detail ? ' — ' + detail : ''}`;
+  // 히스토리에 조용히 추가 (스크롤 없음)
+  const msgObj = {
+    role: 'assistant',
+    text: summary,
+    _isLineLog: true,
+    ts: Date.now()
+  };
+  if (!S.cur.messages) S.cur.messages = [];
+  S.cur.messages.push(msgObj);
+  // 플로 탭이 열려있으면 렌더링
+  if (S.activeTab === 'chat') {
+    const container = document.getElementById('chat-msgs');
+    if (container) appendMsgEl(msgObj, false);
+  }
+  save(true);
+}
+
+// L5: diff 적용 시 Haiku로 1줄 요약 후 플로에 기록
+async function summarizeDiffToChat(sc, promptText) {
+  if (!S.cur || !sc) return;
+  const scLabel = getSceneLabel(sc, S.cur.scenes);
+  const addedLines = (sc.diff?.lines||[]).filter(l=>l.type==='add').map(l=>l.text).join(' ').slice(0,150);
+  const removedCount = (sc.diff?.lines||[]).filter(l=>l.type==='del').length;
+  const addedCount = (sc.diff?.lines||[]).filter(l=>l.type==='add').length;
+  // 짧은 변경이면 Haiku 없이 바로
+  const detail = `${addedCount}줄 추가 ${removedCount}줄 삭제${promptText ? ' | ' + promptText.slice(0,30) : ''}`;
+  await logLineWorkToChat('apply', scLabel + ' 「' + sc.title + '」', detail);
 }
 
 function buildSceneSummaryBasic(sc) {
@@ -3622,6 +3800,8 @@ function openProject(id) {
     if (arr) arr.textContent = '▲';
   }
   updateApiDot();
+  // L7: 씬 summary 마이그레이션 + 백그라운드 갈등 점수 큐
+  setTimeout(() => migrateSummaries(p), 500);
 }
 
 function goHome() {
@@ -5403,7 +5583,6 @@ function buildDiffBlock(sc) {
     </div>
     <div class="diff-lines">${buildDiffLines(sc.diff.lines)}</div>
     <div class="diff-acts">
-      <button class="diff-apply-btn" style="background:var(--purple2);color:var(--purple);border-color:rgba(168,158,221,.4);" onclick="suggestTraitFromDiff(${sc.id}, '${(sc.diff&&sc.diff.prompt)||''}')">👤 ${buildTraitBtnLabel(sc)}속성 저장</button>
       <button class="diff-apply-btn" onclick="applyDiff(${sc.id})">✓ 바로 적용</button>
       <button class="diff-apply-btn" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);" onclick="saveAsDraft(${sc.id})">📝 대안으로 저장</button>
       <button class="diff-cancel-btn" onclick="cancelDiff(${sc.id})">✕ 취소</button>
@@ -5452,6 +5631,9 @@ function applyDiff(id) {
   }
   save(); renderScriptBody(); renderNavSceneList();
 
+  // L5: 플로 히스토리에 작업 기록
+  summarizeDiffToChat(sc, sc.diff?.prompt || '');
+
   // B: 새 인물 감지 토스트+채팅 메시지
   newCharNames.forEach(name => {
     const nameParsed = parseKoreanName(name);
@@ -5474,7 +5656,78 @@ function applyDiff(id) {
     [nameParsed.lastName, nameParsed.firstName].filter(Boolean),
     []);
   });
+
+  // L3: diff 적용 후 새 속성 감지 (기존 인물 대상)
+  _detectTraitsFromDiffLines(newLines, sc);
 }
+
+// L3: diff 새 줄에서 기존 인물의 새 속성 감지 → 토스트
+async function _detectTraitsFromDiffLines(newLines, sc) {
+  if (!S.cur || !newLines?.length) return;
+  const chars = S.cur.characters || [];
+  if (!chars.length) return;
+  // 새로 추가된 대사/지문만 수집
+  const addedTexts = newLines
+    .filter(l => l.type === 'dialogue' || l.type === 'action' || l.type === 'parenthetical')
+    .map(l => l.text).filter(Boolean).join(' ');
+  if (!addedTexts || addedTexts.length < 10) return;
+  // 등장인물 이름 감지
+  const charNames = chars.map(c => c.name).filter(Boolean);
+  const mentionedChar = charNames.find(n => addedTexts.includes(n));
+  if (!mentionedChar) return;
+  const charObj = chars.find(c => c.name === mentionedChar);
+  if (!charObj) return;
+  // Haiku로 새 속성 추출
+  try {
+    const existingTraits = (charObj.traits || []).join(', ') || '없음';
+    const raw = await callClaude(
+      [{role:'user', content:`인물: ${mentionedChar}\n기존 속성: ${existingTraits}\n대사/지문: ${addedTexts.slice(0,300)}`}],
+      '이 대사/지문에서 인물의 새로운 성격/어투 속성을 1~3개 추출하세요.\n' +
+      '기존 속성과 겹치지 않는 것만, 없으면 빈 배열.\n' +
+      '반드시 <traits>["속성1","속성2"]</traits> 형식으로만.',
+      100, 'claude-haiku-4-5-20251001'
+    );
+    const traitsRaw = extractTag(raw, 'traits');
+    if (!traitsRaw) return;
+    let newTraits = [];
+    try { newTraits = JSON.parse(traitsRaw); } catch { return; }
+    if (!newTraits.length) return;
+    // 충돌 감지
+    const conflictResult = detectTraitConflicts(charObj.traits || [], newTraits);
+    if (conflictResult.conflicts.length > 0) {
+      // 충돌 속성 토스트
+      showContentToastRich('⚠️',
+        `${mentionedChar} 속성 충돌 감지`,
+        '✦ 속성 변경',
+        () => {
+          conflictResult.conflicts.forEach(({oldTrait, newTrait}) => {
+            const idx = (charObj.traits||[]).indexOf(oldTrait);
+            if (idx > -1) charObj.traits.splice(idx, 1, newTrait);
+          });
+          save(); renderCharsDrawer?.();
+          toast('✓ 속성 변경됨');
+        },
+        conflictResult.conflicts.map(c => c.oldTrait + ' → ' + c.newTrait),
+        []
+      );
+    } else {
+      // 새 속성 토스트
+      showContentToastRich('🎭',
+        `${mentionedChar} — 새 속성 감지`,
+        '✦ 속성 추가',
+        () => {
+          if (!charObj.traits) charObj.traits = [];
+          newTraits.forEach(t => { if (!charObj.traits.includes(t)) charObj.traits.push(t); });
+          save(); renderCharsDrawer?.();
+          toast('✓ 속성 추가됨');
+        },
+        newTraits,
+        []
+      );
+    }
+  } catch(e) { console.warn('trait detect error', e); }
+}
+
 function cancelDiff(id) {
   const sc = S.cur.scenes.find(s=>s.id===id);
   if (!sc) return;
@@ -5508,21 +5761,49 @@ async function compareDraftScene(draftId) {
   const original = S.cur.scenes.find(s=>s.id===draft.draftOf);
   if (!original) return;
 
+  toast('🔍 비교 분석 중...', 2000);
+
+  // L7-0: conflictScore 없으면 Haiku가 즉석 계산
   const origSum = getSceneSummary(original);
   const draftSum = getSceneSummary(draft);
 
-  // 수치 비교 (즉시)
-  const compareParts = [];
-  if (origSum && draftSum) {
-    const cDiff = (draftSum.conflictScore??0) - (origSum.conflictScore??0);
-    const dDiff = (draftSum.dialogueCount||0) - (origSum.dialogueCount||0);
-    const lDiff = (draftSum.lineCount||0) - (origSum.lineCount||0);
-    if (cDiff !== 0) compareParts.push(`갈등 ${cDiff>0?'+':''}${cDiff}`);
-    if (dDiff !== 0) compareParts.push(`대사 ${dDiff>0?'+':''}${dDiff}줄`);
-    if (lDiff !== 0) compareParts.push(`전체 ${lDiff>0?'+':''}${lDiff}줄`);
+  if (origSum.conflictScore == null || draftSum.conflictScore == null) {
+    try {
+      const origText = (original.lines||[]).map(l=>l.text).join(' ').slice(0,300);
+      const draftText = (draft.lines||[]).map(l=>l.text).join(' ').slice(0,300);
+      const raw = await callClaude(
+        [{role:'user', content:'원본:\n' + origText + '\n\n대안:\n' + draftText}],
+        '두 씬의 갈등 강도를 각각 0~5로 평가하세요.\n반드시 <scores>{"orig":숫자,"draft":숫자}</scores> 형식으로만.',
+        80, 'claude-haiku-4-5-20251001'
+      );
+      const scoresRaw = extractTag(raw, 'scores');
+      if (scoresRaw) {
+        const scores = JSON.parse(scoresRaw);
+        if (origSum.conflictScore == null) origSum.conflictScore = scores.orig ?? null;
+        if (draftSum.conflictScore == null) draftSum.conflictScore = scores.draft ?? null;
+        original.summary = { ...origSum };
+        draft.summary = { ...draftSum };
+      }
+    } catch(e) { console.warn('conflict score error', e); }
   }
 
-  // 라인 에디터로 이동 + 두 씬 선택 + 프롬프터 자동 입력
+  // 수치 비교
+  const compareParts = [];
+  const dDiff = (draftSum.dialogueCount||0) - (origSum.dialogueCount||0);
+  const lDiff = (draftSum.lineCount||0) - (origSum.lineCount||0);
+  if (dDiff !== 0) compareParts.push('대사 ' + (dDiff>0?'+':'') + dDiff + '줄');
+  if (lDiff !== 0) compareParts.push('전체 ' + (lDiff>0?'+':'') + lDiff + '줄');
+
+  // 갈등 점수 도트 시각화
+  let conflictCompare = '';
+  if (origSum.conflictScore != null && draftSum.conflictScore != null) {
+    const cDiff = draftSum.conflictScore - origSum.conflictScore;
+    const dots = n => '●'.repeat(Math.max(0,Math.round(n))) + '○'.repeat(Math.max(0,5-Math.round(n)));
+    conflictCompare = '원본 갈등 ' + dots(origSum.conflictScore) + ' ' + origSum.conflictScore + '점\n대안 갈등 ' + dots(draftSum.conflictScore) + ' ' + draftSum.conflictScore + '점';
+    if (cDiff !== 0) compareParts.unshift('갈등 ' + (cDiff>0?'+':'') + cDiff);
+  }
+
+  // 라인 에디터로 이동 + 두 씬 선택
   S.selectedIds.clear();
   S.selectedIds.add(original.id);
   S.selectedIds.add(draft.id);
@@ -5530,17 +5811,18 @@ async function compareDraftScene(draftId) {
   switchTab('script');
   setTimeout(() => scrollToScene(original.id), 200);
 
+  const compareInfo = [conflictCompare, compareParts.length ? '수치: ' + compareParts.join(' / ') : ''].filter(Boolean).join('\n');
   const compareText = [
     '원본 "' + original.title + '"과 대안 "' + draft.title + '"을 비교해서 어떤 버전이 더 나은지 판단해줘.',
-    compareParts.length ? '수치 차이: ' + compareParts.join(', ') : '',
-    '각 버전의 장단점을 분석하고 추천해줘.'
+    compareInfo,
+    '각 버전의 장단점을 분석하고 추천해줘. 마지막에 [교체하기] 또는 [원본 유지] 중 하나를 추천해줘.'
   ].filter(Boolean).join('\n');
 
   setTimeout(() => {
     const inp = document.getElementById('prompter-inp');
     if (inp) { inp.value = compareText; inp.dispatchEvent(new Event('input')); inp.focus(); }
-  }, 300);
-  toast('🔍 두 버전을 선택했어요. 프롬프터에서 비교 분석을 실행하세요.', 4000);
+    toast(compareParts.length ? '🔍 ' + compareParts.join(' / ') : '🔍 두 버전을 비교해보세요', 3500);
+  }, 350);
 }
 
 // diff 버튼 레이블 — 씬 내 등장인물명 + 프롬프트에서 속성 힌트 추출
@@ -6083,7 +6365,7 @@ async function reDiscussMessage(msg) {
     const raw = await callClaude(
       [{role:'user', content: '이전에 다음 내용을 논의했어요. 이 내용을 다시 이야기해주세요:\n\n' + ctx}],
       (S.cur._floSys || '') + sceneCtx,
-      1000, 'claude-haiku-4-5-20251001'
+      1000
     );
     hideTyping();
     const displayText = cleanDisplayText(raw) || '다시 정리해볼게요.';
@@ -6315,11 +6597,8 @@ const _typingMsgs = [
 ];
 let _typingInterval = null;
 function showTyping() {
-  // 스트리밍 모드에서는 showStreamBubble이 대신함
-  // 비스트리밍 호출용 fallback
   const container = document.getElementById('chat-msgs');
   if (!container) return;
-  if (document.getElementById('typing-indicator')) return;
   const wrap = document.createElement('div'); wrap.className = 'msg'; wrap.id = 'typing-indicator';
   wrap.innerHTML = '<div class="msg-av ai">AI</div><div class="msg-body"><div class="msg-bubble" id="typing-msg" style="color:var(--text3);font-size:11px;font-style:italic;"></div></div>';
   container.appendChild(wrap); container.scrollTop = container.scrollHeight;
@@ -6335,29 +6614,6 @@ function showTyping() {
 function hideTyping() {
   clearInterval(_typingInterval);
   document.getElementById('typing-indicator')?.remove();
-  document.getElementById('stream-bubble')?.remove();
-}
-
-// 스트리밍 전용 — 실시간 텍스트 버블
-function showStreamBubble() {
-  hideTyping();
-  const container = document.getElementById('chat-msgs');
-  if (!container) return;
-  const wrap = document.createElement('div');
-  wrap.className = 'msg'; wrap.id = 'stream-bubble';
-  wrap.innerHTML = '<div class="msg-av ai">AI</div><div class="msg-body"><div class="msg-bubble" id="stream-text" style="white-space:pre-wrap;word-break:break-word;"></div></div>';
-  container.appendChild(wrap);
-  container.scrollTop = container.scrollHeight;
-}
-
-function updateStreamBubble(text) {
-  const el = document.getElementById('stream-text');
-  if (!el) return;
-  // 구조화 태그 제거하고 표시
-  const display = cleanDisplayText(text);
-  el.textContent = display;
-  const container = document.getElementById('chat-msgs');
-  if (container) container.scrollTop = container.scrollHeight;
 }
 
 function handleMsgAction(action) {
@@ -7330,18 +7586,7 @@ async function handleChatPrompt(text) {
         return;
       }
     }
-    // 스트리밍으로 플로 응답 — 실시간 표시
-    showStreamBubble();
-    const raw = await callClaudeStream(
-      [...history, { role:'user', content:text }],
-      sys,
-      needsMore ? 8000 : 4000,
-      'claude-haiku-4-5-20251001',
-      (partialText, isDone) => {
-        if (!isDone) updateStreamBubble(partialText);
-      }
-    );
-    hideTyping(); // 스트림 버블 제거 (addMsg로 교체됨)
+    const raw = await callClaude([...history, { role:'user', content:text }], sys, needsMore ? 12000 : 8000);
     hideTyping();
 
     // Parse special content
@@ -7355,6 +7600,7 @@ async function handleChatPrompt(text) {
     const moveSceneRaw = extractTag(raw, 'movescene');
     const reorderRaw = extractTag(raw, 'reorderscenes');
     const multichoicesRaw = extractTag(raw, 'multichoices');
+    const choicesRaw = extractTag(raw, 'choices'); // L8: 단일 선택지 파싱
     const suggestRaw = extractTag(raw, 'suggest');
     let scenesData = null;
     if (scenesRaw) { try { scenesData = JSON.parse(scenesRaw); } catch {} }
@@ -7415,6 +7661,12 @@ async function handleChatPrompt(text) {
       let mchoices = null;
       try { mchoices = JSON.parse(multichoicesRaw); } catch {}
       if (mchoices?.length) actions.push({ type:'showMultiChoices', data:{prompt:text, choices:mchoices}, label:'선택하기', style:'purple' });
+    }
+    // L8: 단일 선택지 (<choices> 태그)
+    if (choicesRaw) {
+      let ch = null;
+      try { ch = JSON.parse(choicesRaw); } catch {}
+      if (ch?.length) actions.push({ type:'showChoices', data:{prompt:text, choices:ch}, label:'선택하기', style:'purple' });
     }
     // 분석 제안 버튼 — J5: 씬 없을 때 characters 분석 억제
     if (suggestRaw) {
@@ -9432,6 +9684,8 @@ async function aiSceneFill(scId) {
     sc.diff = null;
     save(true); renderScriptBody(); renderNavSceneList();
     scrollToScene(scId);
+    // L5: 플로 히스토리 기록
+    logLineWorkToChat('fill', getSceneLabel(sc, scenes) + ' 「' + sc.title + '」', newLines.length + '줄');
 
     // 뒤에 빈 씬 더 있는지 감지
     const restEmpty = scenes.slice(scIdx + 1).filter(isEmptyScene);
@@ -10567,6 +10821,17 @@ async function handleTitleChange(text) {
 async function handleScriptPrompt(text) {
   text = await normalizeSceneNums(text);
 
+  // L4: selectedIds가 있고 텍스트에 SC번호 없으면 자동 주입
+  if (S.selectedIds.size > 0 && !/SC\s*\d+/i.test(text) && S.cur?.scenes?.length) {
+    const selLabels = [...S.selectedIds].map(id => {
+      const sc = (S.cur.scenes||[]).find(s => s.id === id);
+      return sc ? getSceneLabel(sc, S.cur.scenes) : null;
+    }).filter(Boolean);
+    if (selLabels.length > 0) {
+      text = selLabels.join(', ') + ' ' + text;
+    }
+  }
+
   // ── 부분 제목 매칭 → 씬 선택 UI ─────────────────────────────────────
   // SC번호가 없고, 텍스트에 씬 제목의 일부가 포함된 경우 감지
   if (!/SC\s*\d+/i.test(text) && S.cur?.scenes?.length) {
@@ -10959,7 +11224,21 @@ async function handleScriptPrompt(text) {
     // 씬 줄 수 기반 동적 max_tokens
     const totalLines = selectedScenes.reduce((sum, s) => sum + (s.lines||[]).length, 0);
     const scriptMaxTokens = totalLines <= 50 ? 4000 : totalLines <= 100 ? 8000 : totalLines <= 200 ? 15000 : 20000;
-    const raw = await callClaude([{role:'user', content:`지시: ${text}\n\n씬 데이터:\n${sceneSummary}`}], sys, scriptMaxTokens);
+    // L2: 씬 줄 수 기반 모델 자동 선택 (≤15줄 → Haiku, >15줄 → Sonnet)
+    const _totalLineCount = selectedScenes.reduce((sum, s) => sum + (s.lines||[]).length, 0);
+    const _scriptModel = _totalLineCount <= 15 ? 'claude-haiku-4-5-20251001' : undefined;
+    // L6: 스트리밍 미리보기 — 단일 씬 편집 시에만 활성화
+    const _streamScId = selectedScenes.length === 1 ? selectedScenes[0].id : null;
+    if (_streamScId) showStreamPreview(_streamScId);
+    hideAnalyzing();
+    const raw = await callClaudeStream(
+      [{role:'user', content:`지시: ${text}\n\n씬 데이터:\n${sceneSummary}`}],
+      sys, scriptMaxTokens, _scriptModel || 'claude-sonnet-4-20250514',
+      (chunk, done) => {
+        if (_streamScId && !done) updateStreamPreview(_streamScId, chunk);
+        if (done && _streamScId) hideStreamPreview(_streamScId);
+      }
+    );
     const resultRaw = extractTag(raw, 'r') || extractTag(raw, 'result');
     const choicesRaw = extractTag(raw, 'choices');
     const newscenesRaw = extractTag(raw, 'newscenes');
@@ -11015,6 +11294,14 @@ async function handleScriptPrompt(text) {
         applied++;
       });
       save(); renderScriptBody();
+      // L5: 플로 히스토리에 작업 기록
+      const _logParts = updates.map(u => {
+        const sc2 = S.cur.scenes.find(s => s.id === u.sceneId) || S.cur.scenes.find(s => s.title === u.title);
+        return sc2 ? getSceneLabel(sc2, S.cur.scenes) + ' 「' + sc2.title + '」' + (u.comment ? ' — ' + u.comment : '') : '';
+      }).filter(Boolean);
+      if (_logParts.length) {
+        logLineWorkToChat('edit', _logParts.join(', '), text.slice(0,40));
+      }
       // 대본 편집 내역을 브레인스토밍 히스토리에도 기록
       const summary = updates.map(u => {
         const sc = S.cur.scenes.find(s => s.id === u.sceneId)
@@ -12900,7 +13187,12 @@ async function replaceCharNameInScript(oldName, newName) {
   let aiCount = 0;
   if (toProcess.length > 0) {
     try {
-      const sys = '대본 텍스트에서 인물 이름을 변경해주세요. 조사도 자연스럽게 바꿔주세요 (예: 청이가→하린이가, 청이를→하린을, 청아→하린아). ' +
+      const sys = '대본 텍스트에서 인물 이름을 변경해주세요.\n' +
+        '받침 유무에 따라 조사를 반드시 올바르게 바꿔주세요.\n' +
+        '처리할 조사 목록: 이/가, 을/를, 은/는, 와/과, 로/으로, 야/아(호칭), 다/이다, 이다/다, 한테, 에게, 도\n' +
+        '예시: 강수가→강인가, 강수를→강인을, 강수는→강인은, 강수와→강인과, ' +
+        '강수로→강인으로, 강수야→강인아, 강수다→강인이다, 강수이다→강인이다, ' +
+        '강수한테→강인한테, 강수에게→강인에게, 강수도→강인도\n' +
         '반드시 <lines>[{"idx":숫자,"text":"변환된텍스트"}]</lines> 형식으로만 응답하세요.';
       const lineList = toProcess.map((x, i) => i + ': "' + x.text + '"').join('\n');
       const raw = await callClaude(
@@ -13248,6 +13540,8 @@ async function checkConflictWithPrompt(text) {
       summary, detail,
       updatedAt: Date.now(), template: S_conflictTemplate
     };
+    // L7: 갈등 분석 완료 후 summary 동기화
+    syncConflictDataToSummaries();
     save(true);
     renderNavSceneList();
     if (document.getElementById('drawer-synopsis')?.classList.contains('open')) renderSynopsisDrawer();
