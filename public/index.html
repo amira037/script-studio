@@ -6024,7 +6024,7 @@ async function reDiscussMessage(msg) {
     const raw = await callClaude(
       [{role:'user', content: '이전에 다음 내용을 논의했어요. 이 내용을 다시 이야기해주세요:\n\n' + ctx}],
       (S.cur._floSys || '') + sceneCtx,
-      1000
+      1000, 'claude-haiku-4-5-20251001'
     );
     hideTyping();
     const displayText = cleanDisplayText(raw) || '다시 정리해볼게요.';
@@ -7245,7 +7245,7 @@ async function handleChatPrompt(text) {
         return;
       }
     }
-    const raw = await callClaude([...history, { role:'user', content:text }], sys, needsMore ? 12000 : 8000);
+    const raw = await callClaude([...history, { role:'user', content:text }], sys, needsMore ? 8000 : 4000, 'claude-haiku-4-5-20251001');
     hideTyping();
 
     // Parse special content
