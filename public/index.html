@@ -4613,8 +4613,8 @@ function renderChips() {
     const sc = (S.cur?.scenes||[]).find(s=>s.id===id);
     if (!sc) return;
     const chip = document.createElement('span'); chip.className = 'chip';
-    const idx = S.cur.scenes.indexOf(sc) + 1;
-    chip.innerHTML = `SC ${idx} <span class="chip-x" onclick="toggleSceneSelect(${id},false)">×</span>`;
+    const chipLabel = getSceneLabel(sc, S.cur.scenes);
+    chip.innerHTML = `${chipLabel} <span class="chip-x" onclick="toggleSceneSelect(${id},false)">×</span>`;
     row.appendChild(chip);
   });
   // 전체 해제 버튼 (칩이 있을 때만)
@@ -5004,8 +5004,9 @@ function buildSceneBlock(sc, i) {
     };
     const applyBtn = mkDraftBtn('← 원본 교체', '', () => applyDraftToOriginal(sc.id));
     const promoteBtn = mkDraftBtn('→ 다음 장면으로', '', () => promoteDraftToScene(sc.id));
+    const cmpBtn = mkDraftBtn('🔍 비교', '', () => compareDraftScene(sc.id));
     const delBtn = mkDraftBtn('✕ 삭제', 'red', () => deleteDraft(sc.id));
-    draftBar.append(draftLabel, applyBtn, promoteBtn, delBtn);
+    draftBar.append(draftLabel, applyBtn, promoteBtn, cmpBtn, delBtn);
     block.appendChild(draftBar);
   }
   // 접기/펼치기 버튼
@@ -5732,7 +5733,9 @@ function buildDiffBlock(sc) {
     </div>
     <div class="diff-lines">${buildDiffLines(sc.diff.lines)}</div>
     <div class="diff-acts">
-      <button class="diff-apply-btn" onclick="applyDiff(${sc.id})">✓ 바로 적용</button>
+      ${(sc.diff.mergeDeleteIds?.length || sc.diff.mergeDeleteId)
+        ? `<button class="diff-apply-btn" onclick="applyDiff(${sc.id})">✓ 바로 적용 + 뒷장면 삭제</button><button class="diff-apply-btn" style="background:var(--bg3);color:var(--text2);border-color:var(--border2);" onclick="applyDiffOnly(${sc.id})">✓ 이 씬만 적용</button>`
+        : `<button class="diff-apply-btn" onclick="applyDiff(${sc.id})">✓ 바로 적용</button>`}
       <button class="diff-apply-btn" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);" onclick="saveAsDraft(${sc.id})">📝 대안으로 저장</button>
       <button class="diff-cancel-btn" onclick="cancelDiff(${sc.id})">✕ 취소</button>
     </div>`;
@@ -5745,6 +5748,17 @@ function buildDiffLines(lines) {
     if (l.type==='add') return `<div class="diff-ctx"><span class="diff-add">${escH(l.text)}</span></div>`;
     return `<div class="diff-ctx">${escH(l.text)}</div>`;
   }).join('');
+}
+
+async function applyDiffOnly(id) {
+  // 합치기 diff에서 뒷장면 삭제 없이 이 씬의 내용만 적용
+  const sc = S.cur.scenes.find(s=>s.id===id);
+  if (!sc || !sc.diff) return;
+  // mergeDeleteIds 임시 제거 후 applyDiff 호출
+  const saved = { mergeDeleteId: sc.diff.mergeDeleteId, mergeDeleteIds: sc.diff.mergeDeleteIds };
+  delete sc.diff.mergeDeleteId;
+  delete sc.diff.mergeDeleteIds;
+  await applyDiff(id);
 }
 
 async function applyDiff(id) {
@@ -5909,75 +5923,234 @@ function saveAsDraft(id) {
   toast('📝 대안 장면이 바로 아래에 추가됐습니다', 3000);
 }
 
-// K1-e,f: 대안 장면 비교
+// K1-e,f: 대안 장면 비교 (모든 형제 대안 포함, pros/cons 구조화 패널)
 async function compareDraftScene(draftId) {
-  const draft = S.cur?.scenes.find(s=>s.id===draftId);
-  if (!draft || !draft.draftOf) return;
-  const original = S.cur.scenes.find(s=>s.id===draft.draftOf);
+  const scenes = S.cur?.scenes || [];
+  const clicked = scenes.find(s => s.id === draftId);
+  if (!clicked || !clicked.draftOf) return;
+  const original = scenes.find(s => s.id === clicked.draftOf);
   if (!original) return;
 
-  toast('🔍 비교 분석 중...', 2000);
+  const allDrafts = scenes.filter(s => s.draft && s.draftOf === original.id);
+  const allVersions = [original, ...allDrafts];
 
-  // L7-0: conflictScore 없으면 Haiku가 즉석 계산
-  const origSum = getSceneSummary(original);
-  const draftSum = getSceneSummary(draft);
+  showAnalyzing('버전 비교 분석 중... 🔍');
 
-  if (origSum.conflictScore == null || draftSum.conflictScore == null) {
+  // 갈등도 계산 (없는 버전만)
+  const needsScore = allVersions.filter(sc => getSceneSummary(sc).conflictScore == null);
+  if (needsScore.length > 0) {
     try {
-      const origText = (original.lines||[]).map(l=>l.text).join(' ').slice(0,300);
-      const draftText = (draft.lines||[]).map(l=>l.text).join(' ').slice(0,300);
+      const vTexts = allVersions.map((sc, i) => {
+        const lbl = i === 0 ? '원본' : getSceneLabel(sc, scenes);
+        return lbl + ':\n' + (sc.lines||[]).map(l=>l.text).join(' ').slice(0, 250);
+      }).join('\n\n');
       const raw = await callClaude(
-        [{role:'user', content:'원본:\n' + origText + '\n\n대안:\n' + draftText}],
-        '두 씬의 갈등 강도를 각각 0~5로 평가하세요.\n반드시 <scores>{"orig":숫자,"draft":숫자}</scores> 형식으로만.',
-        80, 'claude-haiku-4-5-20251001'
+        [{role:'user', content: vTexts}],
+        '각 버전의 갈등 강도를 0~5로 평가하세요.\n반드시 <scores>[숫자,숫자,...]</scores> 형식으로 버전 순서대로 응답하세요.',
+        100, 'claude-haiku-4-5-20251001'
       );
       const scoresRaw = extractTag(raw, 'scores');
       if (scoresRaw) {
-        const scores = JSON.parse(scoresRaw);
-        if (origSum.conflictScore == null) origSum.conflictScore = scores.orig ?? null;
-        if (draftSum.conflictScore == null) draftSum.conflictScore = scores.draft ?? null;
-        original.summary = { ...origSum };
-        draft.summary = { ...draftSum };
+        const scoreArr = JSON.parse(scoresRaw);
+        allVersions.forEach((sc, i) => {
+          const sum = getSceneSummary(sc);
+          if (sum.conflictScore == null && scoreArr[i] != null) {
+            sum.conflictScore = scoreArr[i];
+            sc.summary = { ...sum };
+          }
+        });
+        save(true);
       }
     } catch(e) { console.warn('conflict score error', e); }
   }
 
-  // 수치 비교
-  const compareParts = [];
-  const dDiff = (draftSum.dialogueCount||0) - (origSum.dialogueCount||0);
-  const lDiff = (draftSum.lineCount||0) - (origSum.lineCount||0);
-  if (dDiff !== 0) compareParts.push('대사 ' + (dDiff>0?'+':'') + dDiff + '줄');
-  if (lDiff !== 0) compareParts.push('전체 ' + (lDiff>0?'+':'') + lDiff + '줄');
+  // 버전 내용 블록 구성
+  const dots = n => '●'.repeat(Math.max(0, Math.round(n))) + '○'.repeat(Math.max(0, 5 - Math.round(n)));
+  const versionBlocks = allVersions.map((sc, i) => {
+    const lbl = i === 0 ? '원본' : getSceneLabel(sc, scenes);
+    const sum = getSceneSummary(sc);
+    const content = (sc.lines||[]).map(l => l.text).join('\n').slice(0, 400);
+    return '[' + lbl + '] "' + sc.title + '"\n갈등도: ' +
+      (sum.conflictScore != null ? dots(sum.conflictScore) + ' ' + sum.conflictScore + '점' : '미측정') +
+      ' | 대사: ' + (sum.dialogueCount||0) + '줄\n' + content;
+  }).join('\n\n---\n\n');
 
-  // 갈등 점수 도트 시각화
-  let conflictCompare = '';
-  if (origSum.conflictScore != null && draftSum.conflictScore != null) {
-    const cDiff = draftSum.conflictScore - origSum.conflictScore;
-    const dots = n => '●'.repeat(Math.max(0,Math.round(n))) + '○'.repeat(Math.max(0,5-Math.round(n)));
-    conflictCompare = '원본 갈등 ' + dots(origSum.conflictScore) + ' ' + origSum.conflictScore + '점\n대안 갈등 ' + dots(draftSum.conflictScore) + ' ' + draftSum.conflictScore + '점';
-    if (cDiff !== 0) compareParts.unshift('갈등 ' + (cDiff>0?'+':'') + cDiff);
+  // AI 장단점 분석 — 구조화 응답
+  let parsedAnalysis = [];
+  try {
+    const raw = await callClaude(
+      [{role:'user', content: versionBlocks + '\n\n각 버전의 장단점을 분석해주세요.'}],
+      '각 버전마다 장점 2~3개, 단점 1~2개를 분석하세요.\n' +
+      '반드시 <analysis>[{"label":"버전레이블","pros":["장점1","장점2"],"cons":["단점1"]}]</analysis> 형식으로 응답하세요.\n' +
+      '레이블은 "원본", "SC 3-A" 등 정확히 사용하세요. 설명 없이 태그만.',
+      900
+    );
+    const analysisRaw = extractTag(raw, 'analysis');
+    if (analysisRaw) parsedAnalysis = JSON.parse(analysisRaw);
+  } catch(e) { console.warn('analysis parse error', e); }
+
+  hideAnalyzing();
+
+  // 전역 저장 (인덱스 기반 참조용)
+  window._draftAnalysisData = parsedAnalysis;
+  window._draftCompareOriginalId = original.id;
+
+  // 수치 요약
+  const statsHTML = allVersions.map((sc, i) => {
+    const lbl = i === 0 ? '원본' : getSceneLabel(sc, scenes);
+    const sum = getSceneSummary(sc);
+    const cs = sum.conflictScore;
+    return '<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg3);border-radius:var(--r);margin-bottom:4px;">' +
+      '<span style="font-size:11px;font-weight:600;color:' + (i===0?'var(--text2)':'var(--accent)') + ';min-width:60px;">' + escH(lbl) + '</span>' +
+      '<span style="font-size:10px;color:var(--text3);">' + (cs != null ? dots(cs) + ' ' + cs + '점' : '—') + '</span>' +
+      '<span style="font-size:10px;color:var(--text3);">대사 ' + (sum.dialogueCount||0) + '줄</span>' +
+      '</div>';
+  }).join('');
+
+  // 버전별 pros/cons (체크박스)
+  let prosConsHTML = '';
+  if (parsedAnalysis.length > 0) {
+    prosConsHTML = '<div style="margin-top:8px;">' + parsedAnalysis.map((v, vi) => {
+      const isOrig = vi === 0;
+      const borderColor = isOrig ? 'var(--border2)' : 'var(--accent2)';
+      const labelColor  = isOrig ? 'var(--text2)'  : 'var(--accent)';
+      const prosItems = (v.pros||[]).map((p, pi) =>
+        '<label style="display:flex;align-items:flex-start;gap:6px;cursor:pointer;margin-bottom:4px;">' +
+        '<input type="checkbox" class="draft-pros-cb" data-vi="' + vi + '" data-pi="' + pi + '" checked ' +
+        'style="margin-top:2px;accent-color:var(--accent);flex-shrink:0;">' +
+        '<span style="font-size:11px;color:var(--text);line-height:1.5;">' + escH(p) + '</span>' +
+        '</label>'
+      ).join('');
+      const consItems = (v.cons||[]).map(c =>
+        '<div style="font-size:11px;color:var(--text3);padding-left:18px;margin-bottom:2px;">✕ ' + escH(c) + '</div>'
+      ).join('');
+      return '<div style="margin-bottom:8px;padding:8px 10px;background:var(--bg3);border-radius:var(--r);border-left:2px solid ' + borderColor + ';">' +
+        '<div style="font-size:11px;font-weight:600;color:' + labelColor + ';margin-bottom:6px;">' + escH(v.label) + '</div>' +
+        prosItems + consItems +
+        '</div>';
+    }).join('') + '</div>';
+  } else {
+    prosConsHTML = '<div style="font-size:11px;color:var(--text3);margin-top:8px;padding:8px;background:var(--bg3);border-radius:var(--r);">분석 데이터를 파싱할 수 없습니다.</div>';
   }
 
-  // 라인 에디터로 이동 + 두 씬 선택
-  S.selectedIds.clear();
-  S.selectedIds.add(original.id);
-  S.selectedIds.add(draft.id);
-  save(true); renderScriptBody(); renderNavSceneList();
-  switchTab('script');
-  setTimeout(() => scrollToScene(original.id), 200);
+  const bodyHTML = statsHTML + prosConsHTML;
 
-  const compareInfo = [conflictCompare, compareParts.length ? '수치: ' + compareParts.join(' / ') : ''].filter(Boolean).join('\n');
-  const compareText = [
-    '원본 "' + original.title + '"과 대안 "' + draft.title + '"을 비교해서 어떤 버전이 더 나은지 판단해줘.',
-    compareInfo,
-    '각 버전의 장단점을 분석하고 추천해줘. 마지막에 [교체하기] 또는 [원본 유지] 중 하나를 추천해줘.'
-  ].filter(Boolean).join('\n');
+  // 버튼
+  let actsHTML =
+    '<button class="rp-btn" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);" ' +
+    'onclick="_rewriteFromPros(' + original.id + ')">✨ 선택한 장점으로 새로 쓰기</button>';
+  actsHTML += '<button class="rp-btn" onclick="_selectDraftVersion(' + original.id + ', null)">✓ 원본 유지</button>';
+  allDrafts.forEach(d => {
+    const lbl = getSceneLabel(d, scenes);
+    actsHTML += '<button class="rp-btn" onclick="_selectDraftVersion(' + original.id + ', ' + d.id + ')">' + escH(lbl) + ' 선택</button>';
+  });
+  actsHTML += '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>';
 
-  setTimeout(() => {
-    const inp = document.getElementById('prompter-inp');
-    if (inp) { inp.value = compareText; inp.dispatchEvent(new Event('input')); inp.focus(); }
-    toast(compareParts.length ? '🔍 ' + compareParts.join(' / ') : '🔍 두 버전을 비교해보세요', 3500);
-  }, 350);
+  showResponsePanel('choice', '🔍 버전 비교', bodyHTML, actsHTML);
+}
+
+// 선택한 장점들로 새 씬 생성 → 대안으로 저장 → 비교 재호출
+async function _rewriteFromPros(originalId) {
+  const checkedBoxes = [...document.querySelectorAll('#rp-body .draft-pros-cb:checked')];
+  if (checkedBoxes.length === 0) {
+    toast('장점을 하나 이상 선택해주세요.');
+    return;
+  }
+
+  const analysisData = window._draftAnalysisData || [];
+  const selectedPros = checkedBoxes.map(cb => {
+    const vi = parseInt(cb.dataset.vi);
+    const pi = parseInt(cb.dataset.pi);
+    const v = analysisData[vi];
+    return v ? '[' + v.label + '] ' + (v.pros[pi] || '') : '';
+  }).filter(Boolean);
+
+  const scenes = S.cur?.scenes || [];
+  const original = scenes.find(s => s.id === originalId);
+  if (!original) return;
+
+  const allVersions = [original, ...scenes.filter(s => s.draft && s.draftOf === originalId)];
+
+  closeResponsePanel();
+  showAnalyzing('선택한 장점으로 새 버전을 쓰는 중... ✨');
+
+  // 모든 버전 전체 내용 전달
+  const versionBlocks = allVersions.map((sc, i) => {
+    const lbl = i === 0 ? '원본' : getSceneLabel(sc, scenes);
+    const content = (sc.lines||[]).map(l => l.type + ': ' + l.text).join('\n');
+    return '[' + lbl + '] "' + sc.title + '"\n' + content;
+  }).join('\n\n---\n\n');
+
+  const prosText = selectedPros.join('\n');
+
+  try {
+    const raw = await callClaude(
+      [{role:'user', content:
+        '[기존 버전들]\n' + versionBlocks + '\n\n' +
+        '[작가가 선택한 장점]\n' + prosText + '\n\n' +
+        '위 장점들을 모두 살린 새로운 버전을 써주세요.'
+      }],
+      '반드시 <scenes>[{"title":"씬 제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용"}]}]</scenes> 형식으로만 응답하세요.',
+      6000
+    );
+    hideAnalyzing();
+
+    const scenesRaw = extractTag(raw, 'scenes');
+    if (!scenesRaw) { toast('새 버전 생성 실패.'); return; }
+    let scenesData = null;
+    try { scenesData = JSON.parse(scenesRaw); } catch {}
+    if (!scenesData?.length) { toast('씬 데이터 파싱 실패.'); return; }
+
+    // 기존 대안들 뒤에 새 draft 삽입
+    const newDraft = {
+      id: Date.now() + Math.floor(Math.random() * 10000),
+      title: scenesData[0].title || original.title + ' (새 버전)',
+      slug: scenesData[0].slug || '',
+      lines: scenesData[0].lines.map(l => ({...l, locked: false})),
+      draft: true, draftOf: originalId,
+      locked: false, collapsed: false, summary: null, diff: null
+    };
+
+    const lastDraftIdx = S.cur.scenes.reduce((last, s, i) =>
+      (s.draft && s.draftOf === originalId) ? i : last,
+      S.cur.scenes.findIndex(s => s.id === originalId)
+    );
+    S.cur.scenes.splice(lastDraftIdx + 1, 0, newDraft);
+    save(true); renderScriptBody(); renderNavSceneList();
+
+    toast('✨ 새 버전이 추가됐습니다! 다시 비교합니다...', 2000);
+    setTimeout(() => compareDraftScene(newDraft.id), 500);
+
+  } catch(e) {
+    hideAnalyzing();
+    if (e.name !== 'AbortError') toast('오류: ' + e.message);
+  }
+}
+
+function _selectDraftVersion(originalId, winnerDraftId) {
+  const scenes = S.cur?.scenes || [];
+  const original = scenes.find(s => s.id === originalId);
+  if (!original) return;
+  const allDrafts = scenes.filter(s => s.draft && s.draftOf === originalId);
+
+  if (!winnerDraftId) {
+    // 원본 유지 — 모든 대안 삭제
+    S.cur.scenes = scenes.filter(s => !(s.draft && s.draftOf === originalId));
+    toast('✓ 원본이 유지됩니다. 대안 ' + allDrafts.length + '개가 삭제됐습니다.');
+  } else {
+    // 선택한 대안으로 원본 교체 + 나머지 대안 삭제
+    const winner = scenes.find(s => s.id === winnerDraftId);
+    if (winner) {
+      original.title = winner.title;
+      original.lines = winner.lines.map(l => ({...l}));
+      original.summary = winner.summary ? {...winner.summary} : null;
+      const winnerLabel = getSceneLabel(winner, scenes);
+      toast('✓ ' + winnerLabel + '(으)로 교체됐습니다.');
+    }
+    S.cur.scenes = scenes.filter(s => !(s.draft && s.draftOf === originalId));
+  }
+  closeResponsePanel();
+  save(); renderScriptBody(); renderNavSceneList();
 }
 
 // diff 버튼 레이블 — 씬 내 등장인물명 + 프롬프트에서 속성 힌트 추출
@@ -7546,6 +7719,19 @@ function showOrganizeMemoPanel(organized) {
   panel.appendChild(btns);
   overlay.appendChild(panel);
   document.body.appendChild(overlay);
+}
+
+// 최근 플로 대화에서 결정사항/방향 추출 — 라인 에디터 컨텍스트용
+function getRecentFloContext(maxMsgs = 12) {
+  const msgs = (S.cur?.messages || [])
+    .filter(m => !m._isFlowPanel && !m._isDetectPanel && !m._isLineLog && m.text?.length > 10)
+    .slice(-maxMsgs);
+  if (!msgs.length) return '';
+  return msgs.map(m => {
+    const role = m.role === 'user' ? '작가' : '플로';
+    const text = cleanDisplayText(m.text) || m.text;
+    return role + ': ' + text.slice(0, 300);
+  }).join('\n');
 }
 
 async function autoExtractMemoFromHistory() {
@@ -10389,6 +10575,7 @@ async function handleSceneMerge(text) {
   if (!S.cur) return;
   const scenes = S.cur.scenes || [];
 
+  // 대상 씬 수집
   const scPat = /SC\s*(\d+)/gi;
   const nums = [];
   let m;
@@ -10401,41 +10588,174 @@ async function handleSceneMerge(text) {
     targetScenes = scenes.filter(s => S.selectedIds.has(s.id));
   }
 
+  // ── 미선택 → 씬 선택 안내 패널 ─────────────────────────────────────
   if (targetScenes.length < 2) {
-    toast('합칠 씬을 2개 이상 선택하거나 SC번호를 명시해주세요.');
-    return;
-  }
-
-  // 씬 순서대로 정렬
-  targetScenes.sort((a,b) => scenes.indexOf(a) - scenes.indexOf(b));
-
-  // 연속 여부 체크
-  const idxs = targetScenes.map(s => scenes.indexOf(s));
-  const isConsecutive = idxs.every((idx,i) => i===0 || idx === idxs[i-1]+1);
-
-  if (!isConsecutive) {
-    const labels = targetScenes.map(s => getSceneLabel(s,scenes)).join(', ');
-    const missing = [];
-    for (let i=0; i<idxs.length-1; i++) {
-      for (let j=idxs[i]+1; j<idxs[i+1]; j++) {
-        missing.push(getSceneLabel(scenes[j], scenes));
-      }
-    }
-    const missingStr = missing.join(', ');
-
-    // 경고 패널
-    window._mergeTargets = targetScenes;
-    showResponsePanel('choice', '⚠ 비연속 씬 선택',
-      '<div class="ai-comment-txt">' +
-      formatRpText('선택한 씬들이 연속되지 않습니다.\n\n선택: ' + labels + '\n빠진 씬: ' + missingStr + '\n\n그래도 합치면 빠진 씬들은 그대로 남고, 선택한 씬들만 합쳐집니다.') +
-      '</div>',
-      '<button class="rp-btn" onclick="executeMerge(window._mergeTargets)">그래도 합치기</button>' +
+    const normalScenes = scenes.filter(s => !s.draft);
+    const listHTML = normalScenes.slice(0, 14).map(s => {
+      const lbl = getSceneLabel(s, scenes);
+      return '<div style="font-size:11px;padding:3px 6px;color:var(--text2);">' + escH(lbl) + ' ' + escH(s.title) + '</div>';
+    }).join('') + (normalScenes.length > 14
+      ? '<div style="font-size:10px;color:var(--text3);padding:3px 6px;">외 ' + (normalScenes.length - 14) + '개...</div>'
+      : '');
+    showResponsePanel('comment', '✦ 씬 선택 필요',
+      '<div class="ai-comment-txt" style="margin-bottom:8px;">합칠 씬을 2개 이상 선택해주세요.<br>네비게이터 체크박스로 씬을 선택한 후 다시 요청하세요.</div>' +
+      '<div style="background:var(--bg3);border-radius:var(--r);padding:4px;max-height:180px;overflow-y:auto;">' + listHTML + '</div>',
+      '<button class="rp-btn" onclick="closeResponsePanel();switchTab(\'script\')">← 씬 목록으로</button>' +
       '<button class="rp-btn" onclick="closeResponsePanel()">취소</button>'
     );
     return;
   }
 
-  await executeMerge(targetScenes);
+  // ── 대안+일반 혼합 방지 ──────────────────────────────────────────────
+  const hasDraft = targetScenes.some(s => s.draft);
+  const hasNormal = targetScenes.some(s => !s.draft);
+  if (hasDraft && hasNormal) {
+    showResponsePanel('comment', '⚠ 합치기 불가',
+      '<div class="ai-comment-txt">대안 장면과 일반 장면은 합칠 수 없습니다.<br>대안 장면끼리만, 또는 일반 장면끼리만 선택해주세요.</div>',
+      '<button class="rp-btn" onclick="closeResponsePanel()">확인</button>'
+    );
+    return;
+  }
+
+  // 씬 순서대로 정렬 + 인접 여부 판단
+  targetScenes.sort((a,b) => scenes.indexOf(a) - scenes.indexOf(b));
+  const idxs = targetScenes.map(s => scenes.indexOf(s));
+  const isConsecutive = idxs.every((idx,i) => i===0 || idx === idxs[i-1]+1);
+  const labels = targetScenes.map(s => getSceneLabel(s, scenes)).join(', ');
+  const count = targetScenes.length;
+
+  // "참조해서 새 씬 만들기" 클릭 핸들러 (공통)
+  window._mergeTargets = targetScenes;
+  const refIdsJs = targetScenes.map(s => 'S.selectedIds.add(' + s.id + ');').join('');
+  const refOnClick = "closeResponsePanel();S.selectedIds.clear();" + refIdsJs + "handleRefSceneCreate('참조해서 새 씬 만들어줘');";
+
+  // ── 1. 비인접 → 합치기 불가, 참조 새 씬만 ──────────────────────────
+  if (!isConsecutive) {
+    const missing = [];
+    for (let i = 0; i < idxs.length - 1; i++) {
+      for (let j = idxs[i] + 1; j < idxs[i+1]; j++) missing.push(getSceneLabel(scenes[j], scenes));
+    }
+    showResponsePanel('choice', '⚠ 비연속 씬 선택',
+      '<div class="ai-comment-txt">' +
+      formatRpText('선택한 씬들이 연속되지 않습니다.\n선택: ' + labels + (missing.length ? '\n빠진 씬: ' + missing.join(', ') : '') + '\n\n연속되지 않은 씬은 합칠 수 없지만,\n이 씬들을 참조해서 새 씬을 만들 수 있어요.') +
+      '</div>',
+      '<button class="rp-btn" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);" onclick="' + refOnClick + '">✨ 참조해서 새 씬 만들기</button>' +
+      '<button class="rp-btn" onclick="closeResponsePanel()">취소</button>'
+    );
+    return;
+  }
+
+  // ── 2. 인접 5개 이상 → 순차/일괄 선택 ──────────────────────────────
+  if (count >= 5) {
+    const chunkCount = Math.floor(count / 2);
+    showResponsePanel('choice', '씬 ' + count + '개 합치기',
+      '<div class="ai-comment-txt">' +
+      formatRpText('선택: ' + labels + '\n\n' + count + '개 씬을 한 번에 합치면 중간 내용이 손실될 수 있어요.\n어떻게 진행할까요?') +
+      '</div>',
+      '<button class="rp-btn" onclick="closeResponsePanel();executeSequentialMerge(window._mergeTargets)">↓↓ 2개씩 순차 합치기 (' + chunkCount + '쌍)</button>' +
+      '<button class="rp-btn" style="background:rgba(224,96,96,.1);color:var(--red);border-color:rgba(224,96,96,.3);" onclick="executeMerge(window._mergeTargets)">⚡ 하나로 합치기</button>' +
+      '<button class="rp-btn" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);" onclick="' + refOnClick + '">✨ 참조해서 새 씬 만들기</button>' +
+      '<button class="rp-btn" onclick="closeResponsePanel()">취소</button>'
+    );
+    return;
+  }
+
+  // ── 3. 인접 3~4개 → 내용 손실 경고 ────────────────────────────────
+  if (count >= 3) {
+    showResponsePanel('choice', '씬 ' + count + '개 합치기',
+      '<div class="ai-comment-txt">' +
+      formatRpText('선택: ' + labels + '\n\n3개 이상 합치면 내용 손실이 생길 수 있어요.\n계속 진행할까요?') +
+      '</div>',
+      '<button class="rp-btn" onclick="executeMerge(window._mergeTargets)">합치기</button>' +
+      '<button class="rp-btn" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);" onclick="' + refOnClick + '">✨ 참조해서 새 씬 만들기</button>' +
+      '<button class="rp-btn" onclick="closeResponsePanel()">취소</button>'
+    );
+    return;
+  }
+
+  // ── 4. 인접 2개 → 정상: 합치기 + 참조 둘 다 ────────────────────────
+  showResponsePanel('choice', '씬 합치기',
+    '<div class="ai-comment-txt">' +
+    formatRpText('선택: ' + labels + '\n\n두 씬을 하나로 합치거나, 이 씬들을 참조해서 새 씬을 만들 수 있어요.') +
+    '</div>',
+    '<button class="rp-btn" onclick="executeMerge(window._mergeTargets)">합치기</button>' +
+    '<button class="rp-btn" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);" onclick="' + refOnClick + '">✨ 참조해서 새 씬 만들기</button>' +
+    '<button class="rp-btn" onclick="closeResponsePanel()">취소</button>'
+  );
+}
+
+// 2개씩 순차 합치기 — 각 쌍을 자동 적용 (diff 없이 직접 반영)
+async function executeSequentialMerge(targetScenes) {
+  closeResponsePanel();
+  if (!targetScenes || targetScenes.length < 2) return;
+
+  // 2개씩 청크 구성 (홀수 마지막 씬은 단독 → 스킵)
+  const chunks = [];
+  for (let i = 0; i < targetScenes.length - 1; i += 2) {
+    chunks.push(targetScenes.slice(i, i + 2));
+  }
+
+  showAnalyzing('순차 합치기 준비 중... (' + chunks.length + '쌍)');
+
+  let successCount = 0;
+  for (let ci = 0; ci < chunks.length; ci++) {
+    const chunk = chunks[ci];
+    const currentScenes = S.cur.scenes || [];
+
+    // 앞 합치기 후 씬 배열이 달라질 수 있으므로 ID로 최신 씬 재참조
+    const freshChunk = chunk.map(sc => currentScenes.find(s => s.id === sc.id)).filter(Boolean);
+    if (freshChunk.length < 2) {
+      toast((ci + 1) + '번째 묶음 씬을 찾을 수 없습니다.');
+      continue;
+    }
+
+    showAnalyzing((ci + 1) + '/' + chunks.length + ' 합치는 중... 🎬');
+
+    const scA = freshChunk[0];
+    const deleteScenes = freshChunk.slice(1);
+    const allLabels = freshChunk.map(s => getSceneLabel(s, currentScenes)).join('+');
+    const lblA = getSceneLabel(scA, currentScenes);
+
+    const combinedContent = freshChunk.map(sc =>
+      '[' + getSceneLabel(sc, currentScenes) + ' — ' + sc.title + ']\n' +
+      (sc.lines||[]).map(l => l.type + ': ' + l.text).join('\n')
+    ).join('\n\n');
+
+    try {
+      const raw = await callClaude(
+        [{role:'user', content:
+          allLabels + '을 ' + lblA + ' 기준으로 자연스럽게 합쳐주세요.\n' +
+          lblA + '의 제목과 슬러그를 유지하고, 모든 씬의 내용을 순서대로 자연스럽게 이어주세요.\n\n' +
+          combinedContent}],
+        '반드시 <scenes>[{"title":"씬 제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만 응답하세요.',
+        8000
+      );
+
+      const scenesRaw = extractTag(raw, 'scenes');
+      if (!scenesRaw) { toast(allLabels + ' 합치기 실패'); continue; }
+      let scenesData = null;
+      try { scenesData = JSON.parse(scenesRaw); } catch {}
+      if (!scenesData?.length) { toast(allLabels + ' 파싱 실패'); continue; }
+
+      // diff 없이 직접 적용
+      scA.lines = scenesData[0].lines.map(l => ({...l, locked: false}));
+      scA.summary = buildSceneSummaryBasic(scA);
+      const deleteIds = new Set(deleteScenes.map(s => s.id));
+      S.cur.scenes = S.cur.scenes.filter(s => !deleteIds.has(s.id));
+      save(true);
+      successCount++;
+
+    } catch(e) {
+      if (e.name === 'AbortError') break;
+      toast(allLabels + ' 오류: ' + e.message);
+    }
+  }
+
+  hideAnalyzing();
+  renderScriptBody(); renderNavSceneList();
+  if (successCount > 0) {
+    toast('✨ 순차 합치기 완료! ' + successCount + '쌍이 합쳐졌습니다 😊', 4000);
+  }
 }
 
 async function executeMerge(targetScenes) {
@@ -10494,15 +10814,109 @@ async function executeMerge(targetScenes) {
   }
 }
 
+// ── 참조 씬 기반 새 씬 생성 ──────────────────────────────────────────
+async function handleRefSceneCreate(text) {
+  const scenes = S.cur?.scenes || [];
+
+  // 선택된 씬 수집 (잠금 제외, 정렬)
+  const refScenes = scenes
+    .filter(s => S.selectedIds.has(s.id) && !s.locked)
+    .sort((a, b) => scenes.indexOf(a) - scenes.indexOf(b));
+
+  if (refScenes.length < 2) { toast('참조할 씬을 2개 이상 선택해주세요.'); return; }
+
+  // 사용자 지시 텍스트에서 키워드 제거 → 순수 힌트 추출
+  const hint = text
+    .replace(/참조해서|참고해서|바탕으로|토대로/g, '')
+    .replace(/새\s*씬|새\s*장면|만들어줘|만들어|생성해줘|생성/g, '')
+    .replace(/SC\s*\d+[\w-]*/gi, '')
+    .replace(/,\s*/g, ' ')
+    .trim();
+
+  showAnalyzing('참조 씬을 바탕으로 새 장면을 구상하고 있습니다... 🌱');
+
+  const chars = (S.cur.characters||[]).map(c => c.name + '(' + c.role + ')').join(', ');
+  const synopsis = (S.cur.synopsis || '').slice(0, 200);
+
+  // 참조 씬 전체 내용 구성
+  const refContent = refScenes.map(sc => {
+    const lbl = getSceneLabel(sc, scenes);
+    const body = (sc.lines||[]).map(l => {
+      if (l.type === 'slug')         return l.text;
+      if (l.type === 'character')    return '\n' + l.text;
+      if (l.type === 'parenthetical') return '(' + l.text + ')';
+      return l.text;
+    }).join('\n');
+    return '[' + lbl + ' — ' + sc.title + ']\n' + body;
+  }).join('\n\n---\n\n');
+
+  // 전체 씬 목록 (대안 제외)
+  const allSceneList = scenes.filter(s => !s.draft).map((s, i) =>
+    'SC' + (i + 1) + '. "' + s.title + '": ' + (s.lines||[]).map(l => l.text).join(' ').slice(0, 60)
+  ).join('\n');
+
+  try {
+    const raw = await callClaude(
+      [{role: 'user', content:
+        '작품: ' + (S.cur.title || '') + '\n' +
+        (synopsis ? '시놉시스: ' + synopsis + '\n' : '') +
+        (chars    ? '등장인물: ' + chars + '\n'    : '') + '\n' +
+        '[참조 씬 — 이 씬들의 인물·감정·상황을 이어받아 새 씬을 만드세요]\n' + refContent + '\n\n' +
+        '[전체 씬 목록 — 참조용]\n' + allSceneList + '\n\n' +
+        (hint ? '[작가 지시]\n' + hint + '\n\n' : '') +
+        '위 참조 씬들의 분위기와 흐름을 자연스럽게 이어받는 새 씬 1개를 만들어주세요.'
+      }],
+      '반드시 다음 형식으로만 응답하세요:\n' +
+      '<insert_after>SC번호</insert_after> 또는 <insert_at>end</insert_at>\n' +
+      '<reason>추가 이유 한 줄 — 긍정적 표현으로</reason>\n' +
+      '<scenes>[{"title":"씬 제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용"}]}]</scenes>',
+      6000
+    );
+    hideAnalyzing();
+
+    const insertAfterNum = raw.match(/<insert_after>SC\s*(\d+)<\/insert_after>/i)?.[1];
+    const reason = raw.match(/<reason>([\s\S]*?)<\/reason>/i)?.[1]?.trim() || '';
+    const scenesRaw = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
+
+    if (!scenesRaw) { toast('씬 생성 실패. 다시 시도해주세요.'); return; }
+    let scenesData = null;
+    try { scenesData = JSON.parse(scenesRaw); } catch { toast('씬 데이터 파싱 실패.'); return; }
+    if (!scenesData?.length) return;
+
+    // 삽입 기준 씬: AI 제안 우선, 없으면 참조 씬 중 마지막
+    let refSc = null;
+    if (insertAfterNum) {
+      refSc = scenes.find(s => getSceneLabel(s, scenes) === 'SC ' + parseInt(insertAfterNum));
+    }
+    if (!refSc) refSc = refScenes[refScenes.length - 1];
+
+    const refLabel = refSc ? getSceneLabel(refSc, scenes) : '맨 끝';
+    const toastMsg = reason
+      ? '✨ ' + reason + ' 새 장면을 준비했어요!'
+      : '✨ 참조 씬을 바탕으로 새 장면을 만들었습니다!';
+
+    window._aiInsertMode = 'after';
+    window._insertOnly = true;
+    showNewSceneInsertPanel(scenesData, toastMsg, refSc, refLabel);
+
+  } catch(e) {
+    hideAnalyzing();
+    if (e.name !== 'AbortError') toast('오류: ' + e.message);
+  }
+}
+
 // ── AI 자율 씬 추가 ──────────────────────────────────────────────────
 function showAiSceneAddPanel() {
   const bodyHTML =
     '<div class="choice-intro" style="font-size:12px;color:var(--text2);margin-bottom:10px;">어떤 장면이 필요한가요?</div>'
-    + buildSceneTypeKeypad();
+    + buildSceneTypeKeypad()
+    + '<div style="margin-top:10px;">'
+    + '<input id="ai-scene-user-prompt" type="text" placeholder="추가 지시 (선택사항) — 예: 두 사람이 처음 눈이 마주치는 장면" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);padding:7px 10px;font-size:11px;color:var(--text);outline:none;" />'
+    + '</div>';
   showResponsePanel('choice', '✨ AI 씬 추가',
     bodyHTML,
     '<button id="rp-select-btn" class="rp-btn" style="opacity:0.35;pointer-events:none;border-color:var(--border2);" onclick="confirmAiSceneAdd()">선택</button>' +
-    '<button id="rp-auto-btn" class="rp-btn" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);" onclick="closeResponsePanel();handleAiSceneAdd(\'\')">✨ AI 알아서</button>' +
+    '<button id="rp-auto-btn" class="rp-btn" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);" onclick="closeResponsePanel();handleAiSceneAdd(document.getElementById(\'ai-scene-user-prompt\')?.value||\'\')" >✨ AI 알아서</button>' +
     '<button class="rp-btn" onclick="closeResponsePanel()">취소</button>'
   );
 }
@@ -10512,10 +10926,11 @@ async function confirmAiSceneAdd() {
   const hints = window._aiSceneHints || [];
   const idx = sel ? parseInt(sel.dataset.val) : -1;
   const hint = idx >= 0 ? hints[idx] : null;
+  const userPrompt = document.getElementById('ai-scene-user-prompt')?.value?.trim() || '';
   closeResponsePanel();
 
   if (!hint || !hint.val) {
-    await handleAiSceneAdd('');
+    await handleAiSceneAdd(userPrompt);
     return;
   }
 
@@ -10538,22 +10953,27 @@ async function confirmAiSceneAdd() {
 
   window._execRef = refSc?.id || '';
   window._execHint = hint.val || '';
+  window._execUserPrompt = userPrompt;
+  const combinedHint = [hint.val, userPrompt].filter(Boolean).join(' / ');
+  const recBodyWithPrompt = recBody +
+    (userPrompt ? '<div style="margin-top:8px;padding:6px 8px;background:var(--bg3);border-radius:var(--r);font-size:11px;color:var(--text2);">📝 ' + escH(userPrompt) + '</div>' : '');
   showResponsePanel('choice', '✨ AI 씬 추가',
-    recBody,
-    '<button class="rp-btn" onclick="execAiSceneAdd(window._execRef,window._execHint,true)">✨ ' + escH(refLabel) + ' 뒤에 삽입 (AI 추천)</button>' +
-    '<button class="rp-btn" onclick="execAiSceneAdd(\'\',window._execHint,false)">⬇ 맨 뒤에 추가</button>' +
+    recBodyWithPrompt,
+    '<button class="rp-btn" onclick="execAiSceneAdd(window._execRef,window._execHint,true,window._execUserPrompt)">✨ ' + escH(refLabel) + ' 뒤에 삽입 (AI 추천)</button>' +
+    '<button class="rp-btn" onclick="execAiSceneAdd(\'\',window._execHint,false,window._execUserPrompt)">⬇ 맨 뒤에 추가</button>' +
     '<button class="rp-btn" onclick="closeResponsePanel()">✕ 취소</button>'
   );
 }
 
-async function execAiSceneAdd(refScId, hintVal, useRef) {
+async function execAiSceneAdd(refScId, hintVal, useRef, userPrompt) {
   const scenes = S.cur?.scenes || [];
   const refSc = useRef ? scenes.find(s=>s.id==refScId) : null;
   const refLabel = refSc ? getSceneLabel(refSc, scenes) : '맨 끝';
+  const combinedHint = [hintVal, userPrompt].filter(Boolean).join(' / ');
   closeResponsePanel();
   window._aiInsertMode = 'after';
   window._insertOnly = true;
-  await handleAiSceneAdd(hintVal, refSc, refLabel, true);
+  await handleAiSceneAdd(combinedHint, refSc, refLabel, true);
 }
 
 async function handleAiSceneAdd(hint, forcedRefSc, forcedRefLabel, isInsertOnly) {
@@ -11161,14 +11581,16 @@ async function handleTitleChange(text) {
 
 // ── 빈 핸들러 제거 (위에서 중복 정의된 것) ──────────────────────────
 async function handleScriptPrompt(text) {
-  text = await normalizeSceneNums(text);
+  // 합치기 요청은 normalizeSceneNums 스킵 — "한 장면", "두 장면"이 SC1/SC2로 오변환됨
+  const _isMergeReq = /합쳐|합치|merge|씬.*합|두.*씬.*하나|하나로.*만들/.test(text);
+  if (!_isMergeReq) text = await normalizeSceneNums(text);
 
   // L4: selectedIds가 있고 텍스트에 SC번호 없으면 자동 주입
   // 단, 선택된 씬이 실제로 잠금 해제된 씬이 있을 때만 (오발동 방지)
-  if (S.selectedIds.size > 0 && !/SC\s*\d+/i.test(text) && S.cur?.scenes?.length) {
+  if (S.selectedIds.size > 0 && !/SC\s*\d+[\w-]*/i.test(text) && S.cur?.scenes?.length) {
     const validSel = [...S.selectedIds]
       .map(id => (S.cur.scenes||[]).find(s => s.id === id))
-      .filter(sc => sc && !sc.locked && !sc.draft);
+      .filter(sc => sc && !sc.locked);
     // 선택된 씬이 있고, 텍스트에 씬 제목 일부도 없을 때만 주입
     // (이미 제목이 텍스트에 있으면 normalizeSceneNums가 처리함)
     if (validSel.length > 0) {
@@ -11263,6 +11685,10 @@ async function handleScriptPrompt(text) {
   if (/중요 대사.*해제|keyline.*해제|중요대사.*해제/.test(text)) { await handleKeyline(text, false); return; }
   if (/몇 분|상연 시간|러닝타임|분짜리/.test(text)) { handleSceneTime(text); return; }
   if (/대사.*몇 줄|몇 줄.*대사|대사.*통계|줄 수/.test(text)) { handleDialogueStats(text); return; }
+  if (/참조해서|참고해서|바탕으로|토대로/.test(text) && /새.*씬|새.*장면|만들어|만들어줘/.test(text)) {
+    if (S.selectedIds.size < 2) { toast('참조할 씬을 먼저 선택해주세요.'); return; }
+    await handleRefSceneCreate(text); return;
+  }
   if (/씬.*추가|추가.*씬|새.*씬.*삽입|씬.*삽입|연결씬|전환씬|새 장면|AI.*씬|씬.*AI/.test(text)) { await handleSceneInsertPrompt(text); return; }
   if (/합쳐|합치|merge|통합.*씬|씬.*통합|씬.*합|두.*씬.*하나|하나로.*만들|하나의.*씬|씬.*합병/.test(text)) {
     // 씬이 2개 이상 선택된 상태이거나 SC번호가 2개 이상 명시된 경우 — 바로 merge
@@ -11319,6 +11745,9 @@ async function handleScriptPrompt(text) {
     _routeIsEdit = (_cmd === 'edit');
     // edit → 아래 편집 로직으로 계속
   }
+
+  // 플로 대화 참조 감지 — 함수 전체에서 사용 (청크 경로 포함)
+  const _floRefKw = /플로.*참고|플로.*제안|플로.*이야기|플로.*대화|위에서.*말한|앞에서.*얘기|플로.*선택|옵션.*방향/.test(text);
 
   // ── 1단계 키워드 감지 ────────────────────────────────────────────────
   // 대안 장면 교체
@@ -11507,7 +11936,11 @@ async function handleScriptPrompt(text) {
         const chunkMemoCtx = getChatMemos().length > 0
           ? '[핵심 결정사항 — 반드시 준수]\n' + getChatMemos().map(m=>'• '+m).join('\n') + '\n\n'
           : '';
-        const chunkSys = '당신은 대본 편집 AI입니다.\n\n' + chunkMemoCtx + '[전체 씬 목록 — 참조용]\n'+chunkFullList+'\n\n[편집 가능한 씬 데이터]\n' +
+        const chunkFloCtxRaw = _floRefKw ? getRecentFloContext() : '';
+        const chunkFloCtxBlock = chunkFloCtxRaw
+          ? '[플로 대화 — 작가의 최근 방향 결정]\n' + chunkFloCtxRaw + '\n위 대화의 결정사항과 방향을 편집에 반드시 반영하세요.\n\n'
+          : '';
+        const chunkSys = '당신은 대본 편집 AI입니다.\n\n' + chunkMemoCtx + chunkFloCtxBlock + '[전체 씬 목록 — 참조용]\n'+chunkFullList+'\n\n[편집 가능한 씬 데이터]\n' +
           '잠금(locked:true)된 줄과 중요 대사(keyline:true)는 절대 수정하지 마세요.\n' +
           '편집 시 반드시 <r>[{"sceneId":숫자,"title":"씬제목","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용","locked":false}],"comment":"변경사항 한 줄"}]</r> 형식으로 응답하세요.\n' +
           'sceneId를 모를 때는 title 필드에 씬 제목을 정확히 적으면 자동 매칭됩니다.';
@@ -11589,8 +12022,14 @@ async function handleScriptPrompt(text) {
     ? '\n[핵심 결정사항 — 반드시 준수]\n' + getChatMemos().map(m=>'• '+m).join('\n') + '\n\n'
     : '';
 
+  const floCtxRaw = _floRefKw ? getRecentFloContext() : '';
+  const floCtxBlock = floCtxRaw
+    ? '\n[플로 대화 — 작가의 최근 방향 결정]\n' + floCtxRaw + '\n위 대화의 결정사항과 방향을 편집에 반드시 반영하세요.\n\n'
+    : '';
+
   const sys = '당신은 대본 편집 AI입니다.\n\n' +
     memoCtxScript +
+    floCtxBlock +
     '[전체 씬 목록 — 참조용]\n' + fullSceneList + '\n\n' +
     '[편집 가능한 씬 데이터]\n' +
     '⚠️ 중요: 씬 데이터에 표시된 sceneId를 반드시 그대로 사용하세요. SC번호(1,2,3...)가 아닌 sceneId 숫자값을 그대로 써야 합니다.\n' +
