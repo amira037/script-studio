@@ -11265,7 +11265,10 @@ async function handleScriptPrompt(text) {
   if (/대사.*몇 줄|몇 줄.*대사|대사.*통계|줄 수/.test(text)) { handleDialogueStats(text); return; }
   if (/씬.*추가|추가.*씬|새.*씬.*삽입|씬.*삽입|연결씬|전환씬|새 장면|AI.*씬|씬.*AI/.test(text)) { await handleSceneInsertPrompt(text); return; }
   if (/합쳐|합치|merge|통합.*씬|씬.*통합|씬.*합|두.*씬.*하나|하나로.*만들|하나의.*씬|씬.*합병/.test(text)) {
-    // Haiku가 실제 합치기 요청인지 판단
+    // 씬이 2개 이상 선택된 상태이거나 SC번호가 2개 이상 명시된 경우 — 바로 merge
+    const _hasMergeTarget = S.selectedIds.size >= 2 || (text.match(/SC\s*\d+/gi)||[]).length >= 2;
+    if (_hasMergeTarget) { await handleSceneMerge(text); return; }
+    // 대상 불명확 — Haiku가 실제 합치기 요청인지 판단
     const _mergeIntentRaw = await callClaude(
       [{role:'user', content: '요청: "' + text + '"\n\n이것이 두 씬을 하나로 합치는 명령인가요, 아니면 편집/다듬기 요청인가요?'}],
       '반드시 <intent>merge</intent> 또는 <intent>edit</intent>만 응답하세요.',
@@ -12526,7 +12529,10 @@ function showNewSceneInsertPanel(scenesData, comment, refSc, refLabel, direction
       actsHTML += '<button class="rp-btn" onclick="window._doInsert(&quot;after&quot;)">↓ ' + escH(refLabel) + ' 뒤에 삽입</button>';
     }
   }
-  // 맨 뒤에 추가 — 제거
+  // 맨 뒤에 추가
+  if (!refSc) {
+    actsHTML += '<button class="rp-btn" style="background:var(--accent2);color:var(--accent);border-color:rgba(168,158,221,.3);" onclick="window._doInsert(\'end\')">+ 대본에 추가</button>';
+  }
   actsHTML += '<button class="rp-btn" onclick="closeResponsePanel()">✕ 취소</button>';
 
   window._aiInsertMode = null;
