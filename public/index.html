@@ -4225,7 +4225,26 @@ function renderNavSceneList() {
   const list = document.getElementById('nav-scene-list');
   if (!list || !S.cur) return;
   list.innerHTML = '';
-  (S.cur.scenes || []).forEach((sc, i) => {
+  // 네비게이터 표시 순서: 일반 씬 뒤에 해당 씬의 대안들을 바로 붙임 (배열 순서 무관)
+  const _draftsByParent = {};
+  (S.cur.scenes || []).forEach(sc => {
+    if (sc.draft && sc.draftOf) {
+      if (!_draftsByParent[sc.draftOf]) _draftsByParent[sc.draftOf] = [];
+      _draftsByParent[sc.draftOf].push(sc);
+    }
+  });
+  const _navDisplayOrder = [];
+  (S.cur.scenes || []).forEach(sc => {
+    if (!sc.draft) {
+      _navDisplayOrder.push(sc);
+      if (_draftsByParent[sc.id]) _draftsByParent[sc.id].forEach(d => _navDisplayOrder.push(d));
+    }
+  });
+  // 고아 대안 씬 (원본 없음) 맨 뒤에 추가
+  (S.cur.scenes || []).forEach(sc => {
+    if (sc.draft && !_navDisplayOrder.includes(sc)) _navDisplayOrder.push(sc);
+  });
+  _navDisplayOrder.forEach((sc, i) => {
     const item = document.createElement('div');
     // 갈등 강도 클래스
     const conflictEntry = (S.cur.conflictData?.scenes||[]).find(c => c.sceneId === sc.id);
@@ -4339,7 +4358,7 @@ function renderNavSceneList() {
       const div = () => { const d=document.createElement('div'); d.className='nav-ctx-divider'; menu.appendChild(d); };
 
       mkItem('+ 아래에 씬 삽입', 'pri', () => {
-        showInlineSceneAdd(sc.id, i+1, document.getElementById('nav-add-scene-anchor') || document.body);
+        showInlineSceneAdd(sc.id, (S.cur?.scenes||[]).indexOf(sc)+1, document.getElementById('nav-add-scene-anchor') || document.body);
         switchTab('script');
       });
       div();
@@ -5936,33 +5955,31 @@ async function compareDraftScene(draftId) {
 
   showAnalyzing('버전 비교 분석 중... 🔍');
 
-  // 갈등도 계산 (없는 버전만)
-  const needsScore = allVersions.filter(sc => getSceneSummary(sc).conflictScore == null);
-  if (needsScore.length > 0) {
-    try {
-      const vTexts = allVersions.map((sc, i) => {
-        const lbl = i === 0 ? '원본' : getSceneLabel(sc, scenes);
-        return lbl + ':\n' + (sc.lines||[]).map(l=>l.text).join(' ').slice(0, 250);
-      }).join('\n\n');
-      const raw = await callClaude(
-        [{role:'user', content: vTexts}],
-        '각 버전의 갈등 강도를 0~5로 평가하세요.\n반드시 <scores>[숫자,숫자,...]</scores> 형식으로 버전 순서대로 응답하세요.',
-        100, 'claude-haiku-4-5-20251001'
-      );
-      const scoresRaw = extractTag(raw, 'scores');
-      if (scoresRaw) {
-        const scoreArr = JSON.parse(scoresRaw);
-        allVersions.forEach((sc, i) => {
+  // 갈등도 계산 — 비교 시 항상 전체 재계산 (대안 씬은 전역 분석에서 제외되므로)
+  try {
+    const vTexts = allVersions.map((sc, i) => {
+      const lbl = i === 0 ? '원본' : getSceneLabel(sc, scenes);
+      return '[' + lbl + ']\n' + (sc.lines||[]).map(l=>l.text).join(' ').slice(0, 300);
+    }).join('\n\n');
+    const raw = await callClaude(
+      [{role:'user', content: '총 ' + allVersions.length + '개 버전:\n\n' + vTexts}],
+      '각 버전의 갈등 강도를 0~5 정수로 평가하세요.\n' +
+      '반드시 버전 개수와 동일한 개수의 숫자를 <scores>[숫자,숫자,...]</scores> 형식으로만 응답하세요. 설명 없이.',
+      120, 'claude-haiku-4-5-20251001'
+    );
+    const scoresRaw = extractTag(raw, 'scores');
+    if (scoresRaw) {
+      const scoreArr = JSON.parse(scoresRaw);
+      allVersions.forEach((sc, i) => {
+        if (scoreArr[i] != null) {
           const sum = getSceneSummary(sc);
-          if (sum.conflictScore == null && scoreArr[i] != null) {
-            sum.conflictScore = scoreArr[i];
-            sc.summary = { ...sum };
-          }
-        });
-        save(true);
-      }
-    } catch(e) { console.warn('conflict score error', e); }
-  }
+          sum.conflictScore = scoreArr[i];
+          sc.summary = { ...sum };
+        }
+      });
+      save(true);
+    }
+  } catch(e) { console.warn('conflict score error', e); }
 
   // 버전 내용 블록 구성
   const dots = n => '●'.repeat(Math.max(0, Math.round(n))) + '○'.repeat(Math.max(0, 5 - Math.round(n)));
@@ -6002,8 +6019,8 @@ async function compareDraftScene(draftId) {
     const cs = sum.conflictScore;
     return '<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg3);border-radius:var(--r);margin-bottom:4px;">' +
       '<span style="font-size:11px;font-weight:600;color:' + (i===0?'var(--text2)':'var(--accent)') + ';min-width:60px;">' + escH(lbl) + '</span>' +
-      '<span style="font-size:10px;color:var(--text3);">' + (cs != null ? dots(cs) + ' ' + cs + '점' : '—') + '</span>' +
-      '<span style="font-size:10px;color:var(--text3);">대사 ' + (sum.dialogueCount||0) + '줄</span>' +
+      '<span style="font-size:10px;color:' + (cs != null ? 'var(--text)' : 'var(--text3)') + ';">' + (cs != null ? dots(cs) + ' ' + cs + '점' : '—') + '</span>' +
+      '<span style="font-size:10px;color:var(--text2);">대사 ' + (sum.dialogueCount||0) + '줄</span>' +
       '</div>';
   }).join('');
 
@@ -6035,15 +6052,16 @@ async function compareDraftScene(draftId) {
 
   const bodyHTML = statsHTML + prosConsHTML;
 
-  // 버튼
-  let actsHTML =
-    '<button class="rp-btn" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);" ' +
-    'onclick="_rewriteFromPros(' + original.id + ')">✨ 선택한 장점으로 새로 쓰기</button>';
-  actsHTML += '<button class="rp-btn" onclick="_selectDraftVersion(' + original.id + ', null)">✓ 원본 유지</button>';
+  // 버튼 순서: [원본 유지] [대안 선택] [선택한 장점으로 새로 쓰기] [닫기]
+  let actsHTML = '<button class="rp-btn" style="background:rgba(93,202,165,.18);color:#5dcaa5;border-color:rgba(93,202,165,.45);font-weight:600;" ' +
+    'onclick="_selectDraftVersion(' + original.id + ', null)">✓ 원본 유지</button>';
   allDrafts.forEach(d => {
     const lbl = getSceneLabel(d, scenes);
-    actsHTML += '<button class="rp-btn" onclick="_selectDraftVersion(' + original.id + ', ' + d.id + ')">' + escH(lbl) + ' 선택</button>';
+    actsHTML += '<button class="rp-btn" style="background:rgba(168,158,221,.2);color:#afa9ec;border-color:rgba(168,158,221,.5);font-weight:600;" ' +
+      'onclick="_selectDraftVersion(' + original.id + ', ' + d.id + ')">' + escH(lbl) + ' 선택</button>';
   });
+  actsHTML += '<button class="rp-btn" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);" ' +
+    'onclick="_rewriteFromPros(' + original.id + ')">✨ 선택한 장점으로 새로 쓰기</button>';
   actsHTML += '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>';
 
   showResponsePanel('choice', '🔍 버전 비교', bodyHTML, actsHTML);
@@ -7828,10 +7846,11 @@ async function normalizeSceneNums(text) {
   if (!((hasNum && hasSceneCtx) || needsContentMatch)) return text;
 
   try {
-    const sceneList = scenes.map((s,i) => {
+    // draft 제외 + getSceneLabel 사용 (draft 포함 시 SC번호 어긋남 방지)
+    const sceneList = scenes.filter(s => !s.draft).map(s => {
       const slug = (s.lines||[]).find(l=>l.type==='slug')?.text || '';
       const chars = [...new Set((s.lines||[]).filter(l=>l.type==='character').map(l=>l.text))].join(', ');
-      return 'SC'+(i+1)+': "'+s.title+'"' + (slug?' ['+slug+']':'') + (chars?' ('+chars+')':'');
+      return getSceneLabel(s, scenes)+': "'+s.title+'"' + (slug?' ['+slug+']':'') + (chars?' ('+chars+')':'');
     }).join('\n');
 
     const raw = await callClaude(
@@ -10620,7 +10639,10 @@ async function handleSceneMerge(text) {
   // 씬 순서대로 정렬 + 인접 여부 판단
   targetScenes.sort((a,b) => scenes.indexOf(a) - scenes.indexOf(b));
   const idxs = targetScenes.map(s => scenes.indexOf(s));
-  const isConsecutive = idxs.every((idx,i) => i===0 || idx === idxs[i-1]+1);
+  // 같은 원본의 대안 씬끼리는 배열 위치 무관하게 연속으로 간주
+  const allSameSeries = targetScenes.every(s => s.draft) &&
+    new Set(targetScenes.map(s => s.draftOf)).size === 1;
+  const isConsecutive = allSameSeries || idxs.every((idx,i) => i===0 || idx === idxs[i-1]+1);
   const labels = targetScenes.map(s => getSceneLabel(s, scenes)).join(', ');
   const count = targetScenes.length;
 
@@ -11581,6 +11603,13 @@ async function handleTitleChange(text) {
 
 // ── 빈 핸들러 제거 (위에서 중복 정의된 것) ──────────────────────────
 async function handleScriptPrompt(text) {
+  // 참조해서 씬 만들기 — normalizeSceneNums 스킵 (이 두 장면 → SC1 같은 오변환 방지)
+  const _isRefReq = /참조해서|참고해서|바탕으로|토대로/.test(text) &&
+    /새.*씬|새.*장면|만들어|만들어줘|써줘|써 줘|씬.*써|장면.*써|작성/.test(text);
+  if (_isRefReq && S.selectedIds.size >= 2) {
+    await handleRefSceneCreate(text); return;
+  }
+
   // 합치기 요청은 normalizeSceneNums 스킵 — "한 장면", "두 장면"이 SC1/SC2로 오변환됨
   const _isMergeReq = /합쳐|합치|merge|씬.*합|두.*씬.*하나|하나로.*만들/.test(text);
   if (!_isMergeReq) text = await normalizeSceneNums(text);
@@ -11685,7 +11714,7 @@ async function handleScriptPrompt(text) {
   if (/중요 대사.*해제|keyline.*해제|중요대사.*해제/.test(text)) { await handleKeyline(text, false); return; }
   if (/몇 분|상연 시간|러닝타임|분짜리/.test(text)) { handleSceneTime(text); return; }
   if (/대사.*몇 줄|몇 줄.*대사|대사.*통계|줄 수/.test(text)) { handleDialogueStats(text); return; }
-  if (/참조해서|참고해서|바탕으로|토대로/.test(text) && /새.*씬|새.*장면|만들어|만들어줘/.test(text)) {
+  if (/참조해서|참고해서|바탕으로|토대로/.test(text) && /새.*씬|새.*장면|만들어|만들어줘|써줘|써 줘|씬.*써|장면.*써|작성/.test(text)) {
     if (S.selectedIds.size < 2) { toast('참조할 씬을 먼저 선택해주세요.'); return; }
     await handleRefSceneCreate(text); return;
   }
@@ -14512,13 +14541,17 @@ function renderConflictBody(body, data, skipChart) {
     body.appendChild(sumWrap);
   }
 
-  // 미니 차트 (SVG) — skipChart=true면 건너뜀
-  if (!skipChart && scenes.length > 0) {
+  // 미니 차트 (SVG) — skipChart=true면 건너뜀 / draft 씬 제외
+  const chartScenes = scenes.filter(s => {
+    const sc = (S.cur?.scenes||[]).find(x => x.id === s.sceneId);
+    return !sc?.draft;
+  });
+  if (!skipChart && chartScenes.length > 0) {
     const chartWrap = document.createElement('div');
     chartWrap.style.cssText = 'background:var(--bg3);border-radius:var(--r);padding:10px;margin-bottom:10px;cursor:pointer;';
     chartWrap.title = '클릭하여 확대';
     chartWrap.onclick = () => openConflictModal(data);
-    chartWrap.innerHTML = buildConflictChartSVG(scenes, 480, 110, true);
+    chartWrap.innerHTML = buildConflictChartSVG(chartScenes, 480, 110, true);
     const hint = document.createElement('div');
     hint.style.cssText = 'text-align:center;font-size:9px;color:#444;margin-top:4px;';
     hint.textContent = '클릭하여 확대 · 템플릿 비교';
@@ -14696,7 +14729,11 @@ function openConflictModal(data) {
 
   const rebuildChart = () => {
     chartArea.innerHTML = '';
-    const scenes = data.scenes||[];
+    // draft 씬 제외 (비교 중 갈등도가 저장됐어도 그래프에는 미표시)
+    const scenes = (data.scenes||[]).filter(s => {
+      const sc = (S.cur?.scenes||[]).find(x => x.id === s.sceneId);
+      return !sc?.draft;
+    });
     const n = scenes.length;
     const W = 480, H = 160;
     const pad = {l:32,r:16,t:16,b:24};
