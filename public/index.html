@@ -4320,7 +4320,7 @@ function renderNavSceneList() {
       '</div>' +
       '<div class="sc-nav-name" style="display:flex;align-items:center;gap:4px;">' + escH(sc.title) + diffDot + '</div>' +
       (slugTxt ? '<div class="sc-nav-slug">' + escH(slugTxt) + '</div>' : '') +
-      (sc.draft ? '<button onclick="event.stopPropagation();compareDraftScene(' + sc.id + ')" style="font-size:9px;padding:2px 6px;border-radius:3px;border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;margin-top:2px;">🔍 비교</button>' : '');
+      '';
     item.appendChild(info);
 
     // ── 잠금 아이콘 ──
@@ -5993,18 +5993,29 @@ async function compareDraftScene(draftId) {
   }).join('\n\n---\n\n');
 
   // AI 장단점 분석 — 구조화 응답
+  const _analysisLabels = allVersions.map((sc, i) => i === 0 ? '원본' : getSceneLabel(sc, scenes));
+  const _analysisSysPrompt =
+    '각 버전마다 장점 2~3개, 단점 1~2개를 분석하세요.\n' +
+    '반드시 아래 형식의 JSON 배열만 <analysis> 태그 안에 출력하세요. 설명·마크다운 일절 금지.\n' +
+    '<analysis>[{"label":"원본","pros":["장점1","장점2"],"cons":["단점1"]},' +
+    '{"label":"SC X-A","pros":["장점1"],"cons":["단점1"]}]</analysis>\n' +
+    '레이블은 반드시 ' + _analysisLabels.map(l => '"' + l + '"').join(', ') + ' 순서대로 사용하세요.';
   let parsedAnalysis = [];
-  try {
-    const raw = await callClaude(
-      [{role:'user', content: versionBlocks + '\n\n각 버전의 장단점을 분석해주세요.'}],
-      '각 버전마다 장점 2~3개, 단점 1~2개를 분석하세요.\n' +
-      '반드시 <analysis>[{"label":"버전레이블","pros":["장점1","장점2"],"cons":["단점1"]}]</analysis> 형식으로 응답하세요.\n' +
-      '레이블은 "원본", "SC 3-A" 등 정확히 사용하세요. 설명 없이 태그만.',
-      900
-    );
-    const analysisRaw = extractTag(raw, 'analysis');
-    if (analysisRaw) parsedAnalysis = JSON.parse(analysisRaw);
-  } catch(e) { console.warn('analysis parse error', e); }
+  let _analysisFailed = false;
+  for (let _retry = 0; _retry < 2; _retry++) {
+    try {
+      const raw = await callClaude(
+        [{role:'user', content: versionBlocks + '\n\n각 버전의 장단점을 분석해주세요.'}],
+        _analysisSysPrompt, 900
+      );
+      const analysisRaw = extractTag(raw, 'analysis');
+      if (analysisRaw) {
+        const parsed = JSON.parse(analysisRaw);
+        if (Array.isArray(parsed) && parsed.length > 0) { parsedAnalysis = parsed; break; }
+      }
+    } catch(e) { console.warn('analysis parse error', e); }
+    _analysisFailed = true;
+  }
 
   hideAnalyzing();
 
@@ -6047,7 +6058,10 @@ async function compareDraftScene(draftId) {
         '</div>';
     }).join('') + '</div>';
   } else {
-    prosConsHTML = '<div style="font-size:11px;color:var(--text3);margin-top:8px;padding:8px;background:var(--bg3);border-radius:var(--r);">분석 데이터를 파싱할 수 없습니다.</div>';
+    prosConsHTML = '<div style="font-size:11px;color:var(--text3);margin-top:8px;padding:8px;background:var(--bg3);border-radius:var(--r);display:flex;align-items:center;justify-content:space-between;">' +
+      '<span>장단점 분석을 불러오지 못했습니다.</span>' +
+      '<button onclick="closeResponsePanel();compareDraftScene(' + draftId + ')" style="font-size:10px;padding:3px 8px;border-radius:4px;border:1px solid var(--border2);background:none;color:var(--text2);cursor:pointer;">↺ 다시 시도</button>' +
+      '</div>';
   }
 
   const bodyHTML = statsHTML + prosConsHTML;
@@ -8038,7 +8052,6 @@ async function handleChatPrompt(text) {
     if (['write_multi', 'write_single', 'structure'].includes(_floIntent)) {
       if (!_hasChars) {
         _tagRule = '\n★ 씬 구조 제안 가능. <sequence_titles> 또는 <newscenes> 사용 가능.';
-        _floExtraActions = [{ type:'onboardingCharacter', label:'👤 인물 설정하기', style:'' }];
       } else {
         _tagRule = '\n★ 씬 구조를 적극 제안하세요. <sequence_titles> 또는 <newscenes> 사용.';
       }
@@ -9690,6 +9703,7 @@ async function haikusRoute(text) {
     '- 씬 추가/삽입 → insert\n' +
     '- 다음 이야기/이후 전개/시퀀스 제안/어떻게 이어지면 → sequence_suggest\n' +
     '- 막혔어/모르겠어/아이디어없어/어떡하지/새로시작 → stuck\n' +
+    '- 인물의 대사/행동/말투/태도 변경 또는 제약 요청 → edit\n' +
     '- 방향/아이디어/전략/조언 → brainstorm\n' +
     '- 그 외 편집 → edit\n' +
     '반드시 <cmd>명령어</cmd> 형식으로만 응답하세요.',
@@ -10594,16 +10608,20 @@ async function handleSceneMerge(text) {
   if (!S.cur) return;
   const scenes = S.cur.scenes || [];
 
-  // 대상 씬 수집
-  const scPat = /SC\s*(\d+)/gi;
-  const nums = [];
+  // 대상 씬 수집 — "SC 3-A" 형태 포함해서 추출
+  const scPat = /SC\s*(\d+(?:-[A-Za-z])?)/gi;
+  const scLabels = [];
   let m;
-  while ((m = scPat.exec(text)) !== null) nums.push(parseInt(m[1]));
+  while ((m = scPat.exec(text)) !== null) {
+    const lbl = 'SC ' + m[1].toUpperCase().replace(/\s+/g, '');
+    if (!scLabels.includes(lbl)) scLabels.push(lbl);
+  }
 
   let targetScenes = [];
-  if (nums.length >= 2) {
-    targetScenes = nums.map(n => scenes.find(s => getSceneLabel(s,scenes) === 'SC '+n)).filter(Boolean);
-  } else if (S.selectedIds.size >= 2) {
+  if (scLabels.length >= 2) {
+    targetScenes = scLabels.map(lbl => scenes.find(s => getSceneLabel(s,scenes) === lbl)).filter(Boolean);
+  }
+  if (targetScenes.length < 2 && S.selectedIds.size >= 2) {
     targetScenes = scenes.filter(s => S.selectedIds.has(s.id));
   }
 
@@ -10625,6 +10643,16 @@ async function handleSceneMerge(text) {
     return;
   }
 
+  // selectedIds 기준 같은 계열 대안 씬 여부 — targetScenes 빌드 오류 보완용
+  // hasDraft/hasNormal 체크 전에 먼저 수행해야 오발 방지
+  const _selScenes = scenes.filter(s => S.selectedIds.has(s.id));
+  const _selSameSeries = _selScenes.length >= 2 &&
+    _selScenes.every(s => s.draft) &&
+    new Set(_selScenes.map(s => s.draftOf)).size === 1 &&
+    [...new Set(_selScenes.map(s => s.draftOf))][0] != null;
+  // selectedIds가 같은 계열 대안이면 targetScenes를 selectedIds 기준으로 교체
+  if (_selSameSeries) targetScenes = _selScenes;
+
   // ── 대안+일반 혼합 방지 ──────────────────────────────────────────────
   const hasDraft = targetScenes.some(s => s.draft);
   const hasNormal = targetScenes.some(s => !s.draft);
@@ -10641,8 +10669,9 @@ async function handleSceneMerge(text) {
   const idxs = targetScenes.map(s => scenes.indexOf(s));
   // 같은 원본의 대안 씬끼리는 배열 위치 무관하게 연속으로 간주
   const allSameSeries = targetScenes.every(s => s.draft) &&
-    new Set(targetScenes.map(s => s.draftOf)).size === 1;
-  const isConsecutive = allSameSeries || idxs.every((idx,i) => i===0 || idx === idxs[i-1]+1);
+    new Set(targetScenes.map(s => s.draftOf)).size === 1 &&
+    [...new Set(targetScenes.map(s => s.draftOf))][0] != null;
+  const isConsecutive = allSameSeries || _selSameSeries || idxs.every((idx,i) => i===0 || idx === idxs[i-1]+1);
   const labels = targetScenes.map(s => getSceneLabel(s, scenes)).join(', ');
   const count = targetScenes.length;
 
@@ -11875,6 +11904,7 @@ async function handleScriptPrompt(text) {
       '- 씬 순서 재배치 → reorder\n' +
       '- 씬 추가/삽입 → insert\n' +
       '- 대사/씬/편집/분석/수정/추가/삭제/흐름/연결/통계/조회 관련 → edit\n' +
+      '- 인물의 대사/행동/말투/태도 변경 또는 제약 요청 ("이렇게 말했으면", "이렇게 행동하면 안 된다" 등) → edit\n' +
       '- 방향/아이디어/전략/어떻게 하면/의견/조언/논의 → brainstorm\n' +
       '반드시 <intent>명령어</intent> 형식으로만 응답하세요.',
       30, 'claude-haiku-4-5-20251001'
