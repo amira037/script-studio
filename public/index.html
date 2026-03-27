@@ -8107,7 +8107,6 @@ async function handleChatPrompt(text) {
     if (!displayText) displayText = '생성이 완료됐습니다.';
 
     const actions = [];
-    if (synopsisData) actions.push({ type:'saveSynopsis', data:synopsisData, label:'📋 시놉시스로 저장', style:'green' });
     if (seqTitlesData && Array.isArray(seqTitlesData) && seqTitlesData.length > 0) {
       actions.push({ type:'approveSequence', data:seqTitlesData, label:'✨ 이 구조로 씬 만들기 (' + seqTitlesData.length + '개)', style:'purple' });
     }
