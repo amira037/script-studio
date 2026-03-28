@@ -1002,6 +1002,19 @@ textarea, input { font-family:var(--fb); }
 }
 .prompter-inp:focus { border-color:var(--accent2); }
 .prompter-inp::placeholder { color:var(--text3); font-size:13px; }
+.prompter-mic {
+  width:34px; height:34px; border-radius:var(--r);
+  background:var(--bg3); border:1px solid var(--border2);
+  font-size:15px; flex-shrink:0; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  transition:background .2s, border-color .2s;
+}
+.prompter-mic:hover { background:var(--bg4); }
+.prompter-mic.recording {
+  background:rgba(224,96,96,.2); border-color:var(--red);
+  animation:mic-pulse .8s ease-in-out infinite alternate;
+}
+@keyframes mic-pulse { from{opacity:.7} to{opacity:1} }
 .prompter-send {
   width:38px; height:38px; border-radius:var(--r);
   background:var(--accent); color:#0e0e10; border:none;
@@ -1519,6 +1532,7 @@ function closeResponsePanel() {
             placeholder="라인에게 씬 수정, 추가, 분석을 지시하세요"
             onkeydown="onPromptKey(event)"
             oninput="autoResize(this); if(this.value) detectSceneNumbers(this.value);"></textarea>
+          <button class="prompter-mic" id="prompter-mic" onclick="toggleVoiceInput()" title="음성 입력">🎤</button>
           <button class="prompter-send" id="prompter-send" onclick="sendPrompt()">↑</button>
         </div>
       </div>
@@ -1840,7 +1854,10 @@ const storage = {
   set(key, val) {
     // admin은 로컬 저장 및 Supabase 업로드 안 함
     if (IS_ADMIN) return;
-    try { localStorage.setItem(_storageKey(key), JSON.stringify(val)); } catch(e) { console.warn('Storage error', e); }
+    try {
+      localStorage.setItem(_storageKey(key), JSON.stringify(val));
+      if (key === 'ss_projects') localStorage.setItem(_storageKey('ss_local_save_time'), String(Date.now()));
+    } catch(e) { console.warn('Storage error', e); }
     if (key === 'ss_projects') syncToSupabase(val).catch(e => console.warn('Supabase sync failed', e));
   },
   del(key) { localStorage.removeItem(_storageKey(key)); }
@@ -1893,10 +1910,14 @@ async function syncFromSupabase(force = false) {
       remoteTime = new Date(rows[0].updated_at || 0).getTime();
     }
     if (!Array.isArray(remote) || !remote.length) return false;
-    if (IS_ADMIN || force) {
+    // 로컬 저장 시간이 원격보다 더 최신이면 override 스킵 (빠른 종료로 Supabase sync 미완료된 경우)
+    const localSaveTime = parseInt(localStorage.getItem(_storageKey('ss_local_save_time')) || '0');
+    const remoteIsNewer = remoteTime >= localSaveTime - 3000; // 3초 여유 (네트워크 지연 고려)
+    if (IS_ADMIN || (force && remoteIsNewer)) {
       // admin은 로컬 저장 없이 메모리에만
       if (!IS_ADMIN) {
         localStorage.setItem(_storageKey('ss_projects'), JSON.stringify(remote));
+        localStorage.setItem(_storageKey('ss_local_save_time'), String(remoteTime));
       }
       S.projects = remote;
       _syncReady = true; // pull 완료 — 이제 save() 허용
@@ -1908,6 +1929,11 @@ async function syncFromSupabase(force = false) {
       const msg = IS_ADMIN ? '✓ ADMIN — 전체 ' + remote.length + '개 프로젝트 (읽기 전용)' : '✓ 클라우드에서 불러옴 (' + remote.length + '개)';
       updateSyncStatus(msg);
       toast(msg, 3000);
+    } else if (force && !remoteIsNewer) {
+      // 로컬이 더 최신 — override 스킵, 로컬 데이터로 Supabase 업데이트
+      _syncReady = true;
+      syncToSupabase(S.projects).catch(e => console.warn('Re-sync to Supabase failed', e));
+      updateSyncStatus('✓ 로컬 데이터가 최신 — 클라우드에 업로드');
     }
     return true;
   } catch(e) {
@@ -2808,22 +2834,90 @@ function _confirmCharAdd(panelId, detectedChars) {
   }
 }
 
+// v42: 시놉시스 감지 토스트 (채팅 버블 없이 토스트만)
+let _synopsisToastTimer = null;
+function showSynopsisDetectToast(synopsisText) {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  clearTimeout(_synopsisToastTimer);
+  el.innerHTML =
+    '<span>📋 시놉시스 감지됨</span>' +
+    '<button class="toast-undo-btn" style="margin-left:8px;" onclick="openSynopsisPreviewPanel(decodeURIComponent(\'' + encodeURIComponent(synopsisText) + '\'))">시놉시스 저장</button>' +
+    '<button class="toast-undo-btn" style="margin-left:4px;opacity:.6;" onclick="this.closest(\'#toast\').classList.remove(\'show\')">나중에</button>';
+  el.classList.add('show');
+  _synopsisToastTimer = setTimeout(() => el.classList.remove('show'), 7000);
+}
+function openSynopsisPreviewPanel(synopsisText) {
+  const el = document.getElementById('toast');
+  if (el) el.classList.remove('show');
+  const previewHtml = '<div style="font-size:13px;line-height:1.75;white-space:pre-wrap;color:var(--text);max-height:280px;overflow-y:auto;">' + escH(synopsisText) + '</div>';
+  showResponsePanel('comment', '📋 시놉시스 미리보기', previewHtml,
+    '<button class="rp-btn" style="background:var(--accent);color:#0e0e10;font-weight:600;" onclick="saveSynopsisFromPanel(decodeURIComponent(\'' + encodeURIComponent(synopsisText) + '\'))">✓ 저장</button>' +
+    '<button class="rp-btn" onclick="regenSynopsisInPanel()">✦ 다시 생성</button>' +
+    '<button class="rp-btn" onclick="closeResponsePanel()">취소</button>'
+  );
+}
+async function saveSynopsisFromPanel(synopsisText) {
+  closeResponsePanel();
+  if (!S.cur) return;
+  const isFirst = !S.cur.synopsis;
+  S.cur.synopsis = synopsisText;
+  save();
+  toast('✓ 시놉시스 저장됨');
+  if (isFirst) suggestNextOnboardingStep('synopsis_saved');
+  // 미등록 인물 감지
+  try {
+    const existingNames = new Set((S.cur.characters||[]).map(c=>c.name));
+    const raw = await callClaude(
+      [{role:'user', content:'시놉시스:\n' + synopsisText}],
+      '시놉시스에서 등장인물 이름만 추출하세요. 반드시 <names>["이름1","이름2"]</names> 형식으로만.',
+      200, 'claude-haiku-4-5-20251001'
+    );
+    const namesRaw = extractTag(raw, 'names');
+    let names = []; try { names = JSON.parse(namesRaw||'[]'); } catch {}
+    const newNames = names.filter(n => n && !existingNames.has(n));
+    if (newNames.length > 0) {
+      addMsg('assistant', `${newNames.length}명의 새 인물이 감지됐어요.`, [
+        { type:'addCharacterFromChat', data: newNames.map(n=>({name:n,role:'',description:'',traits:[]})), label:'👤 등장인물 추가', style:'amber' },
+        { type:'dismiss', label:'나중에', style:'' }
+      ]);
+    }
+  } catch(e) {}
+}
+async function regenSynopsisInPanel() {
+  closeResponsePanel();
+  const synopsis = S.cur?.synopsis || '';
+  showTyping();
+  try {
+    const raw = await callClaude(
+      [{role:'user', content:'다음 시놉시스를 더 자연스럽게 다시 써줘:\n' + synopsis}],
+      '창작 대본 시놉시스를 개선하세요. <synopsis>내용</synopsis> 형식으로만.',
+      800
+    );
+    hideTyping();
+    const newSyn = extractTag(raw, 'synopsis');
+    if (newSyn) openSynopsisPreviewPanel(newSyn);
+    else toast('재생성 실패, 다시 시도해주세요.');
+  } catch(e) { hideTyping(); toast('오류: ' + e.message); }
+}
+
 function floDetectContent(raw, displayText) {
   if (!S.cur || S.activeTab !== 'chat') return;
 
-  const charRaw = extractTag(raw, 'character');
-  if (charRaw) {
-    let charData = null;
-    try { charData = JSON.parse(charRaw); } catch {}
-    if (charData && charData.name) {
+  // 모든 <character> 태그 추출 (extractTag는 첫 번째만 반환하므로 matchAll 사용)
+  const allCharMatches = [...(raw.matchAll(/<character[^>]*>([\s\S]*?)<\/character>/gi))];
+  if (allCharMatches.length > 0) {
+    const newCharsToAdd = [];
+    for (const m of allCharMatches) {
+      let charData = null;
+      try { charData = JSON.parse(m[1].trim()); } catch {}
+      if (!charData || !charData.name) continue;
       const newTraits = [...(charData.traits||[])];
       if (charData.gender && !newTraits.includes(charData.gender)) newTraits.unshift(charData.gender);
-
       const existing = findCharByName(charData.name)
         || (S.cur.characters||[]).find(c => c.name === charData.name);
-
       if (!existing) {
-        showCharacterAddPanel([{
+        newCharsToAdd.push({
           name: charData.name,
           lastName: charData.lastName || '',
           firstName: charData.firstName || charData.name,
@@ -2831,7 +2925,7 @@ function floDetectContent(raw, displayText) {
           role: charData.role || '',
           description: charData.description || '',
           traits: newTraits,
-        }]);
+        });
       } else {
         const existingTraits = existing.traits || [];
         const conflicts = detectTraitConflicts(existingTraits, newTraits);
@@ -2841,7 +2935,6 @@ function floDetectContent(raw, displayText) {
         const hasNewNameFields = (charData.lastName && !existing.lastName)
           || (charData.firstName && !existing.firstName)
           || (charData.title && !existing.title);
-
         if (conflicts.length) {
           showContentToastRich('⚠️', `${existing.name} 속성 충돌`, '✦ 속성 변경', () => {
             conflicts.forEach(c => {
@@ -2868,9 +2961,10 @@ function floDetectContent(raw, displayText) {
         }
       }
     }
+    if (newCharsToAdd.length > 0) showCharacterAddPanel(newCharsToAdd);
   }
 
-  if (!charRaw) {
+  if (allCharMatches.length === 0) {
     const charNames = (S.cur.characters||[]).map(c => c.name).filter(Boolean);
     const hasCharSection = /(?:캐릭터|인물)\s*(?:설정|특징|정보)\s*[:：]|의\s*과거\s*[:：]|의\s*성격\s*[:：]/.test(displayText);
     const mentionedChar = charNames.find(n => displayText.includes(n) && hasCharSection);
@@ -2883,9 +2977,7 @@ function floDetectContent(raw, displayText) {
 
   const synopsisRaw = extractTag(raw, 'synopsis');
   if (synopsisRaw && synopsisRaw.length > 20) {
-    showContentToast('📋', '시놉시스 감지됨', '시놉시스 저장', () => {
-      handleMsgAction({ type:'saveSynopsisWithSequence', data: synopsisRaw });
-    });
+    showSynopsisDetectToast(synopsisRaw);
   }
 
   const settingRaw = extractTag(raw, 'setting_update');
@@ -4075,11 +4167,13 @@ function saveProjEdit() {
   if (!S.cur) return;
   const title = document.getElementById('pe-title').value.trim();
   const medium = document.getElementById('pe-medium').value;
+  // DOM의 현재 pill 전체를 genreTags로 동기화
+  const wrap = document.getElementById('pe-tags-wrap');
+  S.cur.genreTags = [...wrap.querySelectorAll('.genre-tag-pill')].map(el => el.dataset.tag).filter(Boolean);
   // 인풋에 입력 중인 태그도 저장
   const tagInp = document.getElementById('pe-tag-inp');
   const pendingTag = tagInp.value.trim();
-  if (pendingTag && !(S.cur.genreTags || []).includes(pendingTag)) {
-    if (!S.cur.genreTags) S.cur.genreTags = [];
+  if (pendingTag && !S.cur.genreTags.includes(pendingTag)) {
     S.cur.genreTags.push(pendingTag);
     tagInp.value = '';
   }
@@ -7009,6 +7103,7 @@ function updateStreamBubble(text) {
     .replace(/<editscenes>[\s\S]*?<\/editscenes>/gi, '')
     .replace(/<choices>[\s\S]*?<\/choices>/gi, '')
     .replace(/<multichoices>[\s\S]*?<\/multichoices>/gi, '')
+    .replace(/<survey>[\s\S]*?<\/survey>/gi, '')
     .replace(/<suggest>[\s\S]*?<\/suggest>/gi, '')
     .replace(/<setting_update>[\s\S]*?<\/setting_update>/gi, '')
     .trim();
@@ -7029,6 +7124,9 @@ function handleMsgAction(action) {
     showSmartSceneAddPanel(action.data);
   } else if (action.type === 'approveSequence') {
     showApproveSequencePanel(action.data);
+  } else if (action.type === 'continueChatAfterSeq') {
+    // 씬 만들기 없이 계속 채팅 — 서베이 답변으로 AI와 자연스럽게 이어가기
+    handleChatPrompt('방금 답변을 반영해서 이야기를 계속 발전시켜줘');
   } else if (action.type === 'pickSceneIdea') {
     showSceneIdeaCards(action.data);
   } else if (action.type === 'addCharacters') {
@@ -7439,6 +7537,75 @@ async function sendPrompt() {
 }
 
 // ═══════════════════════════════════════════
+// v42: VOICE INPUT — Web Speech API (ko-KR)
+// ═══════════════════════════════════════════
+let _voiceRecognition = null;
+let _voiceActive = false;
+
+function toggleVoiceInput() {
+  const micBtn = document.getElementById('prompter-mic');
+  if (!micBtn) return;
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    toast('이 브라우저는 음성 입력을 지원하지 않습니다', 3000);
+    return;
+  }
+
+  if (_voiceActive) {
+    _voiceRecognition?.stop();
+    return;
+  }
+
+  const recognition = new SpeechRecognition();
+  recognition.lang = 'ko-KR';
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
+  recognition.continuous = false;
+  _voiceRecognition = recognition;
+  _voiceActive = true;
+  micBtn.classList.add('recording');
+  micBtn.title = '음성 인식 중... (클릭하여 중지)';
+
+  const inp = document.getElementById('prompter-inp');
+  const prevText = inp?.value || '';
+  let finalTranscript = '';
+
+  recognition.onresult = (e) => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) finalTranscript += t;
+      else interim = t;
+    }
+    if (inp) {
+      inp.value = prevText + finalTranscript + interim;
+      autoResize(inp);
+    }
+  };
+
+  recognition.onend = () => {
+    _voiceActive = false;
+    _voiceRecognition = null;
+    if (micBtn) { micBtn.classList.remove('recording'); micBtn.title = '음성 입력'; }
+    if (inp && finalTranscript.trim()) {
+      inp.value = prevText + finalTranscript.trim();
+      autoResize(inp);
+      inp.focus();
+    }
+  };
+
+  recognition.onerror = (e) => {
+    _voiceActive = false;
+    _voiceRecognition = null;
+    if (micBtn) { micBtn.classList.remove('recording'); micBtn.title = '음성 입력'; }
+    if (e.error !== 'aborted') toast('음성 인식 오류: ' + e.error, 2500);
+  };
+
+  recognition.start();
+}
+
+// ═══════════════════════════════════════════
 // BRAINSTORM CHAT
 // ═══════════════════════════════════════════
 // ═══════════════════════════════════════════
@@ -7766,16 +7933,20 @@ function getRecentFloContext(maxMsgs = 12) {
   }).join('\n');
 }
 
+// v42: 마지막 자동 저장 이후 AI 응답 글자수 카운터
+let _memoAccumChars = 0;
+const MEMO_TRIGGER_CHARS = 800; // 이 글자수 누적 시 자동 추출
+
 async function autoExtractMemoFromHistory() {
   if (!S.cur) return;
-  // J12: 최근 10개 메시지에서 결정사항 추출 → 미리보기 후 저장
-  const msgs = (S.cur.messages||[]).slice(-10);
+  // 최근 AI 메시지에서 결정사항 추출 → 자동으로 chatMemosStructured에 병합 저장
+  const msgs = (S.cur.messages||[]).slice(-12);
   const aiMsgs = msgs.filter(m => m.role === 'assistant'
     && m.text?.length > 50
-    && !m._isFlowPanel && !m._isDetectPanel);
+    && !m._isFlowPanel && !m._isDetectPanel && !m._isLineLog);
   if (aiMsgs.length < 2) return;
 
-  const combined = aiMsgs.map(m => cleanDisplayText(m.text)).join('\n\n').slice(0, 1500);
+  const combined = aiMsgs.map(m => cleanDisplayText(m.text)).join('\n\n').slice(0, 2000);
   try {
     const sys = '대본 창작 대화에서 결정사항을 4가지 카테고리로 분류하세요.\n' +
       '반드시: <organized>{"setting":["항목"],"characters":["항목"],"story":["항목"],"twist":["항목"]}</organized>\n' +
@@ -7789,20 +7960,35 @@ async function autoExtractMemoFromHistory() {
     let organized;
     try { organized = JSON.parse(organizedRaw); } catch { return; }
 
-    // 새로운 항목이 있는지 확인
-    const allNew = Object.values(organized).flat().filter(Boolean);
+    // 새로운 항목만 필터
     const existingAll = getChatMemos();
+    const allNew = Object.values(organized).flat().filter(Boolean);
     const trulyNew = allNew.filter(m => !existingAll.some(e => e.includes(m.slice(0,10))));
-    if (!trulyNew.length) return;
+    if (!trulyNew.length) { _memoAccumChars = 0; return; }
 
-    // 미리보기 버튼으로 제안 (자동 저장 안 함)
-    addMsg('assistant',
-      `💬 대화에서 결정사항 ${trulyNew.length}개를 발견했어요. 저장할까요?`,
-      [
-        { type:'memoPreviewSave', data:{ organized }, label:'📌 미리보기 후 저장', style:'amber' },
-        { type:'dismiss', label:'건너뛰기', style:'' }
-      ]
-    );
+    // chatMemosStructured에 자동 병합 저장
+    if (!S.cur.chatMemosStructured) S.cur.chatMemosStructured = { setting:[], characters:[], story:[], twist:[] };
+    ['setting','characters','story','twist'].forEach(cat => {
+      const newItems = (organized[cat]||[]).filter(Boolean);
+      const bucket = S.cur.chatMemosStructured[cat];
+      newItems.forEach(item => {
+        if (!bucket.some(e => e.includes(item.slice(0,10)))) bucket.push(item);
+      });
+    });
+    _memoAccumChars = 0;
+    save();
+    renderChatMemoWrap?.();
+
+    // 미리보기 토스트 — 새로 추가된 항목 표시
+    const previewText = trulyNew.slice(0,3).map(t => '• ' + t).join('\n') + (trulyNew.length > 3 ? '\n외 ' + (trulyNew.length-3) + '개' : '');
+    const toastEl = document.getElementById('toast');
+    if (toastEl) {
+      toastEl.innerHTML = '<span style="white-space:pre-line;">📌 결정사항 정리됨\n' + escH(previewText) + '</span>' +
+        '<button class="toast-undo-btn" onclick="openMemoPanel()">전체 보기</button>';
+      toastEl.classList.add('show');
+      clearTimeout(window._memoToastTimer);
+      window._memoToastTimer = setTimeout(() => toastEl.classList.remove('show'), 6000);
+    }
   } catch(e) { console.warn('auto memo failed', e); }
 }
 
@@ -7813,13 +7999,23 @@ async function autoExtractMemoFromHistory() {
 async function buildCompressedHistory() {
   if (!S.cur) return [];
   const msgs = S.cur.messages || [];
-  if (msgs.length <= 15) {
-    return msgs.slice(-10).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
+  // 최신 메시지부터 역순으로 글자수 누적 — 4000자 이내에서 최대한 포함
+  const TARGET_CHARS = 4000;
+  let charCount = 0;
+  let cutIndex = msgs.length;
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const len = (msgs[i].text || '').length;
+    if (charCount + len > TARGET_CHARS) { cutIndex = i + 1; break; }
+    charCount += len;
+    cutIndex = i;
   }
-  // 오래된 메시지 압축
-  const old = msgs.slice(0, msgs.length - 10);
-  const recent = msgs.slice(-10);
-  const oldText = old.map(m => (m.role === 'user' ? '사용자: ' : 'AI: ') + m.text).join('\n').slice(0, 2000);
+  const recent = msgs.slice(cutIndex);
+  const old = msgs.slice(0, cutIndex);
+  if (!old.length) {
+    return recent.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
+  }
+  // 오래된 부분 압축 요약
+  const oldText = old.map(m => (m.role === 'user' ? '사용자: ' : 'AI: ') + m.text).join('\n').slice(0, 3000);
   let summary = '';
   try {
     const raw = await callClaude(
@@ -7829,11 +8025,10 @@ async function buildCompressedHistory() {
     );
     summary = raw.replace(/<[^>]+>/g, '').trim();
   } catch(e) { summary = '(이전 대화 참조)'; }
-  const compressed = [
+  return [
     { role: 'assistant', content: '[이전 대화 요약] ' + summary },
     ...recent.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }))
   ];
-  return compressed;
 }
 
 // ── 씬 번호 정규화 ────────────────────────────────────────────────────
@@ -7882,6 +8077,36 @@ async function normalizeSceneNums(text) {
   } catch(e) { return text; }
 }
 
+/// v42: 웹 검색 핸들러 (handleChatPrompt의 try 블록 내에서 호출됨)
+async function handleWebSearch(text) {
+  // showTyping()은 handleChatPrompt에서 이미 호출됨
+  // 검색 쿼리 추출
+  const queryRaw = await callClaude(
+    [{ role:'user', content: text }],
+    '사용자의 검색 요청에서 핵심 검색 쿼리를 한국어로 추출해주세요. 쿼리만 반환하세요.',
+    100, 'claude-haiku-4-5-20251001'
+  );
+  const query = queryRaw.trim();
+  // web_search 툴 사용해서 검색
+  const body = {
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1500,
+    system: '당신은 대본 작가를 돕는 리서치 어시스턴트입니다. 웹 검색 결과를 바탕으로 창작에 도움이 되는 정보를 간결하게 정리해 주세요. 한국어로 답변하세요.',
+    messages: [{ role:'user', content: query }],
+    tools: [{ type:'web_search_20250305', name:'web_search', max_uses: 3 }]
+  };
+  const resp = await fetch('/api/claude', {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!resp.ok) throw new Error('검색 API 오류 (' + resp.status + ')');
+  const data = await resp.json();
+  const resultText = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+  hideTyping();
+  addMsg('assistant', resultText || '검색 결과를 가져오지 못했습니다.');
+}
+
 async function floRoute(text) {
   const raw = await callClaude(
     [{role:'user', content:'요청: "' + text + '"'}],
@@ -7900,6 +8125,15 @@ async function floRoute(text) {
 async function handleChatPrompt(text) {
   text = await normalizeSceneNums(text);
   switchTab('chat');
+  // P1: pending approveSequence → 자연어로 버튼 실행
+  {
+    const _lastActMsg = (S.cur?.messages||[]).filter(m => m.role === 'assistant' && m.actions?.length).at(-1);
+    const _pendingApprove = _lastActMsg?.actions?.find(a => a.type === 'approveSequence');
+    if (_pendingApprove && /써\s*줘|만들어|진행해|시작해|해\s*줘|생성해|추가해|등록해|그렇게|좋아|ㅇㅇ|만들어\s*줘|작성해|부탁해/.test(text)) {
+      handleMsgAction(_pendingApprove);
+      return;
+    }
+  }
   showTyping();
   try {
     // 씬/대사/분석 관련 — Haiku 라우터
@@ -7909,6 +8143,10 @@ async function handleChatPrompt(text) {
 
     // 막혔어 → 즉시 분기 패널
     if (_stuckKw) { hideTyping(); showStuckPanel(); return; }
+    // v42: 웹 검색 키워드
+    if (/검색해\s*줘|찾아봐\s*줘|알아봐\s*줘|검색해\s*봐|찾아봐|알아봐/.test(text)) {
+      await handleWebSearch(text); return;
+    }
     // 시퀀스 제안 키워드
     if (_seqKw && (S.cur?.scenes||[]).length > 0) { hideTyping(); showSequenceSuggestPanel(); return; }
 
@@ -7980,10 +8218,16 @@ async function handleChatPrompt(text) {
     const sys = '당신은 창작 대본 작업을 돕는 전문 작가 AI입니다.\n' + ctx + memoCtx + dynamicCtx + '\n\n' +
       '응답 규칙:\n' +
       '- 자연스러운 한국어 대화체로 답변하세요.\n' +
+      '- 일반 대화 응답은 200자 이내. 구조화 정보(인물 설정, 시놉시스 요약, 구조 등)는 500자 이내.\n' +
+      '  단, 시놉시스/구조/설정 전문 작성 요청 또는 "자세히" 요청 시 길이 제한 없음.\n' +
+      '- 질문은 한 응답에 최대 3개 이하. 질문 선택 우선순위: ①주제/세계관 ②갈등구조 ③인물 ④장면/톤.\n' +
+      '  우선순위는 질문 선택 기준일 뿐, 사용자를 순서대로 유도하지 말 것.\n' +
+      '- 모든 경우 2라운드 이하로 추가질문 루프 금지. 미확정 설정은 AI가 자율 판단해서 채울 것.\n' +
       '- 항목이 여러 개면 번호(1. 2. 3.) 또는 대시(-)로 구분하세요.\n' +
       '- 단락 사이는 빈 줄로 구분하세요.\n' +
       '- **볼드** 마크다운, ### 소제목 사용 금지.\n' +
-      '- 명확화가 필요하면: 단일 선택은 <choices>["1. 선택지","2. 선택지"]</choices>, 복수 선택은 <multichoices>["1. 선택지","2. 선택지"]</multichoices>\n' +
+      '- 작가의 선택이 필요할 때: 질문 하나면 <choices>["선택지1","선택지2","선택지3"]</choices>, 복수 선택 가능하면 <multichoices>["선택지1","선택지2"]</multichoices>.\n' +
+      '  여러 질문(2~3개)이 있을 때는 반드시 <survey>[{"q":"질문","type":"choice","options":["옵션1","옵션2"]},{"q":"질문","type":"text"}]</survey> 사용 — 질문만 나열하지 말고 반드시 태그로 구조화하세요.\n' +
       '- 특정 씬 수정이 필요하면 응답 마지막에 <editscenes>SC번호들(쉼표구분)</editscenes> 태그 추가\n' +
       '- 씬 삭제 제안: <deletescene>SC번호</deletescene>\n' +
       '- 씬 이동 제안: <movescene>SC번호→위치설명</movescene>\n' +
@@ -8090,9 +8334,13 @@ async function handleChatPrompt(text) {
     const reorderRaw = extractTag(raw, 'reorderscenes');
     const multichoicesRaw = extractTag(raw, 'multichoices');
     const choicesRaw = extractTag(raw, 'choices'); // L8: 단일 선택지 파싱
+    const surveyRaw = extractTag(raw, 'survey');   // v42: 다중 질문 카드
     const suggestRaw = extractTag(raw, 'suggest');
+    const newScenesFlo = extractTag(raw, 'newscenes');
     let scenesData = null;
     if (scenesRaw) { try { scenesData = JSON.parse(scenesRaw); } catch {} }
+    let newScenesDataFlo = null;
+    if (newScenesFlo) { try { newScenesDataFlo = JSON.parse(newScenesFlo); } catch {} }
     // sequence_titles 처리
     let seqTitlesData = null;
     if (seqTitlesRaw) { try { seqTitlesData = JSON.parse(seqTitlesRaw); } catch {} }
@@ -8108,13 +8356,19 @@ async function handleChatPrompt(text) {
 
     const actions = [];
     if (seqTitlesData && Array.isArray(seqTitlesData) && seqTitlesData.length > 0) {
-      actions.push({ type:'approveSequence', data:seqTitlesData, label:'✨ 이 구조로 씬 만들기 (' + seqTitlesData.length + '개)', style:'purple' });
+      if (!hasAIQuestion(raw, displayText)) {
+        actions.push({ type:'approveSequence', data:seqTitlesData, label:'✨ 이 구조로 씬 만들기 (' + seqTitlesData.length + '개)', style:'purple' });
+      }
+      // 질문 있을 때는 showSurveyPanel 호출 시 seqData를 같이 전달 (아래 survey 처리 부분에서)
     }
     if (sceneIdeasData && Array.isArray(sceneIdeasData) && sceneIdeasData.length > 0) {
       actions.push({ type:'pickSceneIdea', data:sceneIdeasData, label:'💡 아이디어 카드 선택하기', style:'blue' });
     }
     if (scenesData && Array.isArray(scenesData) && scenesData.length > 0) {
       actions.push({ type:'addScenes', data:scenesData, label:'🎬 씬 '+scenesData.length+'개 대본에 추가', style:'purple' });
+    }
+    if (newScenesDataFlo && Array.isArray(newScenesDataFlo) && newScenesDataFlo.length > 0) {
+      actions.push({ type:'addScenes', data:newScenesDataFlo, label:'🎬 씬 '+newScenesDataFlo.length+'개 대본에 추가', style:'purple' });
     }
     if (charsData && Array.isArray(charsData) && charsData.length > 0) {
       actions.push({ type:'addCharacters', data:charsData, label:'👥 등장인물 '+charsData.length+'명 추가', style:'purple' });
@@ -8174,6 +8428,23 @@ async function handleChatPrompt(text) {
     const _mergedActions = [...actions, ..._floExtraActions];
     addMsg('assistant', displayText, _mergedActions.length ? _mergedActions : null);
 
+    // v42: survey > multichoices > choices 우선순위로 패널 자동 오픈
+    // seqTitlesData가 있고 질문도 있으면 → survey에 seqData 전달 (서베이 완료 후 씬 만들기 버튼)
+    const _seqForSurvey = (seqTitlesData && hasAIQuestion(raw, displayText)) ? seqTitlesData : null;
+    if (surveyRaw) {
+      let surveyData = null;
+      try { surveyData = JSON.parse(surveyRaw); } catch {}
+      if (surveyData?.length) setTimeout(() => showSurveyPanel(surveyData, _seqForSurvey), 200);
+    } else if (multichoicesRaw) {
+      let mchoices = null;
+      try { mchoices = JSON.parse(multichoicesRaw); } catch {}
+      if (mchoices?.length) setTimeout(() => showMultiChoicesPanel(text, mchoices), 200);
+    } else if (choicesRaw) {
+      let ch = null;
+      try { ch = JSON.parse(choicesRaw); } catch {}
+      if (ch?.length) setTimeout(() => showChoicesPanel(text, ch), 200);
+    }
+
     // F: 플로 콘텐츠 감지 — character / synopsis / setting_update 태그
     floDetectContent(raw, displayText);
     // J9: 씬 형식 감지
@@ -8204,8 +8475,10 @@ async function handleChatPrompt(text) {
       cardBtn.onclick = () => gotoCharCardHandler(mentionedChar4);
       document.getElementById('chat-msgs')?.appendChild(cardBtn);
     }
-    const msgCount = (S.cur.messages||[]).length;
-    if (msgCount > 0 && msgCount % 10 === 0) {
+    // v42: 글자수 누적 기준으로 결정사항 자동 추출
+    const _lastAiText = (S.cur.messages||[]).filter(m => m.role==='assistant' && !m._isDetectPanel && !m._isFlowPanel && !m._isLineLog).at(-1)?.text || '';
+    _memoAccumChars += _lastAiText.length;
+    if (_memoAccumChars >= MEMO_TRIGGER_CHARS) {
       setTimeout(() => autoExtractMemoFromHistory(), 1000);
     }
     // J3: 2턴 연속 스토리 키워드 패턴 감지
@@ -12819,31 +13092,231 @@ function showCheckPanel(issues, prompt, title) {
      <button class="rp-btn to-chat" onclick="takeToBrainstorm()">브레인스토밍에서 계속 →</button>`);
 }
 
-function showChoicesPanel(prompt, choices) {
-  const bodyHTML = `<div class="choice-intro">${escH(prompt)} — 방향을 선택해주세요:</div>
-    <div class="choice-list">${choices.map((c,i)=>`
-      <button class="choice-option" onclick="selectChoice(this,'${escH(c).replace(/'/g,"\\'")}')">
-        <span class="choice-key">${String.fromCharCode(65+i)}</span>${escH(c)}
-      </button>`).join('')}
-    </div>`;
-  showResponsePanel('choice', '방향 선택', bodyHTML,
-    `<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>`);
+// ═══════════════════════════════════════════
+// v42: SURVEY — 질문 카드 UI (choice/multichoice 통합)
+// ═══════════════════════════════════════════
+let _surveyState = null;
+
+// AI 응답에 질문이 포함되어 있는지 확인
+function hasAIQuestion(raw, displayText) {
+  if (/<survey[\s>]/i.test(raw)) return true;
+  if (/<choices[\s>]/i.test(raw)) return true;
+  if (/<multichoices[\s>]/i.test(raw)) return true;
+  if (displayText && /[?？]\s*$/.test(displayText.trim())) return true;
+  return false;
 }
 
+function showSurveyPanel(questions, pendingSeqData) {
+  // questions: [{q, type:"choice"|"multi"|"text", options?:[]}]
+  // pendingSeqData: seqTitlesData (있으면 서베이 완료 후 씬 만들기 버튼 표시)
+  document.getElementById('survey-overlay')?.remove();
+  _surveyState = { questions, answers: new Array(questions.length).fill(null), currentStep: 0, pendingSeqData: pendingSeqData || null };
+  _renderSurveyStep(0);
+}
+
+function _renderSurveyStep(stepIdx) {
+  const state = _surveyState;
+  if (!state) return;
+  document.getElementById('survey-overlay')?.remove();
+  const q = state.questions[stepIdx];
+  const total = state.questions.length;
+  const circleNums = ['①','②','③','④','⑤','⑥'];
+
+  const overlay = document.createElement('div');
+  overlay.id = 'survey-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:300;display:flex;align-items:flex-end;justify-content:center;padding:0 12px 90px;backdrop-filter:blur(2px);';
+
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);padding:16px;width:100%;max-width:440px;display:flex;flex-direction:column;gap:9px;';
+
+  // 질문 텍스트
+  const qHdr = document.createElement('div');
+  qHdr.style.cssText = 'font-size:13px;color:var(--text);font-weight:500;line-height:1.6;';
+  qHdr.textContent = q.q;
+  panel.appendChild(qHdr);
+
+  // 내비게이션 ← N/M →
+  if (total > 1) {
+    const nav = document.createElement('div');
+    nav.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3);font-family:var(--fm);';
+    const prevBtn = document.createElement('button');
+    prevBtn.textContent = '←';
+    prevBtn.style.cssText = 'background:none;border:none;font-size:14px;padding:2px 6px;cursor:' + (stepIdx>0?'pointer':'default') + ';color:' + (stepIdx>0?'var(--accent)':'var(--border2)') + ';';
+    prevBtn.onclick = () => { if (stepIdx > 0) _renderSurveyStep(stepIdx - 1); };
+    const ctr = document.createElement('span'); ctr.textContent = (stepIdx+1) + '/' + total;
+    const nextBtn = document.createElement('button');
+    nextBtn.textContent = '→';
+    nextBtn.style.cssText = 'background:none;border:none;font-size:14px;padding:2px 6px;cursor:' + (stepIdx<total-1?'pointer':'default') + ';color:' + (stepIdx<total-1?'var(--accent)':'var(--border2)') + ';';
+    nextBtn.onclick = () => { if (stepIdx < total-1) _renderSurveyStep(stepIdx+1); };
+    nav.append(prevBtn, ctr, nextBtn);
+    panel.appendChild(nav);
+  }
+
+  const currentAnswer = state.answers[stepIdx];
+
+  if (q.type === 'text') {
+    const ta = document.createElement('textarea');
+    ta.style.cssText = 'width:100%;min-height:64px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-size:13px;padding:8px 10px;resize:vertical;box-sizing:border-box;';
+    ta.placeholder = '자유롭게 입력해주세요...';
+    ta.value = currentAnswer || '';
+    panel.appendChild(ta);
+    const confirmBtn = document.createElement('button');
+    confirmBtn.style.cssText = 'background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:9px;font-size:12px;font-weight:600;cursor:pointer;';
+    confirmBtn.textContent = stepIdx < total-1 ? '저장 후 다음 →' : '✓ 완료';
+    confirmBtn.onclick = () => { state.answers[stepIdx] = ta.value.trim() || null; _surveyStepDone(stepIdx, ta.value.trim()); };
+    panel.appendChild(confirmBtn);
+
+  } else if (q.type === 'multi') {
+    const opts = q.options || [];
+    const selSet = new Set(Array.isArray(currentAnswer) ? currentAnswer : []);
+    opts.forEach((opt, i) => {
+      const row = document.createElement('label');
+      const isSel = selSet.has(opt);
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer;background:' + (isSel?'var(--accent3)':'var(--bg3)') + ';border:1px solid ' + (isSel?'var(--accent2)':'var(--border)') + ';border-radius:var(--r);padding:8px 10px;font-size:12px;color:var(--text);transition:all .1s;';
+      const cb = document.createElement('input'); cb.type='checkbox'; cb.checked=isSel; cb.style.accentColor='var(--accent)';
+      const lbl = document.createElement('span'); lbl.textContent = (circleNums[i]||String(i+1)) + ' ' + opt;
+      row.append(cb, lbl);
+      row.onclick = () => {
+        if (selSet.has(opt)) { selSet.delete(opt); row.style.background='var(--bg3)'; row.style.borderColor='var(--border)'; cb.checked=false; }
+        else { selSet.add(opt); row.style.background='var(--accent3)'; row.style.borderColor='var(--accent2)'; cb.checked=true; }
+      };
+      panel.appendChild(row);
+    });
+    const confirmBtn = document.createElement('button');
+    confirmBtn.style.cssText = 'background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:9px;font-size:12px;font-weight:600;cursor:pointer;margin-top:2px;';
+    confirmBtn.textContent = stepIdx < total-1 ? '저장 후 다음 →' : '✓ 완료';
+    confirmBtn.onclick = () => { const sel=[...selSet]; state.answers[stepIdx]=sel.length?sel:null; _surveyStepDone(stepIdx, sel.join(', ')); };
+    panel.appendChild(confirmBtn);
+
+  } else {
+    // 단일 선택 (choice)
+    const opts = q.options || [];
+    opts.forEach((opt, i) => {
+      const isSel = currentAnswer === opt;
+      const btn = document.createElement('button');
+      btn.className = 'survey-opt-btn';
+      btn.style.cssText = 'display:flex;align-items:center;gap:8px;text-align:left;cursor:pointer;background:' + (isSel?'var(--accent3)':'var(--bg3)') + ';border:1px solid ' + (isSel?'var(--accent)':'var(--border)') + ';border-radius:var(--r);padding:9px 10px;font-size:12px;color:var(--text);width:100%;transition:all .1s;';
+      btn.innerHTML = '<span style="color:var(--accent);font-weight:600;flex-shrink:0;">' + (circleNums[i]||String(i+1)) + '</span><span>' + escH(opt) + '</span>';
+      btn.onclick = () => {
+        state.answers[stepIdx] = opt;
+        panel.querySelectorAll('.survey-opt-btn').forEach(b => { b.style.background='var(--bg3)'; b.style.borderColor='var(--border)'; });
+        btn.style.background='var(--accent3)'; btn.style.borderColor='var(--accent)';
+        setTimeout(() => _surveyStepDone(stepIdx, opt), 280);
+      };
+      panel.appendChild(btn);
+    });
+    // 직접 입력
+    const customWrap = document.createElement('div');
+    customWrap.style.cssText = 'display:flex;align-items:center;gap:6px;';
+    const customBtn = document.createElement('button');
+    customBtn.style.cssText = 'display:flex;align-items:center;gap:8px;text-align:left;cursor:pointer;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:9px 10px;font-size:12px;color:var(--text3);flex:1;';
+    customBtn.innerHTML = '<span style="flex-shrink:0;">○</span><span>직접 입력</span>';
+    customBtn.onclick = () => {
+      customWrap.innerHTML = '';
+      const inp2 = document.createElement('input'); inp2.type='text';
+      inp2.style.cssText = 'flex:1;background:var(--bg3);border:1px solid var(--accent2);border-radius:var(--r);color:var(--text);font-size:12px;padding:7px 10px;';
+      inp2.placeholder = '직접 입력...';
+      const okBtn = document.createElement('button');
+      okBtn.textContent = '→'; okBtn.style.cssText = 'background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:7px 12px;font-size:12px;cursor:pointer;flex-shrink:0;';
+      okBtn.onclick = () => { const v=inp2.value.trim(); if(!v)return; state.answers[stepIdx]=v; _surveyStepDone(stepIdx, v, true); };
+      inp2.onkeydown = e => { if(e.key==='Enter'){e.preventDefault();okBtn.click();} };
+      customWrap.append(inp2, okBtn); inp2.focus();
+    };
+    customWrap.appendChild(customBtn);
+    panel.appendChild(customWrap);
+  }
+
+  // 하단 건너뛰기/닫기
+  const footer = document.createElement('div');
+  footer.style.cssText = 'display:flex;gap:6px;justify-content:flex-end;';
+  if (total > 1 && stepIdx < total-1) {
+    const skipBtn = document.createElement('button');
+    skipBtn.style.cssText = 'background:none;border:none;color:var(--text3);font-size:11px;cursor:pointer;padding:2px 4px;';
+    skipBtn.textContent = '건너뛰기 →';
+    skipBtn.onclick = () => _renderSurveyStep(stepIdx+1);
+    footer.appendChild(skipBtn);
+  }
+  const closeBtn = document.createElement('button');
+  closeBtn.style.cssText = 'background:none;border:none;color:var(--text3);font-size:11px;cursor:pointer;padding:2px 4px;';
+  closeBtn.textContent = '닫기';
+  closeBtn.onclick = () => { overlay.remove(); _surveyState=null; };
+  footer.appendChild(closeBtn);
+  panel.appendChild(footer);
+
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+}
+
+async function _surveyStepDone(stepIdx, value, isCustom) {
+  const state = _surveyState;
+  if (!state) return;
+  // chatMemos에 답변 저장
+  if (value && S.cur) {
+    const q = state.questions[stepIdx];
+    const memo = q.q.slice(0,30) + ': ' + String(value).slice(0,60);
+    if (!S.cur.chatMemos) S.cur.chatMemos = [];
+    if (!S.cur.chatMemos.some(m => m.includes(q.q.slice(0,10)))) S.cur.chatMemos.push(memo);
+    save(true);
+    renderChatMemoWrap?.();
+  }
+  // 직접 입력 → AI 재호출 (구조 수정 요청)
+  if (isCustom && value) {
+    document.getElementById('survey-overlay')?.remove(); _surveyState=null;
+    await handleChatPrompt(value);
+    return;
+  }
+  const total = state.questions.length;
+  if (stepIdx < total-1) { _renderSurveyStep(stepIdx+1); return; }
+  // 전체 완료
+  document.getElementById('survey-overlay')?.remove(); _surveyState=null;
+  await _onSurveyComplete(state);
+}
+
+async function _onSurveyComplete(state) {
+  const answered = state.questions.map((q,i) => {
+    const a = state.answers[i];
+    return a ? q.q + ': ' + (Array.isArray(a)?a.join(', '):a) : null;
+  }).filter(Boolean);
+  if (!answered.length) return;
+  const summaryText = answered.join(' / ');
+  addMsg('assistant', '✓ ' + summaryText);
+  // pending approveSequence 있으면 실행
+  const _lastActMsg = (S.cur?.messages||[]).filter(m => m.role==='assistant' && m.actions?.length).at(-2);
+  const _pendingApprove = _lastActMsg?.actions?.find(a => a.type==='approveSequence');
+  if (_pendingApprove) { setTimeout(() => handleMsgAction(_pendingApprove), 300); return; }
+  // 이 서베이에 seqData가 연결되어 있으면 → 씬 만들기 + 계속 채팅하기 버튼 표시
+  if (state.pendingSeqData) {
+    const seqData = state.pendingSeqData;
+    const postActions = [
+      { type:'approveSequence', data:seqData, label:'✨ 이 구조로 씬 만들기 (' + seqData.length + '개)', style:'purple' },
+      { type:'continueChatAfterSeq', label:'💬 계속 채팅하기', style:'' }
+    ];
+    addMsg('assistant', '답변을 반영한 시퀀스로 씬을 만들까요?', postActions);
+    return;
+  }
+  await handleChatPrompt('위 답변을 반영해서 진행해줘: ' + summaryText);
+}
+
+// 기존 showChoicesPanel → survey 위임 (단일 질문)
+function showChoicesPanel(prompt, choices) {
+  showSurveyPanel([{ q: prompt || '방향을 선택해주세요', type: 'choice', options: choices }]);
+}
+
+// 기존 showMultiChoicesPanel → scene chunk는 유지, 일반은 survey 위임
 function showMultiChoicesPanel(prompt, choices) {
-  const uid = 'mc-' + Date.now();
   const isSceneChunk = choices.some(c => /SC\d+~SC\d+/.test(c));
-  const title = isSceneChunk ? '작업 구간 선택' : '복수 선택';
-  const hint = isSceneChunk ? '작업할 구간을 선택하세요:' : '해당하는 항목을 모두 선택하세요:';
-  const bodyHTML = '<div class="choice-intro">' + escH(hint) + '</div>' +
-    '<div class="choice-list" id="' + uid + '">' +
-    choices.map((c, i) =>
-      '<button class="choice-option" data-val="' + escH(c).replace(/"/g,'&quot;') + '" onclick="toggleMultiChoiceBtn(this)">' +
-      '<span class="choice-key">☐</span>' + escH(c) + '</button>'
-    ).join('') + '</div>';
-  showResponsePanel('choice', title, bodyHTML,
-    '<button class="rp-btn" onclick="confirmMultiChoicePanel(\'' + uid + '\',\'' + (isSceneChunk?'scene':'normal') + '\')">✓ 선택 완료</button>' +
-    '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
+  if (isSceneChunk) {
+    // 씬 구간 선택은 기존 패널 유지
+    const uid = 'mc-' + Date.now();
+    const bodyHTML = '<div class="choice-intro">작업할 구간을 선택하세요:</div>' +
+      '<div class="choice-list" id="' + uid + '">' +
+      choices.map(c => '<button class="choice-option" data-val="' + escH(c).replace(/"/g,'&quot;') + '" onclick="toggleMultiChoiceBtn(this)"><span class="choice-key">☐</span>' + escH(c) + '</button>').join('') + '</div>';
+    showResponsePanel('choice', '작업 구간 선택', bodyHTML,
+      '<button class="rp-btn" onclick="confirmMultiChoicePanel(\'' + uid + '\',\'scene\')">✓ 선택 완료</button>' +
+      '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
+  } else {
+    showSurveyPanel([{ q: prompt || '해당하는 항목을 모두 선택하세요', type: 'multi', options: choices }]);
+  }
 }
 
 function selectSceneChunk(btn, uid) {
@@ -15657,6 +16130,7 @@ function cleanDisplayText(raw) {
     .replace(/<deletescene[\s\S]*?<\/deletescene>/gi, '')
     .replace(/<movescene[\s\S]*?<\/movescene>/gi, '')
     .replace(/<multichoices[\s\S]*?<\/multichoices>/gi, '')
+    .replace(/<survey[\s\S]*?<\/survey>/gi, '')
     .replace(/<suggest[\s\S]*?<\/suggest>/gi, '')
     .replace(/<editscenes>[\s\S]*/gi, '')
     .replace(/<deletescene>[\s\S]*/gi, '')
