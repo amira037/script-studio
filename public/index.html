@@ -219,7 +219,7 @@ textarea, input { font-family:var(--fb); }
 .ham-btn:hover { border-color:var(--border3); }
 .ham-line { width:14px; height:1px; background:var(--text2); border-radius:1px; }
 .app-proj-title { font-family:var(--fd); font-size:16px; color:var(--accent); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.app-proj-medium { font-size:9px; color:var(--text3); font-family:var(--fm); background:var(--accent3); padding:2px 7px; border-radius:3px; white-space:nowrap; }
+.app-proj-medium { font-size:11px; color:var(--text); font-family:var(--fm); background:rgba(200,169,110,0.18); border:1px solid rgba(200,169,110,0.45); padding:2px 9px; border-radius:3px; white-space:nowrap; }
 .tab-switcher { display:flex; gap:3px; }
 .tab-sw-btn {
   width:32px; height:32px; border-radius:var(--r);
@@ -787,9 +787,9 @@ textarea, input { font-family:var(--fb); }
 .line-el:focus { background:rgba(200,169,110,.05); outline:1px solid rgba(200,169,110,.2); }
 .line-el[data-locked="true"] { pointer-events:none; opacity:.6; }
 .line-action { color:var(--text2); font-style:italic; }
-.line-character { text-align:center; font-weight:500; color:var(--text); }
+.line-character { text-align:center; font-weight:600; color:#f0ece6; }
 .line-parenthetical { text-align:center; color:var(--text3); font-style:italic; }
-.line-dialogue { max-width:320px; margin:0 auto; text-align:center; color:var(--text2); word-break:keep-all; overflow-wrap:break-word; }
+.line-dialogue { max-width:320px; margin:0 auto; text-align:center; color:#eae6e0; word-break:keep-all; overflow-wrap:break-word; }
 .line-slug { color:var(--accent); font-weight:600; letter-spacing:.08em; font-size:13px; text-transform:uppercase; border-bottom:1px solid rgba(200,169,110,.2); padding-bottom:6px; margin-bottom:4px; display:block; }
 .line-slug:empty:before { content:attr(data-placeholder); color:var(--text3); font-weight:400; letter-spacing:0; text-transform:none; font-style:italic; pointer-events:none; }
 
@@ -1381,7 +1381,7 @@ function closeResponsePanel() {
     <div class="app-proj-title" id="app-title" onclick="openProjEdit()" title="클릭하여 속성 편집">—</div>
     <div style="display:flex;align-items:center;gap:5px;flex-shrink:0;" onclick="openProjEdit()" title="클릭하여 속성 편집" style="cursor:pointer;">
       <span class="app-proj-medium" id="app-medium"></span>
-      <span id="app-duration" style="font-size:9px;color:var(--text2);font-family:var(--fm);background:var(--bg4);border:1px solid var(--border2);padding:2px 7px;border-radius:3px;display:none;cursor:pointer;"></span>
+      <span id="app-duration" style="font-size:11px;color:var(--text);font-family:var(--fm);background:rgba(200,169,110,0.18);border:1px solid rgba(200,169,110,0.45);padding:2px 9px;border-radius:3px;display:none;cursor:pointer;"></span>
     </div>
     <div class="tab-switcher">
       <button class="tab-sw-btn on" id="tab-chat-btn" onclick="switchTab('chat')" title="브레인스토밍">💬</button>
@@ -1592,6 +1592,13 @@ function closeResponsePanel() {
     <button class="drawer-close" onclick="closeDrawer()">✕ 닫기</button>
   </div>
   <div class="drawer-body">
+    <div class="setting-group">
+      <div class="setting-group-title">계정</div>
+      <div class="setting-row">
+        <div class="setting-label">현재 계정<small id="current-account-label" style="color:var(--text2)"></small></div>
+        <button class="setting-btn" onclick="switchAccount()">전환</button>
+      </div>
+    </div>
     <div class="setting-group">
       <div class="setting-group-title">AI 연결</div>
       <div class="setting-row">
@@ -1827,13 +1834,24 @@ function closeResponsePanel() {
 const SUPABASE_URL = 'https://meruurtcdsjjayfmntzh.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1lcnV1cnRjZHNqamF5Zm1udHpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMTQxODgsImV4cCI6MjA4OTY5MDE4OH0.iusElSl0KRlJC7wjNgpgguspQ4KxLoZx_ggNtxsFNr0';
 
-// 유저 ID — URL ?user=xxx 파라미터에서 읽기
-// 예: ?user=director (대표님), ?user=me (나), ?user=admin (전체 관리)
+// 유저 ID — URL 파라미터 > localStorage 저장값 순으로 읽기
+// URL: ?user=director / ?user=me / ?user=admin
 const _urlUser = new URLSearchParams(window.location.search).get('user');
-const USER_ID = _urlUser || 'default-user';
+const _savedUser = localStorage.getItem('ss_current_user');
+const USER_ID = _urlUser || _savedUser || 'default-user';
+
+// URL로 접속했으면 localStorage에도 저장 (다음 방문 자동 로그인)
+if (_urlUser) localStorage.setItem('ss_current_user', _urlUser);
 
 // 관리자 여부 (admin 계정은 모든 유저 프로젝트 볼 수 있음)
 const IS_ADMIN = USER_ID === 'admin';
+
+// 알려진 계정 목록 (표시명)
+const KNOWN_ACCOUNTS = [
+  { id: 'me',       label: '나',    icon: '🙂' },
+  { id: 'director', label: '대표',  icon: '🎬' },
+  { id: 'admin',    label: '관리자', icon: '🔑' },
+];
 
 let _sb = null;
 function getSB() {
@@ -7730,6 +7748,18 @@ function toggleChatMemo() {
   if (arr) arr.textContent = open ? '▼' : '▲';
 }
 
+function openMemoPanel() {
+  switchTab('chat');
+  renderChatMemoWrap();
+  const body = document.getElementById('chat-memo-body');
+  const arr = document.getElementById('chat-memo-arr');
+  if (body) { body.style.display = 'block'; }
+  if (arr) { arr.textContent = '▲'; }
+  setTimeout(() => {
+    document.getElementById('chat-memo-wrap')?.scrollIntoView({ behavior:'smooth', block:'nearest' });
+  }, 100);
+}
+
 function addChatMemo(text) {
   if (!S.cur) return;
   if (!S.cur.chatMemos) S.cur.chatMemos = [];
@@ -7957,10 +7987,17 @@ async function autoExtractMemoFromHistory() {
     let organized;
     try { organized = JSON.parse(organizedRaw); } catch { return; }
 
-    // 새로운 항목만 필터
+    // 새로운 항목만 필터 — 첫 키워드(이름/주제) 기반으로 중복 판단
+    function _memoKey(s) {
+      return s.trim().replace(/[\s\-:：\(（,]/g, '|').split('|').filter(Boolean)[0] || s.slice(0,6);
+    }
+    function _isMemoSame(a, b) {
+      const ka = _memoKey(a), kb = _memoKey(b);
+      return ka === kb || a.slice(0,15) === b.slice(0,15);
+    }
     const existingAll = getChatMemos();
     const allNew = Object.values(organized).flat().filter(Boolean);
-    const trulyNew = allNew.filter(m => !existingAll.some(e => e.includes(m.slice(0,10))));
+    const trulyNew = allNew.filter(m => !existingAll.some(e => _isMemoSame(e, m)));
     if (!trulyNew.length) { _memoAccumChars = 0; return; }
 
     // chatMemosStructured에 자동 병합 저장
@@ -7969,7 +8006,7 @@ async function autoExtractMemoFromHistory() {
       const newItems = (organized[cat]||[]).filter(Boolean);
       const bucket = S.cur.chatMemosStructured[cat];
       newItems.forEach(item => {
-        if (!bucket.some(e => e.includes(item.slice(0,10)))) bucket.push(item);
+        if (!bucket.some(e => _isMemoSame(e, item))) bucket.push(item);
       });
     });
     _memoAccumChars = 0;
@@ -8220,8 +8257,9 @@ async function handleChatPrompt(text) {
     const sys = '당신은 창작 대본 작업을 돕는 전문 작가 AI입니다.\n' + ctx + memoCtx + dynamicCtx + '\n\n' +
       '응답 규칙:\n' +
       '- 자연스러운 한국어 대화체로 답변하세요.\n' +
-      '- 일반 대화 응답은 200자 이내. 구조화 정보(인물 설정, 시놉시스 요약, 구조 등)는 500자 이내.\n' +
-      '  단, 시놉시스/구조/설정 전문 작성 요청 또는 "자세히" 요청 시 길이 제한 없음.\n' +
+      '- 응답 길이: 200~500자 이내를 기본으로 유지하세요.\n' +
+      '  단, 사용자가 "자세히", "전체", "다 써줘", "완성해줘" 등 명시적으로 긴 응답을 요청할 때만 길이 제한 없음.\n' +
+      '  인물 설정·시놉시스·구조 제안도 핵심만 간결하게. 항목 나열 시 최대 5개 이내.\n' +
       '- 질문은 한 응답에 최대 3개 이하. 질문 선택 우선순위: ①주제/세계관 ②갈등구조 ③인물 ④장면/톤.\n' +
       '  우선순위는 질문 선택 기준일 뿐, 사용자를 순서대로 유도하지 말 것.\n' +
       '- 모든 경우 2라운드 이하로 추가질문 루프 금지. 미확정 설정은 AI가 자율 판단해서 채울 것.\n' +
@@ -8240,8 +8278,9 @@ async function handleChatPrompt(text) {
       '- 새 씬 1~3개 추가/삽입: <newscenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[...]}]</newscenes> (맨 뒤 추가시 insertRef 생략, 사이 삽입시 insertRef:"SC번호")\n' +
       '- 장면 아이디어 카드 3개: <scene_ideas>[{"title":"씬제목","idea":"한줄아이디어","mood":"분위기"}]</scene_ideas>\n' +
       '- 등장인물: <characters>[JSON]</characters>\n' +
-      '- 새 등장인물 1명 소개/설정: <character>{"name":"대본호칭","lastName":"성","firstName":"이름","title":"직함","role":"역할","gender":"남성 또는 여성 또는 논바이너리 (불명확하면 생략)","description":"설명","traits":["특성1","특성2"]}</character>\n' +
-      '  · gender는 대화 맥락에서 명확히 감지될 때만 포함. 호칭(그, 그녀, 오빠, 언니 등)으로도 추론 가능. 불확실하면 반드시 생략.\n' +
+      '- 새 등장인물 소개/설정: 인물마다 각각 <character>태그 사용. 여러 명이면 여러 번 반복.\n' +
+      '  <character>{"name":"대본호칭","lastName":"성","firstName":"이름","title":"직함","role":"역할","gender":"남성 또는 여성 또는 논바이너리 (불명확하면 생략)","description":"설명","traits":["특성1","특성2"]}</character>\n' +
+      '  · gender는 대화 맥락에서 명확히 감지될 때만 포함. 불확실하면 반드시 생략.\n' +
       '  · lastName/firstName/title은 알 수 있을 때만 포함.\n' +
       '- 기존 인물 설정 변경/핵심 설정 업데이트: <setting_update>변경된 설정 내용 (인물명, 변경 내용 포함)</setting_update>\n' +
       '- 태그는 응답 맨 끝에만, JSON을 본문에 직접 출력 금지.\n' +
@@ -8315,7 +8354,7 @@ async function handleChatPrompt(text) {
     const raw = await callClaudeStream(
       [...history, { role:'user', content:text }],
       sysWithTagRule,
-      needsMore ? 12000 : 8000,
+      needsMore ? 4000 : 2000,
       'claude-haiku-4-5-20251001',
       (chunk, done) => {
         if (!done) updateStreamBubble(chunk);
@@ -15733,7 +15772,7 @@ function openDrawer(name) {
   currentDrawer = name;
   if (name === 'chars') renderCharsDrawer();
   if (name === 'synopsis') renderSynopsisDrawer();
-  if (name === 'settings') renderVersionList();
+  if (name === 'settings') { renderVersionList(); _updateAccountLabel(); }
 }
 function closeDrawer() {
   document.querySelectorAll('.drawer').forEach(d => d.classList.remove('open'));
@@ -16490,8 +16529,82 @@ function downloadText(text, filename) {
 }
 
 // ═══════════════════════════════════════════
+// 계정 로그인
+// ═══════════════════════════════════════════
+function showLoginScreen() {
+  document.getElementById('login-overlay')?.remove();
+  const ov = document.createElement('div');
+  ov.id = 'login-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:var(--bg);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  ov.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;gap:22px;padding:32px 24px;width:100%;max-width:300px;">
+      <div style="text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:var(--text);letter-spacing:-.5px;">Script Studio</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:5px;">계정을 선택하세요</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;width:100%;">
+        ${KNOWN_ACCOUNTS.map(a => `
+          <button onclick="selectAccount('${a.id}')"
+            style="width:100%;padding:13px 16px;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:12px;text-align:left;transition:border-color .15s;"
+            onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border2)'">
+            <span style="font-size:20px">${a.icon}</span>
+            <div>
+              <div style="font-weight:500">${a.label}</div>
+              <div style="font-size:10px;color:var(--text3);font-family:var(--fm)">@${a.id}</div>
+            </div>
+          </button>
+        `).join('')}
+      </div>
+      <div style="width:100%;border-top:1px solid var(--border);padding-top:16px;">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:6px;">직접 입력</div>
+        <div style="display:flex;gap:6px;">
+          <input id="login-custom-inp" type="text" placeholder="계정 ID"
+            style="flex:1;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);padding:9px 12px;font-size:13px;outline:none;"
+            onkeydown="if(event.key==='Enter')selectAccount(this.value.trim())">
+          <button onclick="selectAccount(document.getElementById('login-custom-inp').value.trim())"
+            style="background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:9px 14px;font-size:12px;font-weight:600;cursor:pointer;">입장</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(ov);
+}
+
+function selectAccount(id) {
+  if (!id) { toast('계정 ID를 입력해주세요'); return; }
+  localStorage.setItem('ss_current_user', id);
+  location.reload();
+}
+
+function switchAccount() {
+  if (!confirm('계정을 전환하면 현재 탭에서 로그아웃됩니다.\n계속할까요?')) return;
+  localStorage.removeItem('ss_current_user');
+  // URL 파라미터도 제거해서 로그인 화면으로
+  const url = new URL(location.href);
+  url.searchParams.delete('user');
+  location.href = url.toString();
+}
+
+function _updateAccountLabel() {
+  const el = document.getElementById('current-account-label');
+  if (!el) return;
+  const known = KNOWN_ACCOUNTS.find(a => a.id === USER_ID);
+  el.textContent = known ? known.icon + ' ' + known.label + ' (@' + USER_ID + ')' : '@' + USER_ID;
+}
+
+// ═══════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════
+// 계정 미설정 시 로그인 화면 표시
+if (!_urlUser && !_savedUser) {
+  // DOM 준비 후 로그인 화면 표시 (앱은 계속 초기화하되 렌더만 가림)
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', showLoginScreen);
+  } else {
+    showLoginScreen();
+  }
+}
+
 load();
 // 앱 시작 시 Supabase에서 최신 데이터 강제 pull (admin 포함)
 setTimeout(() => {
