@@ -7124,9 +7124,6 @@ function handleMsgAction(action) {
     showSmartSceneAddPanel(action.data);
   } else if (action.type === 'approveSequence') {
     showApproveSequencePanel(action.data);
-  } else if (action.type === 'continueChatAfterSeq') {
-    // 씬 만들기 없이 계속 채팅 — 서베이 답변으로 AI와 자연스럽게 이어가기
-    handleChatPrompt('방금 답변을 반영해서 이야기를 계속 발전시켜줘');
   } else if (action.type === 'pickSceneIdea') {
     showSceneIdeaCards(action.data);
   } else if (action.type === 'addCharacters') {
@@ -8108,14 +8105,19 @@ async function handleWebSearch(text) {
 }
 
 async function floRoute(text) {
+  // 직전 AI 메시지에 sequence_titles가 있었으면 → 시퀀스 흐름 맥락 제공
+  const _lastAiText = (S.cur?.messages||[]).filter(m => m.role==='assistant').at(-1)?.text || '';
+  const _hadSeq = /<sequence_titles>/i.test(_lastAiText);
+  const ctx = _hadSeq ? '[이전 AI 메시지에 시퀀스 구조 제안이 있었음]\n' : '';
   const raw = await callClaude(
-    [{role:'user', content:'요청: "' + text + '"'}],
+    [{role:'user', content: ctx + '요청: "' + text + '"'}],
     '대본 작가의 요청을 분류하세요.\n' +
     '- 씬 여러 개 구성/전체 구조/시퀀스 요청 → write_multi\n' +
     '- 특정 씬 하나 작성 요청 → write_single\n' +
     '- 전체 구조/시퀀스/순서 논의 → structure\n' +
     '- 아이디어/방향 논의, 열린 질문, 설정/인물 대화 → brainstorm\n' +
     '- 일반 대화, 피드백 → chat\n' +
+    '이전 메시지에 시퀀스 제안이 있었다면 write_multi 또는 structure 우선 고려.\n' +
     '반드시 <intent>분류결과</intent> 형식으로만.',
     40, 'claude-haiku-4-5-20251001'
   );
@@ -8429,12 +8431,10 @@ async function handleChatPrompt(text) {
     addMsg('assistant', displayText, _mergedActions.length ? _mergedActions : null);
 
     // v42: survey > multichoices > choices 우선순위로 패널 자동 오픈
-    // seqTitlesData가 있고 질문도 있으면 → survey에 seqData 전달 (서베이 완료 후 씬 만들기 버튼)
-    const _seqForSurvey = (seqTitlesData && hasAIQuestion(raw, displayText)) ? seqTitlesData : null;
     if (surveyRaw) {
       let surveyData = null;
       try { surveyData = JSON.parse(surveyRaw); } catch {}
-      if (surveyData?.length) setTimeout(() => showSurveyPanel(surveyData, _seqForSurvey), 200);
+      if (surveyData?.length) setTimeout(() => showSurveyPanel(surveyData), 200);
     } else if (multichoicesRaw) {
       let mchoices = null;
       try { mchoices = JSON.parse(multichoicesRaw); } catch {}
@@ -13106,11 +13106,10 @@ function hasAIQuestion(raw, displayText) {
   return false;
 }
 
-function showSurveyPanel(questions, pendingSeqData) {
+function showSurveyPanel(questions) {
   // questions: [{q, type:"choice"|"multi"|"text", options?:[]}]
-  // pendingSeqData: seqTitlesData (있으면 서베이 완료 후 씬 만들기 버튼 표시)
   document.getElementById('survey-overlay')?.remove();
-  _surveyState = { questions, answers: new Array(questions.length).fill(null), currentStep: 0, pendingSeqData: pendingSeqData || null };
+  _surveyState = { questions, answers: new Array(questions.length).fill(null), currentStep: 0 };
   _renderSurveyStep(0);
 }
 
@@ -13279,22 +13278,7 @@ async function _onSurveyComplete(state) {
   }).filter(Boolean);
   if (!answered.length) return;
   const summaryText = answered.join(' / ');
-  addMsg('assistant', '✓ ' + summaryText);
-  // pending approveSequence 있으면 실행
-  const _lastActMsg = (S.cur?.messages||[]).filter(m => m.role==='assistant' && m.actions?.length).at(-2);
-  const _pendingApprove = _lastActMsg?.actions?.find(a => a.type==='approveSequence');
-  if (_pendingApprove) { setTimeout(() => handleMsgAction(_pendingApprove), 300); return; }
-  // 이 서베이에 seqData가 연결되어 있으면 → 씬 만들기 + 계속 채팅하기 버튼 표시
-  if (state.pendingSeqData) {
-    const seqData = state.pendingSeqData;
-    const postActions = [
-      { type:'approveSequence', data:seqData, label:'✨ 이 구조로 씬 만들기 (' + seqData.length + '개)', style:'purple' },
-      { type:'continueChatAfterSeq', label:'💬 계속 채팅하기', style:'' }
-    ];
-    addMsg('assistant', '답변을 반영한 시퀀스로 씬을 만들까요?', postActions);
-    return;
-  }
-  await handleChatPrompt('위 답변을 반영해서 진행해줘: ' + summaryText);
+  await handleChatPrompt(summaryText);
 }
 
 // 기존 showChoicesPanel → survey 위임 (단일 질문)
