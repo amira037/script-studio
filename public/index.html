@@ -2163,10 +2163,17 @@ async function callClaude(messages, system, maxTokens = 2000, model = 'claude-so
 }
 
 // L6: 스트리밍 버전 callClaude — 라인 에디터용
-async function callClaudeStream(messages, system, maxTokens = 4000, model = 'claude-sonnet-4-20250514', onChunk) {
+// noAbort=true 시 전역 _currentAbortCtrl 무관한 로컬 전용 컨트롤러 사용 (파싱 등 독립 호출용)
+async function callClaudeStream(messages, system, maxTokens = 4000, model = 'claude-sonnet-4-20250514', onChunk, noAbort = false) {
   if (IS_ADMIN) { toast('ADMIN 모드에서는 AI를 사용할 수 없습니다.'); throw new Error('Admin mode'); }
-  abortCurrentRequest();
-  _currentAbortCtrl = new AbortController();
+  let ctrl;
+  if (noAbort) {
+    ctrl = new AbortController();
+  } else {
+    abortCurrentRequest();
+    _currentAbortCtrl = new AbortController();
+    ctrl = _currentAbortCtrl;
+  }
   const body = { model, max_tokens: maxTokens, system, messages, stream: true };
   const maxRetries = 2;
   let resp;
@@ -2175,7 +2182,7 @@ async function callClaudeStream(messages, system, maxTokens = 4000, model = 'cla
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal: _currentAbortCtrl.signal
+      signal: ctrl.signal
     });
     if (resp.status === 529 && attempt < maxRetries) {
       await new Promise(r => setTimeout(r, (attempt + 1) * 3000));
@@ -2229,7 +2236,7 @@ async function callClaudeStream(messages, system, maxTokens = 4000, model = 'cla
     if (onChunk) onChunk(fullText, true);
     return fullText;
   } finally {
-    _currentAbortCtrl = null;
+    if (!noAbort) _currentAbortCtrl = null;
   }
 }
 
@@ -4961,7 +4968,7 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
       for (let ci = 0; ci < chunks.length; ci++) {
         if (chunks.length > 1) parseBtn.textContent = `⏳ 분석 중... ${ci+1}/${chunks.length}`;
         let raw = '';
-        await callClaudeStream([{role:'user', content:chunks[ci]}], sys, 6000, 'claude-haiku-4-5-20251001', c => { raw += c; });
+        await callClaudeStream([{role:'user', content:chunks[ci]}], sys, 6000, 'claude-haiku-4-5-20251001', c => { raw += c; }, true);
         const sr = extractTag(raw, 'scenes');
         if (sr) { try { const d = JSON.parse(sr); if (Array.isArray(d)) scenesData.push(...d); } catch {} }
       }
@@ -6871,7 +6878,7 @@ function openSceneTextEditor(sc, block) {
       for (let ci = 0; ci < chunks.length; ci++) {
         if (chunks.length > 1) parseBtn.textContent = `⏳ 분석 중... ${ci+1}/${chunks.length}`;
         let raw = '';
-        await callClaudeStream([{role:'user', content:chunks[ci]}], sys, 6000, 'claude-haiku-4-5-20251001', c => { raw += c; });
+        await callClaudeStream([{role:'user', content:chunks[ci]}], sys, 6000, 'claude-haiku-4-5-20251001', c => { raw += c; }, true);
         const sr = extractTag(raw, 'scenes');
         if (sr) { try { const d = JSON.parse(sr); if (Array.isArray(d)) parsed.push(...d); } catch {} }
       }
@@ -17100,7 +17107,7 @@ async function handleFileAttach(e) {
       let raw = '';
       await callClaudeStream(
         [{role:'user', content:'다음 텍스트를 분석해주세요:\n\n' + text}],
-        makeSys(''), 6000, 'claude-haiku-4-5-20251001', c => { raw += c; }
+        makeSys(''), 6000, 'claude-haiku-4-5-20251001', c => { raw += c; }, true
       );
       synopsisData = extractTag(raw, 'synopsis');
       const sr = extractTag(raw, 'scenes');
@@ -17121,7 +17128,7 @@ async function handleFileAttach(e) {
         let raw = '';
         await callClaudeStream(
           [{role:'user', content:'다음 텍스트를 분석해주세요 (' + (ci+1) + '/' + total + '):\n\n' + chunks[ci]}],
-          makeSys((ci+1) + '/' + total, lastSceneContext), 6000, 'claude-haiku-4-5-20251001', c => { raw += c; }
+          makeSys((ci+1) + '/' + total, lastSceneContext), 6000, 'claude-haiku-4-5-20251001', c => { raw += c; }, true
         );
         // 시놉시스 — 아직 없을 때만 자동 저장
         const synChunk = extractTag(raw, 'synopsis');
