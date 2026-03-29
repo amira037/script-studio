@@ -2559,6 +2559,7 @@ async function processSummaryQueue() {
   _summaryQueueRunning = true;
   while (_summaryQueue.length > 0) {
     if (!S.cur) break; // 프로젝트 바뀌면 중단
+    if (isWaiting) { await new Promise(r => setTimeout(r, 3000)); continue; } // 메인 API 진행 중이면 대기
     const sc = _summaryQueue.shift();
     if (!sc || sc.summary?.conflictScore != null) continue;
     try {
