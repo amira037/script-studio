@@ -4968,7 +4968,7 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
       for (let ci = 0; ci < chunks.length; ci++) {
         if (chunks.length > 1) parseBtn.textContent = `⏳ 분석 중... ${ci+1}/${chunks.length}`;
         let raw = '';
-        await callClaudeStream([{role:'user', content:chunks[ci]}], sys, 6000, 'claude-haiku-4-5-20251001', c => { raw += c; }, true);
+        await callClaudeStream([{role:'user', content:chunks[ci]}], sys, 6000, 'claude-haiku-4-5-20251001', c => { raw = c; }, true);
         const sr = extractTag(raw, 'scenes');
         if (sr) { try { const d = JSON.parse(sr); if (Array.isArray(d)) scenesData.push(...d); } catch {} }
       }
@@ -6878,7 +6878,7 @@ function openSceneTextEditor(sc, block) {
       for (let ci = 0; ci < chunks.length; ci++) {
         if (chunks.length > 1) parseBtn.textContent = `⏳ 분석 중... ${ci+1}/${chunks.length}`;
         let raw = '';
-        await callClaudeStream([{role:'user', content:chunks[ci]}], sys, 6000, 'claude-haiku-4-5-20251001', c => { raw += c; }, true);
+        await callClaudeStream([{role:'user', content:chunks[ci]}], sys, 6000, 'claude-haiku-4-5-20251001', c => { raw = c; }, true);
         const sr = extractTag(raw, 'scenes');
         if (sr) { try { const d = JSON.parse(sr); if (Array.isArray(d)) parsed.push(...d); } catch {} }
       }
@@ -17107,7 +17107,7 @@ async function handleFileAttach(e) {
       let raw = '';
       await callClaudeStream(
         [{role:'user', content:'다음 텍스트를 분석해주세요:\n\n' + text}],
-        makeSys(''), 6000, 'claude-haiku-4-5-20251001', c => { raw += c; }, true
+        makeSys(''), 6000, 'claude-haiku-4-5-20251001', c => { raw = c; }, true
       );
       synopsisData = extractTag(raw, 'synopsis');
       const sr = extractTag(raw, 'scenes');
@@ -17128,7 +17128,7 @@ async function handleFileAttach(e) {
         let raw = '';
         await callClaudeStream(
           [{role:'user', content:'다음 텍스트를 분석해주세요 (' + (ci+1) + '/' + total + '):\n\n' + chunks[ci]}],
-          makeSys((ci+1) + '/' + total, lastSceneContext), 6000, 'claude-haiku-4-5-20251001', c => { raw += c; }, true
+          makeSys((ci+1) + '/' + total, lastSceneContext), 6000, 'claude-haiku-4-5-20251001', c => { raw = c; }, true
         );
         // 시놉시스 — 아직 없을 때만 자동 저장
         const synChunk = extractTag(raw, 'synopsis');
