@@ -15704,17 +15704,19 @@ async function checkConflictWithPrompt(text) {
       );
 
       const conflictRaw = extractTag(raw, 'conflict');
-      if (!conflictRaw) {
-        if (ci === 0) { toast('갈등 분석 결과를 파싱할 수 없습니다. 다시 시도해주세요.'); return; }
-        continue;
-      }
+      if (!conflictRaw) { continue; }
       let chunkScenes = [];
-      try { chunkScenes = JSON.parse(conflictRaw); } catch {}
+      try { chunkScenes = JSON.parse(conflictRaw); } catch { continue; }
       chunkScenes = chunkScenes.map((c, i) => {
         const sc = chunk[i];
         return { ...c, sceneId: sc?.id || c.sceneId, label: getSceneLabel(sc, S.cur.scenes) };
       });
       allConflictScenes = allConflictScenes.concat(chunkScenes);
+    }
+
+    if (allConflictScenes.length === 0) {
+      toast('갈등 분석 결과를 파싱할 수 없습니다. 다시 시도해주세요.');
+      return;
     }
 
     // ── 2단계: advice + summary 별도 호출 ────────────────────────────
@@ -15835,7 +15837,11 @@ function buildConflictSection() {
     if (!open && hasData) renderConflictBody(body, data);
   };
 
-  if (!hasData) {
+  if (hasData) {
+    body.style.display = 'block';
+    arr.textContent = '▼';
+    renderConflictBody(body, data);
+  } else {
     const empty = document.createElement('div');
     empty.style.cssText = 'font-size:var(--fs-11);color:var(--text3);text-align:center;padding:16px 0;';
     empty.textContent = '✦ 분석 버튼을 눌러 갈등 흐름을 분석하세요';
