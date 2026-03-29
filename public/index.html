@@ -4956,11 +4956,16 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
         '- 지문(action) 바로 다음 줄은 대사가 아니라 배역명(character)일 가능성이 높음\n' +
         '- 한 줄에서 첫 단어가 4자 이하이고 등장인물 이름이거나 이름처럼 보이면 배역명으로 분리\n' +
         charHint;
-      const raw = await callClaude([{role:'user', content:rawText}], sys, 6000, 'claude-haiku-4-5-20251001');
-      const scenesRaw = extractTag(raw, 'scenes');
-      if (!scenesRaw) { toast('파싱 실패 — 텍스트 형식을 확인해주세요.'); return; }
-      const scenesData = JSON.parse(scenesRaw);
-      if (!Array.isArray(scenesData) || !scenesData.length) { toast('씬을 찾을 수 없습니다.'); return; }
+      const chunks = _splitParseChunks(rawText);
+      const scenesData = [];
+      for (let ci = 0; ci < chunks.length; ci++) {
+        if (chunks.length > 1) parseBtn.textContent = `⏳ 분석 중... ${ci+1}/${chunks.length}`;
+        let raw = '';
+        await callClaudeStream([{role:'user', content:chunks[ci]}], sys, 6000, 'claude-haiku-4-5-20251001', c => { raw += c; });
+        const sr = extractTag(raw, 'scenes');
+        if (sr) { try { const d = JSON.parse(sr); if (Array.isArray(d)) scenesData.push(...d); } catch {} }
+      }
+      if (!scenesData.length) { toast('파싱 실패 — 텍스트 형식을 확인해주세요.'); return; }
       wrap.remove();
       // afterId 위치에 씬들 삽입
       let insertAfter = afterId;
@@ -6861,11 +6866,16 @@ function openSceneTextEditor(sc, block) {
         '- 한 줄에서 첫 단어가 4자 이하이고 등장인물 이름이거나 이름처럼 보이면 배역명으로 분리\n' +
         '- 인물명 + 대사가 한 줄이면 character 줄과 dialogue 줄로 분리\n' +
         charHint2;
-      const raw = await callClaude([{role:'user', content:rawText}], sys, 6000, 'claude-haiku-4-5-20251001');
-      const scenesRaw = extractTag(raw, 'scenes');
-      if (!scenesRaw) { toast('파싱 실패 — 다시 시도해주세요.'); return; }
-      const parsed = JSON.parse(scenesRaw);
-      if (!parsed?.length) { toast('씬을 찾을 수 없습니다.'); return; }
+      const chunks = _splitParseChunks(rawText);
+      const parsed = [];
+      for (let ci = 0; ci < chunks.length; ci++) {
+        if (chunks.length > 1) parseBtn.textContent = `⏳ 분석 중... ${ci+1}/${chunks.length}`;
+        let raw = '';
+        await callClaudeStream([{role:'user', content:chunks[ci]}], sys, 6000, 'claude-haiku-4-5-20251001', c => { raw += c; });
+        const sr = extractTag(raw, 'scenes');
+        if (sr) { try { const d = JSON.parse(sr); if (Array.isArray(d)) parsed.push(...d); } catch {} }
+      }
+      if (!parsed?.length) { toast('파싱 실패 — 다시 시도해주세요.'); return; }
 
       // 첫 번째 씬 → 현재 씬에 diff 적용
       const s0 = parsed[0];
@@ -17002,6 +17012,32 @@ function cleanDisplayText(raw) {
     .trim();
 }
 
+// ── 공통 파싱 청크 분할 헬퍼 (씬 경계 기준, max 1500자) ────────────────
+function _splitParseChunks(txt, maxChunk = 1500) {
+  const isBoundary = l => {
+    const t = l.trim();
+    return /^(INT\.|EXT\.|INT\.\/EXT\.|I\.|E\.)\s/i.test(t) ||
+           /^SCENE\s*\d*/i.test(t) || /^SC\s*\d+/i.test(t) ||
+           /^씬\s*\d*/i.test(t) || /^장면\s*\d*/i.test(t) ||
+           /^#\s*\d+\s*[막장]?/.test(t) || /^제?\d+\s*[막장]/.test(t) ||
+           /^[★◆▶●]\s*\d*/.test(t) || /^-{3,}$/.test(t) || /^={3,}$/.test(t);
+  };
+  const lines = txt.split('\n');
+  const result = [];
+  let cur = '';
+  for (const line of lines) {
+    if (cur.length > maxChunk && isBoundary(line)) {
+      if (cur.trim()) result.push(cur.trim());
+      cur = line + '\n';
+    } else {
+      cur += line + '\n';
+      if (cur.length > maxChunk * 2) { result.push(cur.trim()); cur = ''; }
+    }
+  }
+  if (cur.trim()) result.push(cur.trim());
+  return result;
+}
+
 async function handleFileAttach(e) {
   const file = e.target.files[0];
   e.target.value = '';
@@ -17028,7 +17064,7 @@ async function handleFileAttach(e) {
     const text = await readFileAsText(file);
     if (!text.trim()) { fabStatus.textContent = '빈 파일입니다.'; return; }
 
-    const isLong = text.length > 4000;
+    const isLong = text.length > 1500;
     const curTitle = S.cur?.title || '';
     const curSynopsis = S.cur?.synopsis ? S.cur.synopsis.slice(0, 200) : '없음';
 
@@ -17059,11 +17095,12 @@ async function handleFileAttach(e) {
     let summaryText = '';
 
     if (!isLong) {
-      // 짧은 파일 — 한 번에 처리
+      // 짧은 파일 — 스트리밍 처리
       fabStatus.textContent = 'AI 분석 중...';
-      const raw = await callClaude(
+      let raw = '';
+      await callClaudeStream(
         [{role:'user', content:'다음 텍스트를 분석해주세요:\n\n' + text}],
-        makeSys(''), 6000, 'claude-haiku-4-5-20251001'
+        makeSys(''), 6000, 'claude-haiku-4-5-20251001', c => { raw += c; }
       );
       synopsisData = extractTag(raw, 'synopsis');
       const sr = extractTag(raw, 'scenes');
@@ -17071,44 +17108,8 @@ async function handleFileAttach(e) {
       if (sr) { try { const d = JSON.parse(sr); if (Array.isArray(d)) allScenes = d; } catch(pe) { console.warn('parse err', pe); } }
       summaryText = cleanDisplayText(raw);
     } else {
-      // 긴 파일 — 씬 구분자 기준 스마트 청크 분할
-      // 영문/한글/번호 기반 씬 구분자 모두 포함
-      const isBoundary = (line) => {
-        const t = line.trim();
-        return /^(INT\.|EXT\.|INT\.\/EXT\.|I\.|E\.)\s/i.test(t) ||
-               /^SCENE\s*\d*/i.test(t) ||
-               /^SC\s*\d+/i.test(t) ||
-               /^씬\s*\d*/i.test(t) ||
-               /^장면\s*\d*/i.test(t) ||
-               /^#\s*\d+\s*[막장]?/.test(t) ||
-               /^제?\d+\s*[막장]/.test(t) ||
-               /^[★◆▶●]\s*\d*/.test(t) ||
-               /^-{3,}$/.test(t) ||
-               /^={3,}$/.test(t);
-      };
-
-      const MAX_CHUNK = 4000;
-      const splitTextIntoChunks = (txt) => {
-        const lines = txt.split('\n');
-        const result = [];
-        let current = '';
-        for (const line of lines) {
-          if (current.length > MAX_CHUNK && isBoundary(line)) {
-            if (current.trim()) result.push(current.trim());
-            current = line + '\n';
-          } else {
-            current += line + '\n';
-            if (current.length > 6000) {
-              result.push(current.trim());
-              current = '';
-            }
-          }
-        }
-        if (current.trim()) result.push(current.trim());
-        return result;
-      };
-
-      const chunks = splitTextIntoChunks(text);
+      // 긴 파일 — 씬 경계 기준 청크 분할 (공통 헬퍼, 1500자 기준)
+      const chunks = _splitParseChunks(text);
       const total = chunks.length;
       fabStatus.textContent = '청크 분할: 총 ' + total + '개 구간 (씬 경계 기준)';
 
@@ -17117,9 +17118,10 @@ async function handleFileAttach(e) {
 
       for (let ci = 0; ci < chunks.length; ci++) {
         fabStatus.textContent = '씬 변환 중... ' + (ci+1) + ' / ' + total + ' (' + allScenes.length + '개 완료)';
-        const raw = await callClaude(
+        let raw = '';
+        await callClaudeStream(
           [{role:'user', content:'다음 텍스트를 분석해주세요 (' + (ci+1) + '/' + total + '):\n\n' + chunks[ci]}],
-          makeSys((ci+1) + '/' + total, lastSceneContext), 6000, 'claude-haiku-4-5-20251001'
+          makeSys((ci+1) + '/' + total, lastSceneContext), 6000, 'claude-haiku-4-5-20251001', c => { raw += c; }
         );
         // 시놉시스 — 아직 없을 때만 자동 저장
         const synChunk = extractTag(raw, 'synopsis');
