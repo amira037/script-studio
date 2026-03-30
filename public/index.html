@@ -8706,8 +8706,8 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false) {
       '- 씬이 없을 때: 반드시 <sequence_titles> 포함\n' +
       '- 전체 구조 재편 필요: <sequence_titles> 사용\n' +
       '- 씬 1~3개 추가/삽입: <newscenes> 사용 (맨 뒤면 insertRef 생략)\n' +
-      '- 기존 씬 수정 필요: <editscenes> 사용\n' +
-      '- 씬 있고 새 방향 나올 때: <sequence_titles> 또는 <newscenes> 중 하나 + <editscenes> 함께\n' +
+      '- 기존 씬 수정 필요: <newscenes>[수정된 씬 전체 내용]</newscenes> + <editscenes>SC번호</editscenes> 함께 사용\n' +
+      '- 씬 있고 새 방향 나올 때: <newscenes>[내용]</newscenes> + <editscenes>SC번호</editscenes> 함께\n' +
       '- 스토리/설정/인물 대화 2턴 이상 이어지면: 위 태그 중 맥락에 맞는 둘 반드시 포함\n' +
       '- 씬 내용을 직접 쓰고 싶을 때: <sequence_titles>로 제목 먼저 제안. 작가가 명시적으로 "써줘" 요청시만 직접 작성.\n' +
       '- <suggest>characters</suggest>는 씬이 없을 때는 사용 금지 (등장인물 분석은 씬이 있어야 의미있음)\n' +
@@ -9167,9 +9167,9 @@ function showSceneEditBranchPanel(data) {
     const selectedIds = checked.map(cb => parseInt(cb.dataset.scId)).filter(Boolean);
     const selectedScenes = targetScenes.filter(sc => selectedIds.includes(sc.id));
     overlay.remove();
-    if (floRaw || floScene) {
-      // 플로가 씬 내용을 작성했으면 diff 직접 적용
-      applyFloSceneAsDiff(selectedScenes, floScene, floRaw, floPrompt);
+    if (floScene) {
+      // <newscenes> JSON 있을 때만 diff 직접 적용
+      applyFloSceneAsDiff(selectedScenes, floScene, null, floPrompt);
     } else {
       goScriptEditDirect(selectedScenes.map(sc => getSceneLabel(sc, allSc)), floPrompt);
     }
@@ -9199,24 +9199,19 @@ function showSceneEditBranchPanel(data) {
   document.body.appendChild(overlay);
 }
 
-// I4: 바로 라인으로 — 플로 제안이 있으면 diff 직접 적용, 없으면 씬만 선택
+// I4: 바로 라인으로 — 씬 선택 + 탭 이동
 function goScriptEditDirect(scNums, floPrompt) {
   const allSc = S.cur?.scenes || [];
   S.selectedIds.clear();
-  const targetScenes = [];
   scNums.forEach(lbl => {
     const found = allSc.find(s => getSceneLabel(s, allSc) === lbl
       || getSceneLabel(s, allSc).replace('SC ','SC') === lbl);
-    if (found) { S.selectedIds.add(found.id); targetScenes.push(found); }
+    if (found) S.selectedIds.add(found.id);
   });
-  if (floPrompt && targetScenes.length) {
-    applyFloSceneAsDiff(targetScenes, null, floPrompt, floPrompt);
-  } else {
-    save(true); renderScriptBody(); renderNavSceneList();
-    switchTab('script');
-    const firstSc = allSc.find(s => S.selectedIds.has(s.id));
-    if (firstSc) setTimeout(() => scrollToScene(firstSc.id), 200);
-  }
+  save(true); renderScriptBody(); renderNavSceneList();
+  switchTab('script');
+  const firstSc = allSc.find(s => S.selectedIds.has(s.id));
+  if (firstSc) setTimeout(() => scrollToScene(firstSc.id), 200);
 }
 
 // I2~I3: 구체화 설정 흐름
