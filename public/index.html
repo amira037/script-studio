@@ -7106,7 +7106,7 @@ async function reDiscussMessage(msg) {
     }
     if (editRaw) {
       const scNums = editRaw.split(',').map(s=>s.trim()).filter(Boolean);
-      if (scNums.length) actions.push({ type:'gotoScriptEdit', data:{scNums, prompt:ctx}, label:'✦ 해당 씬들 수정하기', style:'amber' });
+      if (scNums.length) actions.push({ type:'gotoScriptEdit', data:{scNums, prompt:ctx, floRaw:raw}, label:'✦ 해당 씬들 수정하기', style:'amber' });
     }
     actions.push({ type:'dismiss', label:'닫기', style:'' });
     addMsg('assistant', displayText, actions);
@@ -9199,44 +9199,24 @@ function showSceneEditBranchPanel(data) {
   document.body.appendChild(overlay);
 }
 
-// I4: 바로 라인으로 — 플로 제안 컨텍스트 포함
+// I4: 바로 라인으로 — 플로 제안이 있으면 diff 직접 적용, 없으면 씬만 선택
 function goScriptEditDirect(scNums, floPrompt) {
   const allSc = S.cur?.scenes || [];
   S.selectedIds.clear();
+  const targetScenes = [];
   scNums.forEach(lbl => {
     const found = allSc.find(s => getSceneLabel(s, allSc) === lbl
       || getSceneLabel(s, allSc).replace('SC ','SC') === lbl);
-    if (found) S.selectedIds.add(found.id);
+    if (found) { S.selectedIds.add(found.id); targetScenes.push(found); }
   });
-  save(true); renderScriptBody(); renderNavSceneList();
-  switchTab('script');
-  const firstSc = allSc.find(s => S.selectedIds.has(s.id));
-  if (firstSc) setTimeout(() => scrollToScene(firstSc.id), 200);
-
-  // 플로 제안에서 씬별 수정 힌트 추출해서 프롬프터에 삽입
-  const promptText = buildEditPromptFromFlo(scNums, floPrompt);
-  setTimeout(() => {
-    const inp = document.getElementById('prompter-inp');
-    if (inp) { inp.value = promptText; inp.dispatchEvent(new Event('input')); inp.focus(); }
-  }, 250);
-}
-
-// 플로 제안에서 구체적 프롬프터 텍스트 생성
-function buildEditPromptFromFlo(scNums, floPrompt) {
-  if (!floPrompt) return scNums.join(', ') + ' 씬을 수정해줘';
-  // 씬별 힌트 추출 (SC번호 포함 문장)
-  const hints = [];
-  scNums.forEach(lbl => {
-    const scNum = lbl.replace(/\s/g,'');
-    const pat = new RegExp(scNum + '[^\\n]*[\\n]?([^\\n]+)', 'i');
-    const m = floPrompt.match(pat);
-    if (m) hints.push(scNum + ': ' + m[1].trim().slice(0, 80));
-  });
-  const base = scNums.join(', ') + ' 씬 수정';
-  if (hints.length) return base + '\n' + hints.join('\n');
-  // 힌트 없으면 플로 제안 앞부분 포함
-  const cleanFlo = floPrompt.replace(/\n{3,}/g,'\n\n').slice(0, 300);
-  return base + '\n\n[플로 제안 참고]\n' + cleanFlo;
+  if (floPrompt && targetScenes.length) {
+    applyFloSceneAsDiff(targetScenes, null, floPrompt, floPrompt);
+  } else {
+    save(true); renderScriptBody(); renderNavSceneList();
+    switchTab('script');
+    const firstSc = allSc.find(s => S.selectedIds.has(s.id));
+    if (firstSc) setTimeout(() => scrollToScene(firstSc.id), 200);
+  }
 }
 
 // I2~I3: 구체화 설정 흐름
