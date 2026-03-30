@@ -1907,7 +1907,7 @@ async function syncToSupabase(projects) {
   // 빈 데이터는 절대 업로드하지 않음
   if (!projects || !projects.length) return;
   try {
-    await fetch('/api/supabase?path=projects', {
+    const resp = await fetch('/api/supabase?path=projects', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1920,7 +1920,13 @@ async function syncToSupabase(projects) {
         updated_at: new Date().toISOString()
       })
     });
-    updateSyncStatus('✓ 저장됨');
+    if (resp.ok) {
+      // 업로드 성공 시간 기록 (미업로드 변경 감지에 사용)
+      localStorage.setItem(_storageKey('ss_last_upload_time'), String(Date.now()));
+      updateSyncStatus('✓ 저장됨');
+    } else {
+      console.warn('Supabase sync HTTP error', resp.status);
+    }
   } catch(e) { console.warn('Supabase sync failed', e); }
 }
 
@@ -1949,14 +1955,18 @@ async function syncFromSupabase(force = false) {
       remoteTime = new Date(rows[0].updated_at || 0).getTime();
     }
     if (!Array.isArray(remote) || !remote.length) return false;
-    // 로컬 저장 시간이 원격보다 더 최신이면 override 스킵 (빠른 종료로 Supabase sync 미완료된 경우)
+    // 로컬 저장 시간 vs 마지막 업로드 성공 시간 비교 → 미업로드 변경 감지
     const localSaveTime = parseInt(localStorage.getItem(_storageKey('ss_local_save_time')) || '0');
+    const lastUploadTime = parseInt(localStorage.getItem(_storageKey('ss_last_upload_time')) || '0');
+    // localSaveTime > lastUploadTime+5초 이면 업로드 안 된 로컬 변경 있음
+    const hasUnsyncedChanges = localSaveTime > 0 && localSaveTime > lastUploadTime + 5000;
     const remoteIsNewer = remoteTime >= localSaveTime - 3000; // 3초 여유 (네트워크 지연 고려)
-    if (IS_ADMIN || (force && remoteIsNewer)) {
+    if (IS_ADMIN || (force && remoteIsNewer && !hasUnsyncedChanges)) {
       // admin은 로컬 저장 없이 메모리에만
       if (!IS_ADMIN) {
         localStorage.setItem(_storageKey('ss_projects'), JSON.stringify(remote));
         localStorage.setItem(_storageKey('ss_local_save_time'), String(remoteTime));
+        localStorage.setItem(_storageKey('ss_last_upload_time'), String(remoteTime));
       }
       S.projects = remote;
       _syncReady = true; // pull 완료 — 이제 save() 허용
@@ -1968,11 +1978,12 @@ async function syncFromSupabase(force = false) {
       const msg = IS_ADMIN ? '✓ ADMIN — 전체 ' + remote.length + '개 프로젝트 (읽기 전용)' : '✓ 클라우드에서 불러옴 (' + remote.length + '개)';
       updateSyncStatus(msg);
       toast(msg, 3000);
-    } else if (force && !remoteIsNewer) {
-      // 로컬이 더 최신 — override 스킵, 로컬 데이터로 Supabase 업데이트
+    } else if (force && (!remoteIsNewer || hasUnsyncedChanges)) {
+      // 로컬이 최신이거나 업로드 안 된 변경 있음 — 로컬 데이터로 Supabase 업데이트
       _syncReady = true;
       syncToSupabase(S.projects).catch(e => console.warn('Re-sync to Supabase failed', e));
-      updateSyncStatus('✓ 로컬 데이터가 최신 — 클라우드에 업로드');
+      const reason = hasUnsyncedChanges && remoteIsNewer ? '미업로드 변경 보호 — 클라우드에 업로드' : '로컬 데이터가 최신 — 클라우드에 업로드';
+      updateSyncStatus('✓ ' + reason);
     }
     return true;
   } catch(e) {
@@ -8474,11 +8485,17 @@ async function handleFloWriteMultiSeq(text, sceneCount, scRefs, history, sysBase
       ];
 
       const nsr = extractTag(raw, 'newscenes') || extractTag(raw, 'scenes');
-      let scArr = null;
-      if (nsr) { try { scArr = JSON.parse(nsr); } catch {} }
-      if (!scArr?.length) continue;
-
-      const sc = scArr[0];
+      let sc = null;
+      if (nsr) { try { const arr = JSON.parse(nsr); sc = arr?.[0]; } catch {} }
+      // JSON 파싱 실패 시 raw 텍스트 → parseFloTextToLines fallback
+      if (!sc) {
+        const cleanedRaw = cleanDisplayText(raw);
+        if (cleanedRaw) {
+          const titleMatch = cleanedRaw.match(/^SC\s*\d+[.\s]+(.+)/m);
+          sc = { title: titleMatch ? titleMatch[1].trim() : '', lines: parseFloTextToLines(cleanedRaw) };
+        }
+      }
+      if (!sc?.lines?.length) continue;
 
       if (targetSc) {
         // 기존 씬 → diff 즉시 적용
@@ -8833,10 +8850,12 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false) {
     // 씬 수정하기 버튼
     if (editScenesRaw) {
       const scNums = editScenesRaw.split(',').map(s=>s.trim()).filter(Boolean);
+      // 플로가 작성한 씬 내용을 함께 전달 (diff 직접 적용용)
+      const _floScene = newScenesDataFlo?.length ? newScenesDataFlo[0] : null;
       if (scNums.length === 1) {
-        actions.push({ type:'gotoScriptEdit', data:{scNums, prompt:text}, label:'✦ '+scNums[0]+' 수정하기 →', style:'amber' });
+        actions.push({ type:'gotoScriptEdit', data:{scNums, prompt:text, floRaw:displayText, floScene:_floScene}, label:'✦ '+scNums[0]+' 수정하기 →', style:'amber' });
       } else if (scNums.length > 1) {
-        actions.push({ type:'gotoScriptEdit', data:{scNums, prompt:text}, label:'✦ 해당 씬들 수정하기 →', style:'amber' });
+        actions.push({ type:'gotoScriptEdit', data:{scNums, prompt:text, floRaw:displayText, floScene:_floScene}, label:'✦ 해당 씬들 수정하기 →', style:'amber' });
       }
     }
     // 씬 삭제 제안
@@ -9001,9 +9020,85 @@ function showStuckPanel() { showSequenceSuggestPanel(); }
 // I: 씬 수정 분기 패널 (I1~I5)
 // ═══════════════════════════════════════════
 
+// 플로 자연어 텍스트 → [{type, text, locked}] 변환 (API 호출 없이)
+function isCharName(s, chars) {
+  if (chars.some(n => n === s)) return true;
+  return /^[가-힣]{2,5}$/.test(s) && !/[.!?다]$/.test(s);
+}
+function parseFloTextToLines(rawText) {
+  const chars = (S.cur?.characters||[]).map(c => c.name);
+  const lines = rawText.split('\n').map(s => s.trim()).filter(Boolean);
+  const result = [];
+  let prevType = null;
+  for (const line of lines) {
+    if (/^(INT\.|EXT\.)/i.test(line)) {
+      result.push({type:'slug', text:line, locked:false});
+      prevType = 'slug'; continue;
+    }
+    // "신봉사 (목이 잠긴 목소리로)" 형태 — character + parenthetical 분리
+    const cpMatch = line.match(/^(.+?)\s*(\([^)]+\))$/);
+    if (cpMatch && isCharName(cpMatch[1].trim(), chars)) {
+      result.push({type:'character', text:cpMatch[1].trim(), locked:false});
+      result.push({type:'parenthetical', text:cpMatch[2].trim(), locked:false});
+      prevType = 'parenthetical'; continue;
+    }
+    if (/^\(/.test(line)) {
+      result.push({type:'parenthetical', text:line, locked:false});
+      prevType = 'parenthetical'; continue;
+    }
+    if (isCharName(line, chars)) {
+      result.push({type:'character', text:line, locked:false});
+      prevType = 'character'; continue;
+    }
+    if (prevType === 'character' || prevType === 'parenthetical') {
+      result.push({type:'dialogue', text:line, locked:false});
+      prevType = 'dialogue'; continue;
+    }
+    result.push({type:'action', text:line, locked:false});
+    prevType = 'action';
+  }
+  return result;
+}
+
+// 플로 작성 씬을 diff로 직접 적용
+function applyFloSceneAsDiff(targetScenes, floScene, floRaw, floPrompt) {
+  if (!S.cur || !targetScenes.length) return;
+  for (const targetSc of targetScenes) {
+    let newLines;
+    // 1순위: <newscenes> JSON 구조화 데이터
+    if (floScene?.lines) {
+      newLines = [
+        ...(floScene.slug ? [{type:'slug', text:floScene.slug, locked:false}] : []),
+        ...floScene.lines.map(l => ({type:l.type||'action', text:l.text||'', locked:false}))
+      ];
+    }
+    // 2순위: 플로 텍스트 직접 파싱
+    if (!newLines?.length && floRaw) {
+      newLines = parseFloTextToLines(floRaw);
+    }
+    if (!newLines?.length) { toast('씬 내용을 파싱할 수 없습니다.'); continue; }
+    // diff 빌드
+    const oldLines = targetSc.lines || [];
+    const dl = [];
+    for (let j = 0; j < Math.max(oldLines.length, newLines.length); j++) {
+      const o = oldLines[j], n = newLines[j];
+      if (o && n && o.text === n.text) dl.push({type:'ctx', text:o.text});
+      else { if (o) dl.push({type:'del', text:o.text}); if (n) dl.push({type:'add', text:n.text}); }
+    }
+    targetSc.diff = {prompt: floPrompt || '플로 제안', lines: dl, newLines, comment: '플로 작성 버전'};
+  }
+  save(true);
+  switchTab('script');
+  renderScriptBody();
+  renderNavSceneList();
+  targetScenes.forEach(sc => S.selectedIds.add(sc.id));
+  syncSelection();
+  setTimeout(() => scrollToScene(targetScenes[0].id), 200);
+}
+
 // I1: 씬 체크박스 + 2버튼 분기 패널
 function showSceneEditBranchPanel(data) {
-  const { scNums, prompt: floPrompt } = data;
+  const { scNums, prompt: floPrompt, floRaw, floScene } = data;
   const allSc = S.cur?.scenes || [];
 
   // 대상 씬 목록
@@ -9070,11 +9165,14 @@ function showSceneEditBranchPanel(data) {
   editBtn.onclick = () => {
     const checked = [...panel.querySelectorAll('input[type=checkbox]:checked')];
     const selectedIds = checked.map(cb => parseInt(cb.dataset.scId)).filter(Boolean);
-    const selectedLabels = targetScenes
-      .filter(sc => selectedIds.includes(sc.id))
-      .map(sc => getSceneLabel(sc, allSc));
+    const selectedScenes = targetScenes.filter(sc => selectedIds.includes(sc.id));
     overlay.remove();
-    goScriptEditDirect(selectedLabels, floPrompt);
+    if (floRaw || floScene) {
+      // 플로가 씬 내용을 작성했으면 diff 직접 적용
+      applyFloSceneAsDiff(selectedScenes, floScene, floRaw, floPrompt);
+    } else {
+      goScriptEditDirect(selectedScenes.map(sc => getSceneLabel(sc, allSc)), floPrompt);
+    }
   };
 
   const specBtn = document.createElement('button');
@@ -9545,8 +9643,11 @@ async function showSmartSceneAddPanel(scenesData) {
     try {
       const raw = await callClaude(
         [{role:'user', content:'새 씬: ' + newSceneDesc + '\n\n기존 씬 목록:\n' + sceneList}],
-        '대본 편집 전문가. 반드시 <suggestion>{"insertAt":숫자(0=맨앞),"deleteScenes":[씬번호들],"reason":"이유 한줄"}</suggestion> 형식으로만.',
-        300, 'claude-haiku-4-5-20251001'
+        '대본 편집 전문가.\n' +
+        '새 씬이 기존 씬을 1:1로 대체하는 경우 replaceScenes에 교체 대상 씬 번호를 순서대로 넣으세요 (새 씬 수와 반드시 같아야 함).\n' +
+        '교체가 아닌 삽입이면 replaceScenes:[].\n' +
+        '반드시 <suggestion>{"insertAt":숫자(0=맨앞),"deleteScenes":[씬번호들],"replaceScenes":[씬번호들],"reason":"이유 한줄"}</suggestion> 형식으로만.',
+        400, 'claude-haiku-4-5-20251001'
       );
       const raw2 = extractTag(raw, 'suggestion');
       if (raw2) { try { suggestion = JSON.parse(raw2); } catch {} }
@@ -9558,6 +9659,9 @@ async function showSmartSceneAddPanel(scenesData) {
   const aiInsertLabel = aiInsertIdx === 0 ? '맨 앞'
     : aiInsertIdx >= scenes.length ? '맨 뒤'
     : 'SC' + aiInsertIdx + ' 뒤';
+  // 교체 추천: replaceScenes 수 == 새 씬 수일 때만 유효
+  const replaceNums = (suggestion.replaceScenes||[]).filter(n => n >= 1 && n <= scenes.length);
+  const canReplace = replaceNums.length === scenesData.length && scenesData.length > 0;
 
   // 오버레이
   const existing = document.getElementById('smart-scene-panel');
@@ -9619,25 +9723,34 @@ async function showSmartSceneAddPanel(scenesData) {
   const posSel = document.createElement('select');
   posSel.style.cssText = 'background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-size:var(--fs-12);padding:6px 9px;outline:none;';
 
-  // AI 추천
+  // AI 추천 교체 (1순위)
+  if (canReplace) {
+    const optReplace = document.createElement('option');
+    optReplace.value = 'replace';
+    optReplace.textContent = 'AI 추천 — SC' + replaceNums.join('/') + ' 교체';
+    optReplace.selected = true;
+    posSel.appendChild(optReplace);
+  }
+
+  // AI 추천 삽입
   const optAI = document.createElement('option');
   optAI.value = 'ai:' + aiInsertIdx;
-  optAI.textContent = 'AI 추천 — ' + aiInsertLabel;
-  optAI.selected = true;
+  optAI.textContent = (canReplace ? '' : 'AI 추천 — ') + aiInsertLabel + '에 삽입';
+  optAI.selected = !canReplace;
   posSel.appendChild(optAI);
 
   // 해당 장면 뒤 (선택된 씬 있을 때만)
   if (refSc) {
     const optRef = document.createElement('option');
     optRef.value = 'ref:' + (refScIdx + 1);
-    optRef.textContent = refLabel + ' 뒤';
+    optRef.textContent = refLabel + ' 뒤에 삽입';
     posSel.appendChild(optRef);
   }
 
   // 맨 뒤
   const optEnd = document.createElement('option');
   optEnd.value = 'end:' + scenes.length;
-  optEnd.textContent = '맨 뒤';
+  optEnd.textContent = '맨 뒤에 삽입';
   posSel.appendChild(optEnd);
 
   posWrap.append(posLabel, posSel);
@@ -9675,16 +9788,14 @@ async function showSmartSceneAddPanel(scenesData) {
   btns.style.cssText = 'display:flex;gap:8px;margin-top:2px;';
   const applyBtn = document.createElement('button');
   applyBtn.style.cssText = 'flex:1;background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:9px;font-size:var(--fs-12);font-weight:600;cursor:pointer;transition:background .15s;';
-  applyBtn.textContent = '✨ ' + aiInsertLabel + '에 추가';
-
-  // 위치 선택 변경 시 버튼 텍스트 업데이트
-  posSel.onchange = () => {
-    const val = posSel.value;
-    const loc = val.startsWith('ai:') ? aiInsertLabel
-      : val.startsWith('ref:') ? refLabel + ' 뒤'
-      : '맨 뒤';
-    applyBtn.textContent = '✨ ' + loc + '에 추가';
+  const _getBtnLabel = (val) => {
+    if (val === 'replace') return '✨ SC' + replaceNums.join('/') + ' 교체 (diff 적용)';
+    if (val.startsWith('ai:')) return '✨ ' + aiInsertLabel + '에 삽입';
+    if (val.startsWith('ref:')) return '✨ ' + refLabel + ' 뒤에 삽입';
+    return '✨ 맨 뒤에 삽입';
   };
+  applyBtn.textContent = _getBtnLabel(posSel.value);
+  posSel.onchange = () => { applyBtn.textContent = _getBtnLabel(posSel.value); };
 
   const cancelBtn = document.createElement('button');
   cancelBtn.style.cssText = 'background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);padding:9px 14px;font-size:var(--fs-12);cursor:pointer;';
@@ -9693,6 +9804,36 @@ async function showSmartSceneAddPanel(scenesData) {
 
   applyBtn.onclick = () => {
     const val = posSel.value;
+
+    // 교체 모드: 기존 씬에 diff 적용
+    if (val === 'replace') {
+      const nonDraftScenes = S.cur.scenes.filter(s => !s.draft);
+      for (let i = 0; i < replaceNums.length; i++) {
+        const targetSc = nonDraftScenes[replaceNums[i] - 1];
+        if (!targetSc) continue;
+        const sd = scenesData[i];
+        const newLines = [
+          ...(sd.slug ? [{type:'slug', text:sd.slug, locked:false}] : []),
+          ...(sd.lines||[]).map(l => ({type:l.type||'action', text:l.text||'', locked:false}))
+        ];
+        const oldLines = targetSc.lines || [];
+        const dl = [];
+        for (let j = 0; j < Math.max(oldLines.length, newLines.length); j++) {
+          const o = oldLines[j], n = newLines[j];
+          if (o && n && o.text === n.text) dl.push({type:'ctx', text:o.text});
+          else { if (o) dl.push({type:'del', text:o.text}); if (n) dl.push({type:'add', text:n.text}); }
+        }
+        targetSc.diff = {prompt:'플로 씬 교체', lines:dl, newLines, comment:'플로 작성 버전'};
+      }
+      save(true); renderScriptBody(); renderNavSceneList();
+      overlay.remove();
+      switchTab('script');
+      const first = (S.cur.scenes.filter(s=>!s.draft))[replaceNums[0]-1];
+      if (first) setTimeout(() => scrollToScene(first.id), 200);
+      toast('✨ SC' + replaceNums.join(', SC') + ' 교체 준비 — diff를 확인해보세요', 4000);
+      return;
+    }
+
     const insertAt = parseInt(val.split(':')[1]);
 
     const toDelete = [];
@@ -9701,16 +9842,20 @@ async function showSmartSceneAddPanel(scenesData) {
     });
     toDelete.sort((a, b) => b - a);
 
-    const newScenes = scenesData.map(s => ({
-      id: Date.now() + Math.floor(Math.random() * 100000),
-      title: s.title || '새 씬',
-      locked: false,
-      lines: [
-        { type:'slug', text: s.slug || 'INT. 장소 - 시간대', locked:false },
-        ...(s.lines||[]).map(l => ({ type: l.type||'action', text: l.text||'', locked:false }))
-      ],
-      storyboard: [], diff: null,
-    }));
+    const newScenes = scenesData.map(s => {
+      const rawText = [s.slug, ...(s.lines||[]).map(l => l.text)].filter(Boolean).join('\n');
+      const parsedLines = parseFloTextToLines(rawText);
+      if (!parsedLines.some(l => l.type === 'slug')) {
+        parsedLines.unshift({type:'slug', text:'INT. 장소 - 시간대', locked:false});
+      }
+      return {
+        id: Date.now() + Math.floor(Math.random() * 100000),
+        title: s.title || '새 씬',
+        locked: false,
+        lines: parsedLines,
+        storyboard: [], diff: null,
+      };
+    });
 
     let realInsertAt = insertAt;
     toDelete.forEach(idx => { if (idx < realInsertAt) realInsertAt--; S.cur.scenes.splice(idx, 1); });
