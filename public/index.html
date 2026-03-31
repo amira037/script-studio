@@ -1545,7 +1545,7 @@ function closeResponsePanel() {
         </div>
         <div class="prompter-row">
           <label class="attach-btn" title="파일 첨부 (txt/md/docx)">
-            📎<input type="file" accept=".txt,.md,.docx,.jpg,.jpeg,.png,.gif,.webp" onchange="handleFileAttach(event)" style="display:none">
+            📎<input type="file" accept=".txt,.md,.docx,.jpg,.jpeg,.png,.gif,.webp" onchange="handleFileAttach(event)" style="opacity:0;position:absolute;width:0;height:0;overflow:hidden">
           </label>
           <textarea class="prompter-inp" id="prompter-inp" rows="1"
             placeholder="라인에게 씬 수정, 추가, 분석을 지시하세요"
@@ -1653,11 +1653,11 @@ function closeResponsePanel() {
       </div>
       <div class="setting-row">
         <div class="setting-label">프로젝트 불러오기</div>
-        <label class="setting-btn" style="cursor:pointer">⬆ 가져오기<input type="file" accept=".json" onchange="importProject(event)" style="display:none"></label>
+        <label class="setting-btn" style="cursor:pointer">⬆ 가져오기<input type="file" accept=".json" onchange="importProject(event)" style="opacity:0;position:absolute;width:0;height:0;overflow:hidden"></label>
       </div>
       <div class="setting-row">
         <div class="setting-label">파일에서 읽기<small>txt / md / docx → 시놉시스·대본 자동 인식</small></div>
-        <label class="setting-btn" style="cursor:pointer">📎 파일 읽기<input type="file" accept=".txt,.md,.docx,.jpg,.jpeg,.png,.gif,.webp" onchange="handleFileAttach(event)" style="display:none"></label>
+        <label class="setting-btn" style="cursor:pointer">📎 파일 읽기<input type="file" accept=".txt,.md,.docx,.jpg,.jpeg,.png,.gif,.webp" onchange="handleFileAttach(event)" style="opacity:0;position:absolute;width:0;height:0;overflow:hidden"></label>
       </div>
       <div class="setting-row">
         <div class="setting-label">전체 백업 내보내기</div>
@@ -1907,6 +1907,8 @@ async function syncToSupabase(projects) {
   // 빈 데이터는 절대 업로드하지 않음
   if (!projects || !projects.length) return;
   try {
+    const ctrl = new AbortController();
+    const timeoutId = setTimeout(() => ctrl.abort(), 15000); // 15초 타임아웃
     const resp = await fetch('/api/supabase?path=projects', {
       method: 'POST',
       headers: {
@@ -1918,16 +1920,27 @@ async function syncToSupabase(projects) {
         user_id: USER_ID,
         data: { projects },
         updated_at: new Date().toISOString()
-      })
+      }),
+      signal: ctrl.signal
     });
+    clearTimeout(timeoutId);
     if (resp.ok) {
       // 업로드 성공 시간 기록 (미업로드 변경 감지에 사용)
       localStorage.setItem(_storageKey('ss_last_upload_time'), String(Date.now()));
       updateSyncStatus('✓ 저장됨');
     } else {
       console.warn('Supabase sync HTTP error', resp.status);
+      updateSyncStatus('⚠ 클라우드 저장 실패 (' + resp.status + ')');
     }
-  } catch(e) { console.warn('Supabase sync failed', e); }
+  } catch(e) {
+    if (e.name === 'AbortError') {
+      console.warn('Supabase sync timeout');
+      updateSyncStatus('⚠ 클라우드 저장 타임아웃');
+    } else {
+      console.warn('Supabase sync failed', e);
+      updateSyncStatus('⚠ 클라우드 저장 실패');
+    }
+  }
 }
 
 // Supabase에서 최신 데이터 가져오기 (Vercel 프록시 경유)
@@ -1936,8 +1949,15 @@ async function syncFromSupabase(force = false) {
     const query = IS_ADMIN
       ? '/api/supabase?path=projects&select=id,user_id,data,updated_at&order=updated_at.desc'
       : '/api/supabase?path=projects&select=data,updated_at&id=eq.' + USER_ID;
-    const res = await fetch(query);
-    if (!res.ok) return false;
+    const pullCtrl = new AbortController();
+    const pullTimeout = setTimeout(() => pullCtrl.abort(), 12000); // 12초 타임아웃
+    const res = await fetch(query, { signal: pullCtrl.signal });
+    clearTimeout(pullTimeout);
+    if (!res.ok) {
+      _syncReady = true; // HTTP 오류 — 로컬 데이터로 진행 허용
+      console.warn('Supabase sync HTTP error', res.status);
+      return false;
+    }
     const rows = await res.json();
     if (!rows || !rows.length) {
       _syncReady = true; // 원격 데이터 없음 — 새 유저로 간주, save() 허용
@@ -1954,7 +1974,10 @@ async function syncFromSupabase(force = false) {
       remote = rows[0].data?.projects;
       remoteTime = new Date(rows[0].updated_at || 0).getTime();
     }
-    if (!Array.isArray(remote) || !remote.length) return false;
+    if (!Array.isArray(remote) || !remote.length) {
+      _syncReady = true; // 원격 데이터 형식 오류 — 로컬 데이터로 진행 허용
+      return false;
+    }
     // 로컬 저장 시간 vs 마지막 업로드 성공 시간 비교 → 미업로드 변경 감지
     const localSaveTime = parseInt(localStorage.getItem(_storageKey('ss_local_save_time')) || '0');
     const lastUploadTime = parseInt(localStorage.getItem(_storageKey('ss_last_upload_time')) || '0');
@@ -1995,7 +2018,10 @@ async function syncFromSupabase(force = false) {
 
 function updateSyncStatus(msg) {
   const el = document.getElementById('sync-status');
-  if (el) { el.textContent = msg; setTimeout(() => { el.textContent = ''; }, 3000); }
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = msg.startsWith('⚠') ? 'var(--red, #e05c5c)' : 'var(--green)';
+  setTimeout(() => { el.textContent = ''; el.style.color = ''; }, msg.startsWith('⚠') ? 6000 : 3000);
 }
 
 // ═══════════════════════════════════════════
@@ -2718,23 +2744,49 @@ function detectSceneInFlowText(raw, displayText) {
 async function addSceneFromFloText(sceneText) {
   if (!S.cur) return;
   const scenes = (S.cur.scenes||[]).filter(s=>!s.draft);
-  const titleMatch = sceneText.match(/SC\s*\d+[.\s]+([^\n（(]+)/i) || sceneText.match(/^([^\n]{2,20})\n/);
-  const scTitle = titleMatch ? titleMatch[1].trim() : '새 장면';
-  const slugMatch = sceneText.match(/(INT|EXT)\.[^\n]+/i);
-  const slugText = slugMatch ? slugMatch[0] : 'INT. 장소 - 낮';
-  const textLines = sceneText.split('\n').map(l=>l.trim()).filter(Boolean);
-  const scLines = [{ type:'slug', text:slugText, locked:false }];
-  let lastType = 'action';
-  textLines.forEach(l => {
-    if (/(INT|EXT)\./i.test(l)) return;
-    if (/^[가-힣A-Z\s]{1,10}$/.test(l) && l.length <= 10) {
-      scLines.push({ type:'character', text:l, locked:false }); lastType = 'character';
-    } else if (lastType === 'character') {
-      scLines.push({ type:'dialogue', text:l, locked:false }); lastType = 'dialogue';
-    } else {
-      scLines.push({ type:'action', text:l, locked:false }); lastType = 'action';
+
+  // Haiku로 대본 추출 + 구조화 파싱
+  toast('✦ 대본 분석 중...', 2500);
+  let scTitle = '새 장면', slugText = 'INT. 장소 - 낮', scLines = [];
+  try {
+    const chars = (S.cur.characters||[]).map(c=>c.name).filter(Boolean);
+    const charHint = chars.length ? `등장인물: ${chars.join(', ')}\n` : '';
+    const parseRaw = await callClaude(
+      [{role:'user', content: sceneText}],
+      `다음 텍스트에서 영화/드라마 대본 씬만 추출하세요. AI의 설명·분석 문장은 제외하고 실제 대본 내용만 포함하세요.\n${charHint}<scene>{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용"}]}</scene> 형식으로만 반환.`,
+      600, 'claude-haiku-4-5-20251001'
+    );
+    const parsed = JSON.parse(extractTag(parseRaw, 'scene') || '{}');
+    if (parsed.title) scTitle = parsed.title;
+    if (parsed.slug) slugText = parsed.slug;
+    if (Array.isArray(parsed.lines) && parsed.lines.length) {
+      scLines = [
+        { type:'slug', text:slugText, locked:false },
+        ...parsed.lines.map(l => ({ type: l.type||'action', text: l.text||'', locked:false }))
+      ];
     }
-  });
+  } catch(e) {}
+
+  // Haiku 파싱 실패 시 정규식 폴백
+  if (!scLines.length) {
+    const titleMatch = sceneText.match(/SC\s*\d+[.\s]+([^\n（(]+)/i) || sceneText.match(/^([^\n]{2,20})\n/);
+    scTitle = titleMatch ? titleMatch[1].trim() : '새 장면';
+    const slugMatch = sceneText.match(/(INT|EXT)\.[^\n]+/i);
+    slugText = slugMatch ? slugMatch[0] : 'INT. 장소 - 낮';
+    scLines = [{ type:'slug', text:slugText, locked:false }];
+    let lastType = 'action';
+    sceneText.split('\n').map(l=>l.trim()).filter(Boolean).forEach(l => {
+      if (/(INT|EXT)\./i.test(l)) return;
+      if (/^[가-힣A-Z\s]{1,10}$/.test(l) && l.length <= 10) {
+        scLines.push({ type:'character', text:l, locked:false }); lastType = 'character';
+      } else if (lastType === 'character') {
+        scLines.push({ type:'dialogue', text:l, locked:false }); lastType = 'dialogue';
+      } else {
+        scLines.push({ type:'action', text:l, locked:false }); lastType = 'action';
+      }
+    });
+  }
+
   if (scenes.length === 0) { insertSceneAtPosition(scTitle, scLines, null); return; }
 
   // 정규식으로 "SC N" / "N장면" 감지 → 해당 씬 바로 앞 위치 추천
@@ -2760,7 +2812,7 @@ async function addSceneFromFloText(sceneText) {
     }).join('\n');
     const raw = await callClaude(
       [{role:'user', content:`새 씬: "${scTitle}" (${slugText})\n\n기존 씬:\n${sceneList}\n\n어디에 삽입하면 좋을까요?`}],
-      '스토리 흐름상 최적 삽입 위치를 추천하세요.\n<insert>{"after":"SC번호 (맨 앞이면 0, 맨 뒤면 -1)","reason":"한줄이유"}</insert> 형식으로만.',
+      '스토리 흐름상 최적 삽입 위치를 추천하세요.\n<insert>{"after":숫자(맨 앞=0, 맨 뒤=-1, 그 외=씬 번호 숫자만),"reason":"한줄이유"}</insert> 형식으로만.',
       150, 'claude-haiku-4-5-20251001'
     );
     let insertData = null;
@@ -2781,16 +2833,17 @@ function showSceneInsertPositionPanel(scTitle, scLines, recommendation, scenes) 
   if (recommendation?.reason) {
     const rec = document.createElement('div');
     rec.style.cssText = 'background:var(--accent3);border:1px solid var(--accent2);border-radius:var(--r);padding:8px 10px;font-size:var(--fs-11);color:var(--accent);';
-    const afterNum = parseInt(recommendation.after);
-    const recLabel = afterNum === 0 ? '맨 앞' : afterNum === -1 ? '맨 뒤' : `SC${afterNum} 뒤`;
+    const afterNum = parseInt(String(recommendation.after ?? '').replace(/[^0-9-]/g, ''));
+    const recLabel = afterNum === 0 ? '맨 앞' : afterNum === -1 ? '맨 뒤' : `SC ${afterNum} 뒤`;
     rec.innerHTML = `✦ 추천: <strong>${recLabel}</strong><br><span style="color:var(--text3);font-size:var(--fs-10);">${recommendation.reason}</span>`;
     panel.appendChild(rec);
   }
   const posWrap = document.createElement('div');
   posWrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto;';
   // 맨 앞
+  const _recAfter = recommendation ? parseInt(String(recommendation.after ?? '').replace(/[^0-9-]/g, '')) : NaN;
   const firstBtn = document.createElement('button');
-  const isFirstRec = recommendation && parseInt(recommendation.after) === 0;
+  const isFirstRec = _recAfter === 0;
   firstBtn.style.cssText = `text-align:left;padding:6px 10px;font-size:var(--fs-11);border-radius:var(--r);cursor:pointer;border:1px solid ${isFirstRec?'var(--accent)':'var(--border)'};background:${isFirstRec?'var(--accent3)':'var(--bg3)'};color:${isFirstRec?'var(--accent)':'var(--text2)'};`;
   firstBtn.textContent = (isFirstRec?'✦ ':'') + '맨 앞에';
   firstBtn.onclick = () => { overlay.remove(); insertSceneAtPosition(scTitle, scLines, null, true); };
@@ -2798,15 +2851,15 @@ function showSceneInsertPositionPanel(scTitle, scLines, recommendation, scenes) 
   // 각 씬 뒤
   scenes.forEach((s,i) => {
     const btn = document.createElement('button');
-    const isRec = recommendation && parseInt(recommendation.after) === i+1;
+    const isRec = _recAfter === i+1;
     btn.style.cssText = `text-align:left;padding:6px 10px;font-size:var(--fs-11);border-radius:var(--r);cursor:pointer;border:1px solid ${isRec?'var(--accent)':'var(--border)'};background:${isRec?'var(--accent3)':'var(--bg3)'};color:${isRec?'var(--accent)':'var(--text2)'};`;
-    btn.textContent = (isRec?'✦ ':'') + `SC${i+1} "${s.title}" 뒤`;
+    btn.textContent = (isRec?'✦ ':'') + `SC ${i+1} "${s.title}" 뒤`;
     btn.onclick = () => { overlay.remove(); insertSceneAtPosition(scTitle, scLines, s.id); };
     posWrap.appendChild(btn);
   });
   // 맨 뒤
   const lastBtn = document.createElement('button');
-  const isLastRec = recommendation && parseInt(recommendation.after) === -1;
+  const isLastRec = _recAfter === -1;
   lastBtn.style.cssText = `text-align:left;padding:6px 10px;font-size:var(--fs-11);border-radius:var(--r);cursor:pointer;border:1px solid ${isLastRec?'var(--accent)':'var(--border)'};background:${isLastRec?'var(--accent3)':'var(--bg3)'};color:${isLastRec?'var(--accent)':'var(--text2)'};`;
   lastBtn.textContent = (isLastRec?'✦ ':'') + '맨 뒤에';
   lastBtn.onclick = () => { overlay.remove(); insertSceneAtPosition(scTitle, scLines, null); };
