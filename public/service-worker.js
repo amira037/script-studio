@@ -24,10 +24,20 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
-  if (e.request.url.includes('/api/') ||
-      e.request.url.includes('supabase.co') ||
-      e.request.url.includes('chrome-extension')) return;
+  const url = e.request.url;
+
+  // API / 외부 요청 / non-GET → 네트워크로 직접 통과
+  if (
+    e.request.method !== 'GET' ||
+    url.includes('/api/') ||
+    url.includes('supabase.co') ||
+    url.includes('chrome-extension') ||
+    url.includes('fonts.googleapis.com') ||
+    url.includes('cdn.jsdelivr.net')
+  ) {
+    e.respondWith(fetch(e.request));  // return 대신 명시적으로 네트워크 통과
+    return;
+  }
 
   e.respondWith(
     caches.match(e.request).then(cached => {
