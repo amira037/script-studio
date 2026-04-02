@@ -27,7 +27,11 @@ export default async function handler(req, res) {
       body: req.method !== 'GET' ? JSON.stringify(req.body) : undefined,
     });
 
-    const data = await response.json();
+    if (response.status === 204 || response.headers.get('content-length') === '0') {
+      return res.status(response.status).end();
+    }
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : {};
     return res.status(response.status).json(data);
   } catch (err) {
     return res.status(500).json({ error: err.message });
