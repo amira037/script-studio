@@ -8433,7 +8433,7 @@ async function extractMemosFromScript() {
     });
     // 결정사항에서도 인물 등록
     _autoRegisterCharsFromMemo();
-    if (charAdded > 0) { save(true); renderCharList?.(); }
+    if (charAdded > 0) { save(true); window.renderCharList?.(); }
 
     // ── 3단계: 시놉시스 초안 생성 (없을 때만) ──
     if (!(S.cur.synopsis||'').trim()) {
