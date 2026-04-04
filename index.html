@@ -1372,6 +1372,11 @@ function closeResponsePanel() {
 }
 </script>
 </head>
+<script>
+// ★ 버전 — 캐시 키 관리 (업데이트 시 이 값만 변경)
+const SW_VERSION = 'v42';
+</script>
+
 <body>
 
 <!-- ═══════════════════════════════════════════
@@ -1477,6 +1482,7 @@ function closeResponsePanel() {
             <span style="font-size:var(--fs-11);color:var(--accent);font-weight:500;">📌 핵심 결정사항</span>
             <div style="display:flex;align-items:center;gap:8px;" onclick="event.stopPropagation()">
               <button onclick="organizeMemos()" style="font-size:var(--fs-9);padding:2px 7px;border-radius:var(--r);border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;" title="히스토리 분석 후 설정/인물/스토리/반전으로 정리">✦ 정리하기</button>
+              <button onclick="extractMemosFromScript()" id="btn-extract-script" style="font-size:var(--fs-9);padding:2px 7px;border-radius:var(--r);border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;" title="현재 대본 씬에서 결정사항 재추출">📄 대본 분석</button>
               <span id="chat-memo-arr" style="font-size:var(--fs-10);color:var(--text3);cursor:pointer;" onclick="toggleChatMemo()">▼</span>
             </div>
           </div>
@@ -8349,6 +8355,125 @@ async function autoExtractMemoFromHistory() {
   } catch(e) { console.warn('auto memo failed', e); }
 }
 
+// ── 대본 전체 분석 (결정사항 + 인물 + 시놉시스) ──────────────────────
+async function extractMemosFromScript() {
+  if (!S.cur) return;
+  const scenes = (S.cur.scenes||[]).filter(s => !s.draft);
+  if (!scenes.length) { toast('씬이 없습니다.'); return; }
+
+  const btn = document.getElementById('btn-extract-script');
+  const setBtn = t => { if (btn) { btn.textContent = t; btn.disabled = (t !== '📄 대본 분석'); } };
+
+  function _memoKey(s) {
+    return s.trim().replace(/[\s\-:：\(（,]/g, '|').split('|').filter(Boolean)[0] || s.slice(0,6);
+  }
+  function _isMemoSame(a, b) {
+    const ka = _memoKey(a), kb = _memoKey(b);
+    return ka === kb || a.slice(0,15) === b.slice(0,15);
+  }
+
+  let memoAdded = 0, charAdded = 0, synopsisGenerated = false;
+
+  try {
+    // ── 1단계: 결정사항 추출 (Haiku 1회) ──
+    setBtn('결정사항 분석 중…');
+    const scriptText = scenes.map(s => {
+      const lbl = getSceneLabel(s, scenes);
+      const lines = (s.lines||[]).filter(l => l.type !== 'slug').map(l => l.text).join(' ').slice(0, 200);
+      return lbl + '. ' + s.title + ': ' + lines;
+    }).join('\n').slice(0, 4000);
+
+    const sys = '대본 씬에서 창작 결정사항을 4가지 카테고리로 분류하세요.\n' +
+      '반드시: <organized>{"setting":["항목"],"characters":["항목"],"story":["항목"],"twist":["항목"]}</organized>\n' +
+      '각 항목 30자 이내. 씬에서 확인되는 설정/인물 특성/플롯/복선만. 일반적 사실 제외.';
+    const raw = await callClaude(
+      [{role:'user', content:'대본:\n\n' + scriptText}],
+      sys, 600, 'claude-haiku-4-5-20251001'
+    );
+    const organizedRaw = extractTag(raw, 'organized');
+    if (organizedRaw) {
+      let organized;
+      try { organized = JSON.parse(organizedRaw); } catch {}
+      if (organized) {
+        const existingAll = getChatMemos();
+        const allNew = Object.values(organized).flat().filter(Boolean);
+        memoAdded = allNew.filter(m => !existingAll.some(e => _isMemoSame(e, m))).length;
+        if (!S.cur.chatMemosStructured) S.cur.chatMemosStructured = { setting:[], characters:[], story:[], twist:[] };
+        ['setting','characters','story','twist'].forEach(cat => {
+          const bucket = S.cur.chatMemosStructured[cat];
+          (organized[cat]||[]).filter(Boolean).forEach(item => {
+            if (!bucket.some(e => _isMemoSame(e, item))) bucket.push(item);
+          });
+        });
+        save(true); renderChatMemoWrap();
+      }
+    }
+
+    // ── 2단계: 인물 등록 (대본 character 라인 직접 스캔, API 없음) ──
+    setBtn('인물 등록 중…');
+    const existingAliases = (S.cur.characters||[]).flatMap(c => buildCharAliases(c));
+    const scriptCharNames = [...new Set(
+      scenes.flatMap(s => s.lines||[])
+        .filter(l => l.type === 'character')
+        .map(l => l.text.trim().replace(/\s*\(.*\)$/, '').trim())
+        .filter(Boolean)
+    )];
+    scriptCharNames.forEach(name => {
+      if (!name || existingAliases.some(a => a === name)) return;
+      const newChar = {
+        id: Date.now() + Math.floor(Math.random() * 100000),
+        name, lastName: '', firstName: '',
+        title: '', role: '', description: '', traits: [], aliases: []
+      };
+      newChar.aliases = buildCharAliases(newChar);
+      if (!S.cur.characters) S.cur.characters = [];
+      S.cur.characters.push(newChar);
+      existingAliases.push(...newChar.aliases);
+      charAdded++;
+    });
+    // 결정사항에서도 인물 등록
+    _autoRegisterCharsFromMemo();
+    if (charAdded > 0) { save(true); renderCharList?.(); }
+
+    // ── 3단계: 시놉시스 초안 생성 (없을 때만) ──
+    if (!(S.cur.synopsis||'').trim()) {
+      setBtn('시놉시스 생성 중…');
+      const storyItems = S.cur.chatMemosStructured?.story || [];
+      if (storyItems.length >= 2) {
+        try {
+          const synRaw = await callClaude(
+            [{ role:'user', content:'스토리 사실:\n' + storyItems.map(s=>'• '+s).join('\n') + '\n\n대본 제목: ' + (S.cur.title||'(제목 없음)') }],
+            '위 내용을 바탕으로 2~3문장 시놉시스 초안을 작성하세요. 반드시 <synopsis>내용</synopsis> 형식으로만.',
+            200, 'claude-haiku-4-5-20251001'
+          );
+          const syn = extractTag(synRaw, 'synopsis');
+          if (syn && syn.trim().length > 20) {
+            showSynopsisDetectToast(syn.trim());
+            synopsisGenerated = true;
+          }
+        } catch(e) {}
+      }
+    }
+
+    save();
+    // ── 결과 토스트 ──
+    const parts = [];
+    if (memoAdded > 0) parts.push('결정사항 ' + memoAdded + '개');
+    if (charAdded > 0) parts.push('인물 ' + charAdded + '명');
+    if (synopsisGenerated) parts.push('시놉시스 초안');
+    const msg = parts.length > 0
+      ? '📄 대본 분석 완료 — ' + parts.join(', ') + ' 추가됨'
+      : '📄 대본 분석 완료 — 새로운 항목 없음';
+    toast(msg, 5000);
+
+  } catch(e) {
+    console.warn('extractMemosFromScript failed', e);
+    toast('분석 실패');
+  } finally {
+    setBtn('📄 대본 분석');
+  }
+}
+
 // ── 플로 결정사항 → 인물 자동 등록 ──────────────────────────────────
 function _autoRegisterCharsFromMemo() {
   if (!S.cur) return;
@@ -11900,10 +12025,32 @@ async function handleRefSceneCreate(text) {
     return '[' + lbl + ' — ' + sc.title + ']\n' + body;
   }).join('\n\n---\n\n');
 
-  // 전체 씬 목록 (대안 제외)
-  const allSceneList = scenes.filter(s => !s.draft).map((s, i) =>
-    'SC' + (i + 1) + '. "' + s.title + '": ' + (s.lines||[]).map(l => l.text).join(' ').slice(0, 60)
-  ).join('\n');
+  // 전체 씬 목록 (대안 제외) — 참조 씬 앞뒤 ±1은 전체 내용, 나머지는 preview
+  const nonDraftScenes = scenes.filter(s => !s.draft);
+  const refIds = new Set(refScenes.map(s => s.id));
+  const adjacentIds = new Set();
+  refScenes.forEach(rs => {
+    const idx = nonDraftScenes.indexOf(rs);
+    if (idx > 0) adjacentIds.add(nonDraftScenes[idx - 1].id);
+    if (idx < nonDraftScenes.length - 1) adjacentIds.add(nonDraftScenes[idx + 1].id);
+  });
+  const allSceneList = nonDraftScenes.map(s => {
+    const lbl = getSceneLabel(s, scenes);
+    const slug = (s.lines||[]).find(l => l.type === 'slug')?.text || '';
+    if (refIds.has(s.id)) return null; // 참조 씬은 refContent에 이미 전체 포함
+    if (adjacentIds.has(s.id)) {
+      const body = (s.lines||[]).map(l => {
+        if (l.type === 'slug') return l.text;
+        if (l.type === 'character') return '\n' + l.text;
+        if (l.type === 'parenthetical') return '(' + l.text + ')';
+        return l.text;
+      }).join('\n');
+      return '[' + lbl + ' — ' + s.title + (slug ? ' / ' + slug : '') + ' ★인접씬]\n' + body;
+    }
+    const previewLine = (s.lines||[]).find(l => l.type === 'action' || l.type === 'dialogue');
+    const preview = previewLine ? ' — ' + previewLine.text.slice(0, 50) : '';
+    return lbl + '. "' + s.title + '"' + (slug ? ' [' + slug + ']' : '') + preview;
+  }).filter(Boolean).join('\n\n');
 
   try {
     const raw = await callClaude(
@@ -13302,7 +13449,9 @@ async function handleScriptPrompt(text) {
         const chunkFullList = chunkAllScenes.map(s => {
           const lbl = getSceneLabel(s, chunkAllScenes);
           const slug = (s.lines||[]).find(l=>l.type==='slug')?.text||'';
-          return lbl + '. "' + s.title + '"' + (slug?' ['+slug+']':'');
+          const previewLine = (s.lines||[]).find(l => l.type === 'action' || l.type === 'dialogue');
+          const preview = previewLine ? ' — ' + previewLine.text.slice(0, 50) : '';
+          return lbl + '. "' + s.title + '"' + (slug?' ['+slug+']':'') + preview;
         }).join('\n');
         const chunkSummary = chunk.map(s => {
           const label = getSceneLabel(s, S.cur.scenes);
@@ -13315,7 +13464,13 @@ async function handleScriptPrompt(text) {
         const chunkFloCtxBlock = chunkFloCtxRaw
           ? '[플로 대화 — 작가의 최근 방향 결정]\n' + chunkFloCtxRaw + '\n위 대화의 결정사항과 방향을 편집에 반드시 반영하세요.\n\n'
           : '';
-        const chunkSys = '당신은 대본 편집 AI입니다.\n\n' + chunkMemoCtx + chunkFloCtxBlock + '[전체 씬 목록 — 참조용]\n'+chunkFullList+'\n\n[편집 가능한 씬 데이터]\n' +
+        const _chkCharCtx = (S.cur.characters||[]).length > 0
+          ? '[등장인물]\n' + S.cur.characters.map(c => c.name + (c.role ? ' ('+c.role+')' : '')).join(', ') + '\n\n'
+          : '';
+        const _chkSynopsisCtx = (S.cur.synopsis||'').trim()
+          ? '[시놉시스]\n' + S.cur.synopsis.slice(0, 300) + '\n\n'
+          : '';
+        const chunkSys = '당신은 대본 편집 AI입니다.\n\n' + _chkSynopsisCtx + _chkCharCtx + chunkMemoCtx + chunkFloCtxBlock + '[전체 씬 목록 — 참조용]\n'+chunkFullList+'\n\n[편집 가능한 씬 데이터]\n' +
           '잠금(locked:true)된 줄과 중요 대사(keyline:true)는 절대 수정하지 마세요.\n' +
           '사용자가 압축/단축을 명시적으로 요청하지 않는 한, 각 씬의 lines는 원본과 같거나 더 많아야 합니다. 대사와 지문을 임의로 생략하지 마세요.\n' +
           '편집 시 반드시 <r>[{"sceneId":숫자,"title":"씬제목","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용","locked":false}],"comment":"변경사항 한 줄"}]</r> 형식으로 응답하세요.\n' +
@@ -13375,7 +13530,9 @@ async function handleScriptPrompt(text) {
   const fullSceneList = allScenes.map((s) => {
     const lbl2 = getSceneLabel(s, allScenes);
     const slug2 = (s.lines||[]).find(l => l.type === 'slug')?.text || '';
-    return lbl2 + '. "' + s.title + '"' + (slug2 ? ' [' + slug2 + ']' : '');
+    const previewLine = (s.lines||[]).find(l => l.type === 'action' || l.type === 'dialogue');
+    const preview = previewLine ? ' — ' + previewLine.text.slice(0, 50) : '';
+    return lbl2 + '. "' + s.title + '"' + (slug2 ? ' [' + slug2 + ']' : '') + preview;
   }).join('\n');
 
   // 프롬프트 씬 번호 감지 → 자동 포함
@@ -13404,7 +13561,16 @@ async function handleScriptPrompt(text) {
     ? '\n[플로 대화 — 작가의 최근 방향 결정]\n' + floCtxRaw + '\n위 대화의 결정사항과 방향을 편집에 반드시 반영하세요.\n\n'
     : '';
 
+  const _charCtx = (S.cur.characters||[]).length > 0
+    ? '[등장인물]\n' + S.cur.characters.map(c => c.name + (c.role ? ' ('+c.role+')' : '')).join(', ') + '\n\n'
+    : '';
+  const _synopsisCtx = (S.cur.synopsis||'').trim()
+    ? '[시놉시스]\n' + S.cur.synopsis.slice(0, 300) + '\n\n'
+    : '';
+
   const sys = '당신은 대본 편집 AI입니다.\n\n' +
+    _synopsisCtx +
+    _charCtx +
     memoCtxScript +
     floCtxBlock +
     '[전체 씬 목록 — 참조용]\n' + fullSceneList + '\n\n' +
@@ -17728,14 +17894,29 @@ document.addEventListener('focusout', (e) => {
 }, true);
 
 // ═══════════════════════════════════════════
-// PWA SERVICE WORKER 등록
+// PWA SERVICE WORKER 등록 (인라인 Blob)
 // ═══════════════════════════════════════════
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/service-worker.js')
-      .then(() => console.log('SW registered'))
-      .catch(e => console.warn('SW failed', e));
-  });
+  const swCode = `
+const CACHE = 'ss-${SW_VERSION}';
+self.addEventListener('install', e => {
+  self.skipWaiting();
+});
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+    )
+  );
+});
+self.addEventListener('fetch', e => {
+  e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+});
+`;
+  const blob = new Blob([swCode], { type: 'application/javascript' });
+  navigator.serviceWorker.register(URL.createObjectURL(blob))
+    .then(() => console.log('SW registered (inline blob)'))
+    .catch(e => console.warn('SW failed', e));
 }
 
 // ═══════════════════════════════════════════
