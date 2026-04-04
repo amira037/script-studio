@@ -1378,7 +1378,7 @@ function closeResponsePanel() {
 </head>
 <script>
 // ★ 버전 — 캐시 키 관리 (업데이트 시 이 값만 변경)
-const SW_VERSION = 'v43.1';
+const SW_VERSION = 'v43.4';
 </script>
 
 <body>
@@ -5494,14 +5494,31 @@ function buildSceneBlock(sc, i) {
         }
       };
 
-      // 붙여넣기: 여러 줄이면 각 줄을 별도 라인으로 분리
+      // 붙여넣기: 내부 클립보드 우선, 없으면 일반 텍스트 처리
       el.addEventListener('paste', (e) => {
+        // 내부 클립보드 — 타입 포함 붙여넣기
+        if (window._lineClipboard?.length) {
+          e.preventDefault();
+          const clips = window._lineClipboard;
+          line.text = clips[0].text;
+          line.type = clips[0].type;
+          el.textContent = clips[0].text;
+          el.className = 'line-el line-' + clips[0].type;
+          const newLines = clips.slice(1).map(c => ({ type: c.type, text: c.text, locked: false }));
+          sc.lines.splice(li + 1, 0, ...newLines);
+          save(); renderAllLines();
+          setTimeout(() => {
+            const els = linesWrap.querySelectorAll('.line-el');
+            if (els[li + newLines.length]) els[li + newLines.length].focus();
+          }, 20);
+          return;
+        }
+        // 일반 텍스트 붙여넣기
         e.preventDefault();
         const pasted = (e.clipboardData || window.clipboardData).getData('text');
         if (!pasted) return;
         const pastedLines = pasted.split(/\r?\n/).map(s => s.trim()).filter(s => s.length > 0);
         if (pastedLines.length <= 1) {
-          // 단일 줄: 그냥 현재 위치에 삽입
           document.execCommand('insertText', false, pasted);
           line.text = el.textContent;
           save(true);
@@ -5512,7 +5529,6 @@ function buildSceneBlock(sc, i) {
         const newLines = pastedLines.slice(1).map(t => ({ type:'action', text:t, locked:false }));
         sc.lines.splice(li + 1, 0, ...newLines);
         save(); renderAllLines();
-        // 마지막 추가된 줄로 포커스
         setTimeout(() => {
           const els = linesWrap.querySelectorAll('.line-el');
           if (els[li + newLines.length]) els[li + newLines.length].focus();
@@ -5530,14 +5546,34 @@ function buildSceneBlock(sc, i) {
             handleFillSingleLine(sc, li);
             return;
           }
+          // 커서 위치 기준으로 텍스트 분리
+          const sel = window.getSelection();
+          let beforeText = el.textContent;
+          let afterText = '';
+          if (sel && sel.rangeCount > 0) {
+            const range = sel.getRangeAt(0);
+            const preRange = document.createRange();
+            preRange.selectNodeContents(el);
+            preRange.setEnd(range.startContainer, range.startOffset);
+            beforeText = preRange.toString();
+            afterText = el.textContent.slice(beforeText.length);
+          }
           // 배역명/대사 다음은 자동으로 dialogue, 그 외는 action
           const nextType = (line.type === 'character' || line.type === 'dialogue') ? 'dialogue' : 'action';
-          const newLine = { type:nextType, text:'', locked:false };
+          line.text = beforeText;
+          el.textContent = beforeText;
+          const newLine = { type: nextType, text: afterText, locked: false };
           sc.lines.splice(li + 1, 0, newLine);
           save(); renderAllLines();
           setTimeout(() => {
             const els = linesWrap.querySelectorAll('.line-el');
-            if (els[li+1]) { els[li+1].focus(); }
+            if (els[li+1]) {
+              els[li+1].focus();
+              // 커서를 새 줄 맨 앞으로
+              const r = document.createRange(); const s = window.getSelection();
+              r.setStart(els[li+1], 0); r.collapse(true);
+              s.removeAllRanges(); s.addRange(r);
+            }
           }, 20);
           return;
         }
@@ -5800,6 +5836,14 @@ function buildSceneBlock(sc, i) {
           });
           menu.appendChild(mk2Row(delLine, delBlock));
 
+          // 씬 나누기
+          if (li > 0 && !sc.locked) {
+            menu.appendChild(mkDiv());
+            menu.appendChild(mkMenuBtn('✂ 여기서 씬 나누기', 'var(--accent)', () => {
+              splitSceneAt(sc, li);
+            }));
+          }
+
           // 줄 선택
           menu.appendChild(mkDiv());
           menu.appendChild(mkMenuBtn('☑ 줄 선택', null, () => {
@@ -5866,6 +5910,28 @@ function buildSceneBlock(sc, i) {
       }, {passive:true});
       el.addEventListener('touchmove', () => clearTimeout(pressTimer), {passive:true});
       el.addEventListener('touchend', () => clearTimeout(pressTimer), {passive:true});
+
+      // Shift+클릭 — 내부 복사 선택
+      if (!_aiWriteMode && line.type !== 'slug') {
+        lw.addEventListener('click', (e) => {
+          if (!e.shiftKey) return;
+          e.preventDefault();
+          if (!sc._copySelected) sc._copySelected = new Set();
+          if (sc._copySelected.has(li)) {
+            sc._copySelected.delete(li);
+            lw.style.outline = '';
+            lw.style.background = '';
+          } else {
+            sc._copySelected.add(li);
+            lw.style.outline = '1px solid var(--blue)';
+            lw.style.background = 'var(--blue2)';
+          }
+          // 1개 이상 선택 시 토스트 안내
+          if (sc._copySelected.size > 0) {
+            toast('Cmd+C로 복사 (' + sc._copySelected.size + '줄 선택됨)', 2000);
+          }
+        });
+      }
 
       lw.appendChild(el);
       linesWrap.appendChild(lw);
@@ -10705,6 +10771,61 @@ async function handlePickKeyScenes(text) {
   }
 }
 
+// ── 씬 나누기 ─────────────────────────────────────────────────────────
+function splitSceneAt(sc, splitIdx) {
+  const scenes = S.cur?.scenes;
+  if (!scenes || splitIdx <= 0 || splitIdx >= sc.lines.length) return;
+
+  // 나누는 기준 줄 미리보기 (첫 번째 비어있지 않은 텍스트)
+  const splitLine = sc.lines[splitIdx];
+  const previewText = splitLine?.text?.trim().slice(0, 30) || '(빈 줄)';
+
+  // 확인 카드
+  const bar = document.createElement('div');
+  bar.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);' +
+    'background:var(--bg4);border:1.5px solid var(--accent2);border-radius:var(--r2);' +
+    'padding:12px 16px;z-index:500;display:flex;flex-direction:column;gap:8px;' +
+    'min-width:260px;max-width:90vw;box-shadow:0 8px 24px rgba(0,0,0,.5);';
+  const msg = document.createElement('div');
+  msg.style.cssText = 'font-size:var(--fs-12);color:var(--text);line-height:1.6;';
+  msg.innerHTML = '<span style="color:var(--accent);">✂ 씬 나누기</span><br>' +
+    '<span style="color:var(--text2);font-size:var(--fs-11);">"' + previewText + '" 부터 새 씬으로 분리합니다.</span>';
+  const btns = document.createElement('div');
+  btns.style.cssText = 'display:flex;gap:6px;';
+  const okBtn = document.createElement('button');
+  okBtn.textContent = '나누기';
+  okBtn.style.cssText = 'flex:1;background:var(--accent);color:#fff;border:none;border-radius:var(--r);padding:6px;font-size:var(--fs-11);cursor:pointer;font-weight:600;';
+  okBtn.onclick = () => {
+    bar.remove();
+    const before = sc.lines.slice(0, splitIdx);
+    const after  = sc.lines.slice(splitIdx);
+    sc.lines = before;
+    const newSc = {
+      id: Date.now() + Math.floor(Math.random() * 100000),
+      title: sc.title + ' (2)',
+      slug: '',
+      lines: after.map(l => ({...l})),
+      draft: false,
+      collapsed: false,
+      locked: false,
+      summary: {}
+    };
+    const idx = scenes.indexOf(sc);
+    scenes.splice(idx + 1, 0, newSc);
+    save(true); renderScriptBody(); renderNavSceneList();
+    toast('✂ 씬이 나뉘었습니다 — 제목을 수정해보세요', 3500);
+    setTimeout(() => scrollToScene(newSc.id), 100);
+  };
+  const cancelBtn = document.createElement('button');
+  cancelBtn.textContent = '취소';
+  cancelBtn.style.cssText = 'background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text3);padding:6px 12px;font-size:var(--fs-11);cursor:pointer;';
+  cancelBtn.onclick = () => bar.remove();
+  btns.append(okBtn, cancelBtn);
+  bar.append(msg, btns);
+  document.body.appendChild(bar);
+  setTimeout(() => { if (document.body.contains(bar)) bar.remove(); }, 8000);
+}
+
 // ── 씬 복제 ───────────────────────────────────────────────────────────
 async function handleSceneClone(text) {
   const scenes = S.cur?.scenes || [];
@@ -13334,7 +13455,6 @@ async function handleScriptPrompt(text) {
   if (!S._skipBrainCheck) {
     // 단순 삭제/이동 요청 (SC번호 명확) → 직접 처리
     const simpleDelete = /SC\s*\d+.*삭제|SC\s*\d+.*지워/.test(text);
-    const simpleMove = /SC\s*\d+.*이동|SC\s*\d+.*옮겨|SC\s*\d+.*뒤로|SC\s*\d+.*앞으로/.test(text);
     // SC번호 명확한 순서 재배치 — "SC8→SC7→SC6" 또는 괄호 포함 형식
     // SC번호가 2개 이상 + 재배치/순서 키워드 있으면 직접 처리
     const hasClearScNums = (text.match(/SC\s*\d+/gi)||[]).length >= 2;
@@ -13352,10 +13472,6 @@ async function handleScriptPrompt(text) {
           toast('✓ SC' + num + ' 삭제됨'); return;
         }
       }
-    }
-    if (simpleMove) {
-      switchTab('script');
-      toast('네비게이터에서 씬을 드래그하여 이동하세요', 3000); return;
     }
     // SC번호 명확한 순서 재배치 → 직접 처리
     if (scOrderPat && hasClearScNums) {
@@ -17822,6 +17938,32 @@ function _updateAccountLabel() {
   const known = KNOWN_ACCOUNTS.find(a => a.id === USER_ID);
   el.textContent = known ? known.icon + ' ' + known.label + ' (@' + USER_ID + ')' : '@' + USER_ID;
 }
+
+// ═══════════════════════════════════════════
+// 라인 내부 클립보드 — Shift+클릭 선택 후 Cmd+C
+// ═══════════════════════════════════════════
+document.addEventListener('keydown', (e) => {
+  const isMac = navigator.platform.toUpperCase().includes('MAC');
+  const isCopy = (isMac ? e.metaKey : e.ctrlKey) && e.key === 'c';
+  if (!isCopy) return;
+  // 라인 에디터 탭이 아니면 스킵
+  if (S.activeTab !== 'script') return;
+  // 현재 씬에서 _copySelected 있는지 확인
+  const scene = S.cur?.scenes?.find(sc => sc._copySelected?.size > 0);
+  if (!scene) return;
+  const indices = [...scene._copySelected].sort((a, b) => a - b);
+  window._lineClipboard = indices.map(i => ({
+    type: scene.lines[i]?.type || 'action',
+    text: scene.lines[i]?.text || ''
+  }));
+  // 선택 해제 + 하이라이트 제거
+  scene._copySelected.clear();
+  document.querySelectorAll('.line-wrap').forEach(lw => {
+    lw.style.outline = '';
+    lw.style.background = '';
+  });
+  toast('📋 ' + window._lineClipboard.length + '줄 복사됨 (Cmd+V로 붙여넣기)', 2500);
+});
 
 // ═══════════════════════════════════════════
 // INIT
