@@ -1378,7 +1378,7 @@ function closeResponsePanel() {
 </head>
 <script>
 // ★ 버전 — 캐시 키 관리 (업데이트 시 이 값만 변경)
-const SW_VERSION = 'v43.4';
+const SW_VERSION = 'v43.6';
 </script>
 
 <body>
@@ -5916,6 +5916,7 @@ function buildSceneBlock(sc, i) {
         lw.addEventListener('click', (e) => {
           if (!e.shiftKey) return;
           e.preventDefault();
+          window.getSelection()?.removeAllRanges(); // 텍스트 선택 상태 제거
           if (!sc._copySelected) sc._copySelected = new Set();
           if (sc._copySelected.has(li)) {
             sc._copySelected.delete(li);
@@ -5975,10 +5976,26 @@ function buildSceneBlock(sc, i) {
 let ghostTimer;
 let _lastEnterTime = 0;
 function handleLineKeydown(e, sc, lineIdx, lw) {
-  // Tab — ghost 수락
-  if (e.key === 'Tab' && lw.querySelector('.ghost-suggestion')) {
+  // Tab — ghost 수락 우선, 없으면 지문↔대사 토글
+  if (e.key === 'Tab') {
     e.preventDefault();
-    acceptGhostSuggestion(sc, lineIdx, lw);
+    if (lw.querySelector('.ghost-suggestion')) {
+      acceptGhostSuggestion(sc, lineIdx, lw);
+      return;
+    }
+    const line = sc.lines[lineIdx];
+    if (!line || line.locked || sc.locked) return;
+    if (line.type === 'action') {
+      line.type = 'dialogue';
+    } else if (line.type === 'dialogue') {
+      line.type = 'action';
+    } else {
+      return; // character/parenthetical/slug은 토글 안 함
+    }
+    const el = lw.querySelector('.line-el');
+    if (el) el.className = 'line-el line-' + line.type;
+    save(true);
+    toast(line.type === 'dialogue' ? '대사' : '지문', 800);
     return;
   }
   // Enter 두 번 (300ms 이내) — ghost 수락
@@ -17951,6 +17968,7 @@ document.addEventListener('keydown', (e) => {
   // 현재 씬에서 _copySelected 있는지 확인
   const scene = S.cur?.scenes?.find(sc => sc._copySelected?.size > 0);
   if (!scene) return;
+  e.preventDefault(); // 브라우저 네이티브 복사 차단 (텍스트 선택 상태 방지)
   const indices = [...scene._copySelected].sort((a, b) => a - b);
   window._lineClipboard = indices.map(i => ({
     type: scene.lines[i]?.type || 'action',
@@ -17962,6 +17980,8 @@ document.addEventListener('keydown', (e) => {
     lw.style.outline = '';
     lw.style.background = '';
   });
+  // 브라우저 텍스트 선택 상태 제거 — 이후 Shift+클릭이 텍스트 확장으로 처리되는 것 방지
+  window.getSelection()?.removeAllRanges();
   toast('📋 ' + window._lineClipboard.length + '줄 복사됨 (Cmd+V로 붙여넣기)', 2500);
 });
 
