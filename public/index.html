@@ -6240,6 +6240,25 @@ function handleLineKeydown(e, sc, lineIdx, lw) {
     lw.querySelector('.ghost-hint-wrap')?.remove();
     return;
   }
+  // ArrowUp / ArrowDown — 줄 단위 이동
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    const linesWrap = lw.parentElement;
+    if (!linesWrap) { ghostTimer = setTimeout(() => suggestLineType(sc, lineIdx, lw), 600); return; }
+    const allEls = Array.from(linesWrap.querySelectorAll('.line-el'));
+    const curEl = lw.querySelector('.line-el');
+    const curIdx = allEls.indexOf(curEl);
+    const targetEl = e.key === 'ArrowUp' ? allEls[curIdx - 1] : allEls[curIdx + 1];
+    if (targetEl && targetEl.contentEditable === 'true') {
+      e.preventDefault();
+      targetEl.focus();
+      // 커서를 줄 끝으로
+      const r = document.createRange(); const s = window.getSelection();
+      r.selectNodeContents(targetEl); r.collapse(false);
+      s.removeAllRanges(); s.addRange(r);
+      return;
+    }
+  }
+
   ghostTimer = setTimeout(() => suggestLineType(sc, lineIdx, lw), 600);
 }
 
