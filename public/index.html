@@ -281,7 +281,7 @@ textarea, input { font-family:var(--fb); }
 
 .nav-scene-sec { display:flex; flex-direction:column; flex:1; overflow:hidden; min-height:0; }
 .nav-scene-hdr {
-  display:flex; align-items:center; justify-content:space-between;
+  display:flex; align-items:center; justify-content:flex-end;
   padding:7px 10px 5px; flex-shrink:0;
 }
 .nav-search-wrap { padding:5px 10px; border-bottom:1px solid var(--border); flex-shrink:0; }
@@ -1443,7 +1443,7 @@ function closeResponsePanel() {
 </head>
 <script>
 // ★ 버전 — 캐시 키 관리 (업데이트 시 이 값만 변경)
-const SW_VERSION = 'v43.7';
+const SW_VERSION = 'v43.6';
 </script>
 
 <body>
@@ -14545,10 +14545,10 @@ async function analyzeSingleScene(scId, focus = 'default') {
     );
     hideAnalyzing();
     const txt = cleanDisplayText(raw) || '';
-    // 개선점 섹션 추출
-    const _impMatch = txt.match(/개선점\s*[:：]\s*([\s\S]*?)(?=목적\s*[:：]|$)/);
-    const _impText = _impMatch ? _impMatch[1].trim() : txt;
-    const copyImpBtn = '<button class="rp-btn" onclick="navigator.clipboard.writeText(' + JSON.stringify(_impText) + ').then(()=>toast(\'📋 개선점 복사됨\',1500))">📋 개선점 복사</button>';
+    // 개선점/개선 방향 섹션 추출 → window 변수로 안전하게 전달
+    const _impMatch = txt.match(/개선\s*(?:점|방향)\s*[:：]\s*([\s\S]*?)(?=(?:씬\s*)?목적\s*[:：]|$)/);
+    window._lastSceneImprovements = _impMatch ? _impMatch[1].trim() : txt;
+    const copyImpBtn = '<button class="rp-btn" onclick="navigator.clipboard.writeText(window._lastSceneImprovements).then(()=>toast(\'📋 개선점 복사됨\',1500)).catch(()=>toast(\'복사 실패 — 브라우저 권한 확인\',2000))">📋 개선점 복사</button>';
     const charBtn = (focus === 'characters' || focus === 'consistency')
       ? ('<button class="rp-btn" onclick="analyzeCharacter(null, [' + scId + '])">인물 분석 →</button>')
       : '';
