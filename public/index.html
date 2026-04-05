@@ -6201,7 +6201,7 @@ function buildSceneBlock(sc, i) {
 let ghostTimer;
 let _lastEnterTime = 0;
 function handleLineKeydown(e, sc, lineIdx, lw) {
-  // Tab — ghost 수락 우선, 없으면 지문↔대사 토글
+  // Tab — ghost 수락 우선, 없으면 타입 순환 (action→character→dialogue→parenthetical→...)
   if (e.key === 'Tab') {
     e.preventDefault();
     if (lw.querySelector('.ghost-suggestion')) {
@@ -6210,17 +6210,15 @@ function handleLineKeydown(e, sc, lineIdx, lw) {
     }
     const line = sc.lines[lineIdx];
     if (!line || line.locked || sc.locked) return;
-    if (line.type === 'action') {
-      line.type = 'dialogue';
-    } else if (line.type === 'dialogue') {
-      line.type = 'action';
-    } else {
-      return; // character/parenthetical/slug은 토글 안 함
-    }
+    if (line.type === 'slug') return;
+    const _typeCycle = ['action', 'character', 'dialogue', 'parenthetical'];
+    const _typeLabels = { action: '지문', character: '배역명', dialogue: '대사', parenthetical: '(지문)' };
+    const _curIdx = _typeCycle.indexOf(line.type);
+    line.type = _typeCycle[(_curIdx + 1) % _typeCycle.length];
     const el = lw.querySelector('.line-el');
     if (el) el.className = 'line-el line-' + line.type;
     save(true);
-    toast(line.type === 'dialogue' ? '대사' : '지문', 800);
+    toast(_typeLabels[line.type] || line.type, 800);
     return;
   }
   // Enter 두 번 (300ms 이내) — ghost 수락
@@ -18690,8 +18688,11 @@ document.addEventListener('keydown', (e) => {
       // 단일 줄 — 커서 위치 기준
       const cl = window._cursorLine;
       if (!cl || !cl.sc.lines[cl.li]) return;
-      // contenteditable 편집 중이면 텍스트 복사 허용
-      if (document.activeElement?.contentEditable === 'true') return;
+      // contenteditable 편집 중이면 텍스트 복사 허용 + _lineClipboard 초기화 (이후 Cmd+V가 브라우저 기본 동작으로)
+      if (document.activeElement?.contentEditable === 'true') {
+        window._lineClipboard = null;
+        return;
+      }
       e.preventDefault();
       window._lineClipboard = [{type: cl.sc.lines[cl.li].type, text: cl.sc.lines[cl.li].text}];
       if (e.key === 'x') {
