@@ -9131,7 +9131,7 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
   showTyping();
   try {
     // 씬/대사/분석 관련 — Haiku 라우터
-    const _chatAnalysisKw = /갈등|긴장|흐름|연결|감정|심리|설정|충돌|모순|일관성|검사|대사.*분석|주요.*대사|중요.*대사|대사.*어때|어때|자연스럽|매끄럽|앞뒤|씬.*어때|재배치|재배열|갈등.*기준|클라이맥스/.test(text);
+    const _chatAnalysisKw = /갈등|긴장|흐름\s*(?:분석|어때|이상|어색|확인)|전체\s*흐름|씬\s*흐름|연결\s*(?:분석|어때|이상|어색)|앞뒤.*연결|감정|심리|설정|충돌|모순|일관성|검사|대사.*분석|주요.*대사|중요.*대사|대사.*어때|어때|자연스럽|매끄럽|앞뒤|씬.*어때|재배치|재배열|갈등.*기준|클라이맥스/.test(text);
     const _seqKw = /이 다음|이 뒤|어떻게 이어|다음 이야기|이후 전개|시퀀스|다음 장면|뭐가 오면|어떻게 될까|어떤 이야기가/.test(text);
     const _stuckKw = /막혔|모르겠|아이디어.*없|어떡하|새로.*시작|다시.*시작|영감.*없|떠오르지/.test(text);
 
@@ -13396,7 +13396,8 @@ async function handleScriptPrompt(text) {
   // 인물명 감지 → analyzeCharacter 직접 라우팅 (SC번호와 함께 있어도 처리)
   const _chars = (S.cur?.characters||[]).map(c=>c.name);
   const _foundChars = _chars.filter(n => text.includes(n));
-  const _isCharAnalysis = _foundChars.length > 0 && /어때|분석|어떻|어떤|어떠|인물|캐릭터|매력|기여|관계|역학|내면/.test(text);
+  const _isCharEditKw = /써줘|보이게|수정|고쳐|바꿔|넣어|추가|만들어|작성|채워|보강|다듬|확장/.test(text);
+  const _isCharAnalysis = _foundChars.length > 0 && !_isCharEditKw && /어때|분석|어떻|어떤|어떠|인물|캐릭터|매력|기여|관계.*분석|관계.*어때|역학|내면/.test(text);
   if (_isCharAnalysis) {
     const _scPat2 = /SC\s*(\d+)/i;
     const _scMatch2 = text.match(_scPat2);
@@ -13689,7 +13690,7 @@ async function handleScriptPrompt(text) {
   if (/복제해줘|복제 해줘|씬.*복제/.test(text)) { await handleSceneClone(text); return; }
   if (/중요 대사.*해제|keyline.*해제|중요대사.*해제/.test(text)) { await handleKeyline(text, false); return; }
   if (/몇 분|상연 시간|러닝타임|분짜리/.test(text)) { handleSceneTime(text); return; }
-  if (/대사.*몇 줄|몇 줄.*대사|대사.*통계|줄 수/.test(text)) { handleDialogueStats(text); return; }
+  if (/대사.*몇 줄|몇 줄.*대사|대사.*통계|대사.*줄 수|줄 수.*대사/.test(text)) { handleDialogueStats(text); return; }
   if (/참조해서|참고해서|바탕으로|토대로/.test(text) && /새.*씬|새.*장면|만들어|만들어줘|써줘|써 줘|씬.*써|장면.*써|작성/.test(text)) {
     if (S.selectedIds.size < 2) { toast('참조할 씬을 먼저 선택해주세요.'); return; }
     await handleRefSceneCreate(text); return;
@@ -13713,7 +13714,7 @@ async function handleScriptPrompt(text) {
   if (/요약해|요약 해|씬.*요약|한 줄.*요약/.test(text)) { await handleSceneSummary(text); return; }
 
   // 분석/대사 관련 — Haiku 라우터
-  const _analysisKw = /갈등|긴장|흐름|연결|감정|심리|설정|충돌|모순|일관성|검사|대사.*분석|주요.*대사|중요.*대사|대사.*어때|대사.*뽑아|대사.*목록|대사.*조회|어때|자연스럽|매끄럽|앞뒤|씬.*어때/.test(text);
+  const _analysisKw = /갈등|긴장|흐름\s*(?:분석|어때|이상|어색|확인)|전체\s*흐름|씬\s*흐름|연결\s*(?:분석|어때|이상|어색)|앞뒤.*연결|감정|심리|설정|충돌|모순|일관성|검사|대사.*분석|주요.*대사|중요.*대사|대사.*어때|대사.*뽑아|대사.*목록|대사.*조회|어때|자연스럽|매끄럽|앞뒤|씬.*어때/.test(text);
 
   // BUG-9: selectedIds 있고 편집+분석 의도 모두 있는 애매한 경우 → 선택지 제시
   if (!S._skipAnalysisRoute) {
@@ -14084,6 +14085,7 @@ async function handleScriptPrompt(text) {
     '잠금(locked:true)된 줄과 중요 대사(keyline:true)는 절대 수정하지 마세요.\n' +
     '각 씬의 lines는 원본과 같거나 더 많아야 합니다. 대사와 지문을 압축하거나 생략하지 마세요.\n' +
     '편집 시 반드시 <r>[{"sceneId":씬데이터의sceneId값,"title":"씬제목","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용","locked":false}],"comment":"변경사항 한 줄"}]</r> 형식으로 응답하세요.\n' +
+    '요청한 인물이 기존 씬 어디에도 없거나, 새 씬을 써달라는 요청인 경우: <r> 대신 <newscenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용"}],"insertRef":"SC마지막번호"}]</newscenes> 형식으로 새 씬을 만들어주세요.\n' +
     '편집 없이 제안/질문에 답할 때는 자연어로만 응답하세요.\n' +
     '방향 선택이 필요하면 <choices>["선택지1","선택지2"]</choices>도 추가하세요.';
 
