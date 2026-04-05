@@ -1508,9 +1508,6 @@ const SW_VERSION = 'v43.6';
       </div>
       <div class="nav-scene-sec">
         <div class="nav-scene-hdr">
-          <span class="nav-scene-label">씬 목록</span>
-          <button class="nav-sel-all" id="nav-sel-all" onclick="toggleSelectAll()">전체선택</button>
-          <button class="nav-sel-all" onclick="checkConflictWithPrompt('갈등 분석')" style="color:#5dcaa5;border-color:rgba(29,158,117,.3);">⚔ 갈등</button>
           <div style="position:relative;display:inline-block;">
             <button class="nav-sel-all" id="nav-filter-btn" onclick="toggleNavFilterMenu()" style="color:var(--accent);border-color:var(--accent2);">🔍 필터 ▾</button>
             <div id="nav-filter-menu" style="display:none;position:absolute;right:0;top:100%;margin-top:4px;background:var(--bg4);border:1px solid var(--border2);border-radius:var(--r2);z-index:300;min-width:150px;overflow:hidden;box-shadow:0 8px 20px rgba(0,0,0,.5);">
@@ -14548,11 +14545,15 @@ async function analyzeSingleScene(scId, focus = 'default') {
     );
     hideAnalyzing();
     const txt = cleanDisplayText(raw) || '';
+    // 개선점 섹션 추출
+    const _impMatch = txt.match(/개선점\s*[:：]\s*([\s\S]*?)(?=목적\s*[:：]|$)/);
+    const _impText = _impMatch ? _impMatch[1].trim() : txt;
+    const copyImpBtn = '<button class="rp-btn" onclick="navigator.clipboard.writeText(' + JSON.stringify(_impText) + ').then(()=>toast(\'📋 개선점 복사됨\',1500))">📋 개선점 복사</button>';
     const charBtn = (focus === 'characters' || focus === 'consistency')
       ? ('<button class="rp-btn" onclick="analyzeCharacter(null, [' + scId + '])">인물 분석 →</button>')
       : '';
     showResponsePanel('comment', lbl + ' 분석', '<div class="ai-comment-txt">' + formatRpText(txt) + '</div>',
-      charBtn + '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
+      copyImpBtn + charBtn + '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
   } catch(e) { hideAnalyzing(); showCommentPanel('분석 오류: ' + e.message); }
 }
 
@@ -18707,8 +18708,8 @@ document.addEventListener('keydown', (e) => {
       // 단일 줄 — 커서 위치 기준
       const cl = window._cursorLine;
       if (!cl || !cl.sc.lines[cl.li]) return;
-      // contenteditable 편집 중이면 텍스트 복사 허용 + _lineClipboard 초기화 (이후 Cmd+V가 브라우저 기본 동작으로)
-      if (document.activeElement?.contentEditable === 'true') {
+      // 텍스트 선택 중이면 브라우저 기본 복사 허용 + _lineClipboard 초기화
+      if (document.activeElement?.contentEditable === 'true' || window.getSelection()?.toString()) {
         window._lineClipboard = null;
         return;
       }
