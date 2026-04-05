@@ -1443,7 +1443,7 @@ function closeResponsePanel() {
 </head>
 <script>
 // ★ 버전 — 캐시 키 관리 (업데이트 시 이 값만 변경)
-const SW_VERSION = 'v44';
+const SW_VERSION = 'v43.6';
 </script>
 
 <body>
@@ -1569,7 +1569,7 @@ const SW_VERSION = 'v44';
       <!-- Script tab -->
       <div class="app-tc" id="tc-script">
         <div id="ai-write-banner" style="display:none;background:rgba(232,168,74,0.12);border-bottom:1px solid var(--accent2);padding:6px 12px;display:none;align-items:center;justify-content:space-between;gap:8px;">
-          <span style="font-size:var(--fs-12);color:var(--accent);">✨ AI 작성 모드 — 줄을 탭해서 추가 선택하세요</span>
+          <span style="font-size:var(--fs-12);color:var(--accent);">✨ 줄 선택 모드 — 클릭으로 선택 · 드래그로 범위 · Cmd+C 복사 · Cmd+X 잘라내기 · Cmd+V 붙여넣기</span>
           <button onclick="exitAiWriteMode()" style="font-size:var(--fs-11);background:none;border:1px solid var(--accent2);color:var(--text3);border-radius:var(--r);padding:2px 8px;cursor:pointer;">취소</button>
         </div>
         <div class="script-toolbar">
@@ -5489,7 +5489,9 @@ function buildSceneBlock(sc, i) {
       const lw = document.createElement('div'); lw.className = 'line-wrap';
       lw.style.cssText = 'display:flex;align-items:flex-start;position:relative;' +
         (line.aiSelected ? 'background:rgba(232,168,74,0.1);border-left:3px solid var(--accent);padding-left:3px;border-radius:2px;' : '');
-      // AI 작성 모드: 탭으로 선택 토글
+      // 드래그 선택용 참조 저장
+      lw._scRef = sc; lw._liRef = li; lw._lineRef = line;
+      // AI 작성 모드: 클릭으로 선택 토글
       if (_aiWriteMode && line.type !== 'slug') {
         lw.style.cursor = 'pointer';
         lw.addEventListener('click', (e) => {
@@ -5499,6 +5501,11 @@ function buildSceneBlock(sc, i) {
             (line.aiSelected ? 'background:rgba(232,168,74,0.1);border-left:3px solid var(--accent);padding-left:3px;border-radius:2px;' : '');
           updateAiWriteModePrompt();
           updateAiWriteBtn(); // 0개면 자동 종료
+        });
+        // 드래그 범위 선택 시작
+        lw.addEventListener('mousedown', (e) => {
+          if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+          window._dragSelecting = true;
         });
       }
 
@@ -5538,6 +5545,8 @@ function buildSceneBlock(sc, i) {
       el.contentEditable = (line.locked || _aiWriteMode) ? 'false' : 'true';
       el.dataset.locked = line.locked;
       el.textContent = line.text;
+      // 커서 위치 추적 (붙여넣기 기준점)
+      el.addEventListener('focus', () => { window._cursorLine = {sc, li}; });
       el.style.flex = '1';
       let charDetectTimer;
       el.addEventListener('focusout', () => {
@@ -5934,15 +5943,27 @@ function buildSceneBlock(sc, i) {
             renderAllLines(); updateAiWriteBtn();
           }));
 
-          // 복사 (선택 모드)
+          // 복사 / 잘라내기 (선택 모드)
           menu.appendChild(mkDiv());
-          menu.appendChild(mkMenuBtn('복사 (' + selectedCount + '줄)', null, () => {
+          const selCopyBtn = mkMenuBtn('복사 (' + selectedCount + '줄)', null, () => {
             const selIdxs = (sc.lines||[]).map((l,i) => l.aiSelected ? i : -1).filter(i => i >= 0);
             window._lineClipboard = selIdxs.map(i => ({
               type: sc.lines[i]?.type || 'action', text: sc.lines[i]?.text || ''
             }));
+            sc.lines.forEach(l => { l.aiSelected = false; });
+            exitAiWriteMode(); renderAllLines();
             toast('📋 ' + window._lineClipboard.length + '줄 복사됨', 2000);
-          }));
+          });
+          const selCutBtn = mkMenuBtn('잘라내기 (' + selectedCount + '줄)', 'var(--red)', () => {
+            const selIdxs = (sc.lines||[]).map((l,i) => l.aiSelected ? i : -1).filter(i => i >= 0);
+            window._lineClipboard = selIdxs.map(i => ({
+              type: sc.lines[i]?.type || 'action', text: sc.lines[i]?.text || ''
+            }));
+            sc.lines = sc.lines.filter(l => !l.aiSelected);
+            save(); renderAllLines(); exitAiWriteMode();
+            toast('✂ ' + window._lineClipboard.length + '줄 잘라냄', 2000);
+          });
+          menu.appendChild(mk2Row(selCopyBtn, selCutBtn));
 
         } else {
           // ── 일반 모드 ──────────────────────────────────────────────
@@ -6061,23 +6082,19 @@ function buildSceneBlock(sc, i) {
             renderAllLines(); updateAiWriteBtn(); updateAiWriteModePrompt();
           }));
 
-          // 복사 / 붙여넣기
+          // 복사 / 잘라내기 / 붙여넣기
           menu.appendChild(mkDiv());
-          const _copyCount = sc._copySelected?.size || 0;
-          const copyBtn = mkMenuBtn('복사' + (_copyCount > 1 ? ' (' + _copyCount + '줄)' : ''), null, () => {
-            const indices = _copyCount > 0
-              ? [...sc._copySelected].sort((a,b) => a-b)
-              : [li];
-            window._lineClipboard = indices.map(i => ({
-              type: sc.lines[i]?.type || 'action', text: sc.lines[i]?.text || ''
-            }));
-            if (_copyCount > 0) {
-              sc._copySelected.clear();
-              document.querySelectorAll('.line-wrap').forEach(w => { w.style.outline=''; w.style.background=''; });
-            }
-            window.getSelection()?.removeAllRanges();
-            toast('📋 ' + window._lineClipboard.length + '줄 복사됨', 2000);
+          const copyBtn = mkMenuBtn('복사', null, () => {
+            window._lineClipboard = [{type: sc.lines[li]?.type || 'action', text: sc.lines[li]?.text || ''}];
+            toast('📋 1줄 복사됨', 2000);
           });
+          const cutBtn = mkMenuBtn('잘라내기', 'var(--red)', () => {
+            window._lineClipboard = [{type: sc.lines[li]?.type || 'action', text: sc.lines[li]?.text || ''}];
+            sc.lines.splice(li, 1);
+            save(); renderAllLines();
+            toast('✂ 1줄 잘라냄', 2000);
+          });
+          menu.appendChild(mk2Row(copyBtn, cutBtn));
           const _hasClip = window._lineClipboard?.length > 0;
           const pasteBtn = mkMenuBtn('붙여넣기' + (_hasClip ? ' (' + window._lineClipboard.length + '줄)' : ''), _hasClip ? null : 'var(--text3)', () => {
             if (!window._lineClipboard?.length) return;
@@ -6128,31 +6145,17 @@ function buildSceneBlock(sc, i) {
       el.addEventListener('touchmove', () => clearTimeout(pressTimer), {passive:true});
       el.addEventListener('touchend', () => clearTimeout(pressTimer), {passive:true});
 
-      // Shift+클릭 — 내부 복사 선택
-      // mousedown에서 처리: contenteditable 요소도 Shift+클릭 시 브라우저 텍스트 선택을 막아야 함
+      // Cmd/Ctrl+클릭 — aiSelected 모드 진입 + 줄 선택
       if (!_aiWriteMode && line.type !== 'slug') {
         lw.addEventListener('mousedown', (e) => {
-          if (!e.shiftKey) return;
-          // 이 줄의 contenteditable 내부 클릭이면 텍스트 선택 허용 (편집 중 SHIFT+드래그)
-          if (e.target === el || el.contains(e.target)) return;
-          // 다른 줄 편집 중이면 blur 후 복사 선택 진행
-          if (document.activeElement?.contentEditable === 'true') document.activeElement.blur();
-          e.preventDefault(); // 브라우저 텍스트 선택 차단 (mousedown 단계에서 필수)
+          if (!(e.metaKey || e.ctrlKey)) return;
+          if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+          e.preventDefault();
           window.getSelection()?.removeAllRanges();
-          if (!sc._copySelected) sc._copySelected = new Set();
-          if (sc._copySelected.has(li)) {
-            sc._copySelected.delete(li);
-            lw.style.outline = '';
-            lw.style.background = '';
-          } else {
-            sc._copySelected.add(li);
-            lw.style.outline = '1px solid var(--blue)';
-            lw.style.background = 'var(--blue2)';
-          }
-          // 1개 이상 선택 시 토스트 안내
-          if (sc._copySelected.size > 0) {
-            toast('Cmd+C로 복사 (' + sc._copySelected.size + '줄 선택됨)', 3000, clearCopySelection, '✕ 취소');
-          }
+          if (document.activeElement?.contentEditable === 'true') document.activeElement.blur();
+          enterAiWriteMode();
+          line.aiSelected = true;
+          save(); renderAllLines(); updateAiWriteBtn(); updateAiWriteModePrompt();
         });
       }
 
@@ -18629,32 +18632,104 @@ function _updateAccountLabel() {
 }
 
 // ═══════════════════════════════════════════
-// 라인 내부 클립보드 — Shift+클릭 선택 후 Cmd+C
+// 라인 내부 클립보드 단축키: Cmd+C/X/V, Delete/Backspace
 // ═══════════════════════════════════════════
+window._dragSelecting = false;
+document.addEventListener('mouseup', () => { window._dragSelecting = false; });
+document.addEventListener('mousemove', (e) => {
+  if (!window._dragSelecting || !_aiWriteMode) return;
+  const lwEl = e.target.closest ? e.target.closest('.line-wrap') : null;
+  if (!lwEl || !lwEl._lineRef || lwEl._lineRef.type === 'slug') return;
+  if (!lwEl._lineRef.aiSelected) {
+    lwEl._lineRef.aiSelected = true;
+    lwEl.style.cssText = 'display:flex;align-items:flex-start;position:relative;cursor:pointer;' +
+      'background:rgba(232,168,74,0.1);border-left:3px solid var(--accent);padding-left:3px;border-radius:2px;';
+    updateAiWriteBtn();
+    updateAiWriteModePrompt();
+  }
+});
+
 document.addEventListener('keydown', (e) => {
   const isMac = navigator.platform.toUpperCase().includes('MAC');
-  const isCopy = (isMac ? e.metaKey : e.ctrlKey) && e.key === 'c';
-  if (!isCopy) return;
-  // 라인 에디터 탭이 아니면 스킵
+  const isMod = isMac ? e.metaKey : e.ctrlKey;
   if (S.activeTab !== 'script') return;
-  // 현재 씬에서 _copySelected 있는지 확인
-  const scene = S.cur?.scenes?.find(sc => sc._copySelected?.size > 0);
-  if (!scene) return;
-  e.preventDefault(); // 브라우저 네이티브 복사 차단 (텍스트 선택 상태 방지)
-  const indices = [...scene._copySelected].sort((a, b) => a - b);
-  window._lineClipboard = indices.map(i => ({
-    type: scene.lines[i]?.type || 'action',
-    text: scene.lines[i]?.text || ''
-  }));
-  // 선택 해제 + 하이라이트 제거
-  scene._copySelected.clear();
-  document.querySelectorAll('.line-wrap').forEach(lw => {
-    lw.style.outline = '';
-    lw.style.background = '';
-  });
-  // 브라우저 텍스트 선택 상태 제거 — 이후 Shift+클릭이 텍스트 확장으로 처리되는 것 방지
-  window.getSelection()?.removeAllRanges();
-  toast('📋 ' + window._lineClipboard.length + '줄 복사됨 (Cmd+V로 붙여넣기)', 2500);
+
+  // Delete / Backspace — aiWriteMode에서 선택된 줄 삭제
+  if ((e.key === 'Delete' || e.key === 'Backspace') && _aiWriteMode) {
+    if (document.activeElement?.contentEditable === 'true') return;
+    const scene = S.cur?.scenes?.find(sc => (sc.lines||[]).some(l => l.aiSelected));
+    if (!scene) return;
+    e.preventDefault();
+    const count = scene.lines.filter(l => l.aiSelected).length;
+    scene.lines = scene.lines.filter(l => !l.aiSelected);
+    save(); renderAllLines(); exitAiWriteMode();
+    toast(count + '줄 삭제됨', 2000);
+    return;
+  }
+
+  if (!isMod) return;
+
+  // Cmd+C / Cmd+X — 복사 / 잘라내기
+  if (e.key === 'c' || e.key === 'x') {
+    if (_aiWriteMode) {
+      const scene = S.cur?.scenes?.find(sc => (sc.lines||[]).some(l => l.aiSelected));
+      if (!scene) return;
+      e.preventDefault();
+      const selIdxs = scene.lines.map((l,i) => l.aiSelected ? i : -1).filter(i => i >= 0);
+      window._lineClipboard = selIdxs.map(i => ({type: scene.lines[i].type, text: scene.lines[i].text}));
+      if (e.key === 'x') {
+        scene.lines = scene.lines.filter(l => !l.aiSelected);
+        save(); renderAllLines(); exitAiWriteMode();
+        toast('✂ ' + window._lineClipboard.length + '줄 잘라냄', 2000);
+      } else {
+        scene.lines.forEach(l => { l.aiSelected = false; });
+        exitAiWriteMode(); renderAllLines();
+        toast('📋 ' + window._lineClipboard.length + '줄 복사됨', 2000);
+      }
+    } else {
+      // 단일 줄 — 커서 위치 기준
+      const cl = window._cursorLine;
+      if (!cl || !cl.sc.lines[cl.li]) return;
+      // contenteditable 편집 중이면 텍스트 복사 허용
+      if (document.activeElement?.contentEditable === 'true') return;
+      e.preventDefault();
+      window._lineClipboard = [{type: cl.sc.lines[cl.li].type, text: cl.sc.lines[cl.li].text}];
+      if (e.key === 'x') {
+        cl.sc.lines.splice(cl.li, 1);
+        window._cursorLine = null;
+        save(); renderAllLines();
+        toast('✂ 1줄 잘라냄', 2000);
+      } else {
+        toast('📋 1줄 복사됨', 2000);
+      }
+    }
+    return;
+  }
+
+  // Cmd+V — 붙여넣기
+  if (e.key === 'v') {
+    if (!window._lineClipboard?.length) return;
+    // contenteditable 편집 중이면 el paste 핸들러에 위임
+    if (document.activeElement?.contentEditable === 'true') return;
+    e.preventDefault();
+    let targetSc, targetLi;
+    if (_aiWriteMode) {
+      const scene = S.cur?.scenes?.find(sc => (sc.lines||[]).some(l => l.aiSelected));
+      if (scene) {
+        targetSc = scene;
+        const selIdxs = scene.lines.map((l,i) => l.aiSelected ? i : -1).filter(i => i >= 0);
+        targetLi = Math.max(...selIdxs);
+      }
+    }
+    if (!targetSc && window._cursorLine) {
+      targetSc = window._cursorLine.sc;
+      targetLi = window._cursorLine.li;
+    }
+    if (!targetSc) return;
+    targetSc.lines.splice(targetLi + 1, 0, ...window._lineClipboard.map(l => ({type:l.type, text:l.text, locked:false})));
+    save(); renderAllLines();
+    toast('📋 ' + window._lineClipboard.length + '줄 붙여넣기', 2000);
+  }
 });
 
 // ═══════════════════════════════════════════
@@ -18914,27 +18989,11 @@ function renderSelectionActionBar(state) {
   }
 }
 
-// 복사 선택 모드 해제 헬퍼
-function clearCopySelection() {
-  let cleared = false;
-  S.cur?.scenes?.forEach(sc => {
-    if (sc._copySelected?.size > 0) { sc._copySelected.clear(); cleared = true; }
-  });
-  if (cleared) {
-    document.querySelectorAll('.line-wrap').forEach(lw => {
-      lw.style.outline = '';
-      lw.style.background = '';
-    });
-    toast('선택 해제됨', 1200);
-  }
-  return cleared;
-}
-
 // Keyboard shortcut: Escape closes drawers
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    // 복사 선택 모드 먼저 해제 — 다른 패널은 유지
-    if (clearCopySelection()) return;
+    // aiWriteMode 먼저 해제 — 다른 패널은 유지
+    if (_aiWriteMode) { exitAiWriteMode(); return; }
     closeDrawer(); closeResponsePanel(); cancelDelete(); closeProjEdit();
   }
   if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
