@@ -1717,9 +1717,12 @@ const SW_VERSION = 'v43.6';
     <div class="setting-group">
       <div class="setting-group-title">데이터 저장</div>
       <div class="setting-row">
-        <div class="setting-status on"></div>
-        <div class="setting-label">클라우드 동기화<small>Supabase 연동됨</small></div>
-        <button class="setting-btn" onclick="syncFromSupabase(true).then(ok => {})">↻ 동기화</button>
+        <div class="setting-status on" id="sync-enabled-dot"></div>
+        <div class="setting-label">클라우드 동기화<small id="sync-enabled-label">Supabase 연동됨</small></div>
+        <div style="display:flex;gap:5px;">
+          <button class="setting-btn" id="sync-toggle-btn" onclick="toggleSyncEnabled()">끄기</button>
+          <button class="setting-btn" id="sync-now-btn" onclick="syncFromSupabase(true).then(ok => {})">↻ 동기화</button>
+        </div>
       </div>
       <div class="setting-row">
         <div class="setting-label" id="sync-status" style="font-size:var(--fs-10);color:var(--green);"></div>
@@ -1933,6 +1936,27 @@ const SW_VERSION = 'v43.6';
 // ═══════════════════════════════════════════
 // SUPABASE 연동
 // ═══════════════════════════════════════════
+
+// 클라우드 동기화 ON/OFF 토글 (localStorage 기반, 새로고침 유지)
+const isSyncEnabled = () => localStorage.getItem('ss_sync_enabled') !== 'false';
+function toggleSyncEnabled() {
+  const next = !isSyncEnabled();
+  localStorage.setItem('ss_sync_enabled', next ? 'true' : 'false');
+  _updateSyncToggleUI();
+  toast(next ? '☁️ 클라우드 동기화 켜짐' : '🔌 클라우드 동기화 꺼짐', 2000);
+}
+function _updateSyncToggleUI() {
+  const on = isSyncEnabled();
+  const dot = document.getElementById('sync-enabled-dot');
+  const label = document.getElementById('sync-enabled-label');
+  const toggleBtn = document.getElementById('sync-toggle-btn');
+  const nowBtn = document.getElementById('sync-now-btn');
+  if (dot) { dot.classList.toggle('on', on); dot.style.background = on ? '' : 'var(--red,#e05)'; }
+  if (label) label.textContent = on ? 'Supabase 연동됨' : '동기화 꺼짐 (로컬만 저장)';
+  if (toggleBtn) toggleBtn.textContent = on ? '끄기' : '켜기';
+  if (nowBtn) nowBtn.disabled = !on;
+}
+
 const SUPABASE_URL = 'https://meruurtcdsjjayfmntzh.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1lcnV1cnRjZHNqamF5Zm1udHpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMTQxODgsImV4cCI6MjA4OTY5MDE4OH0.iusElSl0KRlJC7wjNgpgguspQ4KxLoZx_ggNtxsFNr0';
 
@@ -1980,7 +2004,7 @@ const storage = {
       localStorage.setItem(_storageKey(key), JSON.stringify(val));
       if (key === 'ss_projects') localStorage.setItem(_storageKey('ss_local_save_time'), String(Date.now()));
     } catch(e) { console.warn('Storage error', e); }
-    if (key === 'ss_projects') syncToSupabase(val).catch(e => console.warn('Supabase sync failed', e));
+    if (key === 'ss_projects' && isSyncEnabled()) syncToSupabase(val).catch(e => console.warn('Supabase sync failed', e));
   },
   del(key) { localStorage.removeItem(_storageKey(key)); }
 };
@@ -2028,6 +2052,7 @@ async function syncToSupabase(projects) {
 
 // Supabase에서 최신 데이터 가져오기 (Vercel 프록시 경유)
 async function syncFromSupabase(force = false) {
+  if (!isSyncEnabled()) return false;
   try {
     const query = IS_ADMIN
       ? '/api/supabase?path=projects&select=id,user_id,data,updated_at&order=updated_at.desc'
@@ -5346,10 +5371,24 @@ function buildSceneBlock(sc, i) {
     titleAiBtn.textContent = '...'; titleAiBtn.disabled = true;
     setWaiting(true);
     try {
+      const allScenes = S.cur?.scenes || [];
+      const scIdx = allScenes.indexOf(sc);
+      const prevSc = allScenes.slice(0, scIdx).reverse().find(s => !s.draft);
+      const nextSc = allScenes.slice(scIdx + 1).find(s => !s.draft);
       const sceneText = sc.lines.map(l => l.text).join(' ').slice(0, 300);
+      const prevCtx = prevSc ? '"' + prevSc.title + '": ' + (prevSc.lines||[]).map(l=>l.text).join(' ').slice(0,100) : '';
+      const nextCtx = nextSc ? '"' + nextSc.title + '": ' + (nextSc.lines||[]).map(l=>l.text).join(' ').slice(0,100) : '';
+      const memos = getChatMemos().slice(0,5).join(', ');
+      const synopsis = S.cur?.synopsis ? S.cur.synopsis.slice(0,120) : '';
       const ctx = buildProjectContext();
       const sys = '대본 씬의 내용을 보고 적절한 씬 제목을 한국어로 5~15자 이내로 제안해주세요. 제목만 출력하고 다른 말은 하지 마세요.';
-      const raw = await callClaude([{role:'user', content:'작품: ' + ctx + '\n씬 내용: ' + sceneText}], sys, 50, 'claude-haiku-4-5-20251001');
+      const userContent = '작품: ' + ctx
+        + (synopsis ? '\n시놉시스: ' + synopsis : '')
+        + (memos ? '\n결정사항: ' + memos : '')
+        + (prevCtx ? '\n앞 장면: ' + prevCtx : '')
+        + '\n씬 내용: ' + sceneText
+        + (nextCtx ? '\n뒷 장면: ' + nextCtx : '');
+      const raw = await callClaude([{role:'user', content: userContent}], sys, 50, 'claude-haiku-4-5-20251001');
       const firstLine = raw.trim().split('\n')[0];
       const suggested = firstLine
         .replace(/^[\"'「『【\[]/g, '').replace(/[\"'」』】\]]/g, '')
@@ -5895,6 +5934,16 @@ function buildSceneBlock(sc, i) {
             renderAllLines(); updateAiWriteBtn();
           }));
 
+          // 복사 (선택 모드)
+          menu.appendChild(mkDiv());
+          menu.appendChild(mkMenuBtn('복사 (' + selectedCount + '줄)', null, () => {
+            const selIdxs = (sc.lines||[]).map((l,i) => l.aiSelected ? i : -1).filter(i => i >= 0);
+            window._lineClipboard = selIdxs.map(i => ({
+              type: sc.lines[i]?.type || 'action', text: sc.lines[i]?.text || ''
+            }));
+            toast('📋 ' + window._lineClipboard.length + '줄 복사됨', 2000);
+          }));
+
         } else {
           // ── 일반 모드 ──────────────────────────────────────────────
         const typeRow = document.createElement('div');
@@ -6011,6 +6060,31 @@ function buildSceneBlock(sc, i) {
             if (!_aiWriteMode) enterAiWriteMode();
             renderAllLines(); updateAiWriteBtn(); updateAiWriteModePrompt();
           }));
+
+          // 복사 / 붙여넣기
+          menu.appendChild(mkDiv());
+          const _copyCount = sc._copySelected?.size || 0;
+          const copyBtn = mkMenuBtn('복사' + (_copyCount > 1 ? ' (' + _copyCount + '줄)' : ''), null, () => {
+            const indices = _copyCount > 0
+              ? [...sc._copySelected].sort((a,b) => a-b)
+              : [li];
+            window._lineClipboard = indices.map(i => ({
+              type: sc.lines[i]?.type || 'action', text: sc.lines[i]?.text || ''
+            }));
+            if (_copyCount > 0) {
+              sc._copySelected.clear();
+              document.querySelectorAll('.line-wrap').forEach(w => { w.style.outline=''; w.style.background=''; });
+            }
+            window.getSelection()?.removeAllRanges();
+            toast('📋 ' + window._lineClipboard.length + '줄 복사됨', 2000);
+          });
+          const _hasClip = window._lineClipboard?.length > 0;
+          const pasteBtn = mkMenuBtn('붙여넣기' + (_hasClip ? ' (' + window._lineClipboard.length + '줄)' : ''), _hasClip ? null : 'var(--text3)', () => {
+            if (!window._lineClipboard?.length) return;
+            sc.lines.splice(li+1, 0, ...window._lineClipboard.map(l => ({type:l.type, text:l.text, locked:false})));
+            save(); renderAllLines();
+          });
+          menu.appendChild(mk2Row(copyBtn, pasteBtn));
         }
 
         window._lineMenuOpen = true;
@@ -6059,6 +6133,10 @@ function buildSceneBlock(sc, i) {
       if (!_aiWriteMode && line.type !== 'slug') {
         lw.addEventListener('mousedown', (e) => {
           if (!e.shiftKey) return;
+          // 이 줄의 contenteditable 내부 클릭이면 텍스트 선택 허용 (편집 중 SHIFT+드래그)
+          if (e.target === el || el.contains(e.target)) return;
+          // 다른 줄 편집 중이면 blur 후 복사 선택 진행
+          if (document.activeElement?.contentEditable === 'true') document.activeElement.blur();
           e.preventDefault(); // 브라우저 텍스트 선택 차단 (mousedown 단계에서 필수)
           window.getSelection()?.removeAllRanges();
           if (!sc._copySelected) sc._copySelected = new Set();
@@ -7726,7 +7804,7 @@ function handleMsgAction(action) {
   } else if (action.type === 'approveSequence') {
     showApproveSequencePanel(action.data);
   } else if (action.type === 'openSurvey') {
-    showSurveyPanel(action.data);
+    showSurveyPanel(action.data, action.intent);
   } else if (action.type === 'pickSceneIdea') {
     showSceneIdeaCards(action.data);
   } else if (action.type === 'addCharacters') {
@@ -7752,20 +7830,25 @@ function handleMsgAction(action) {
   } else if (action.type === 'gotoCharCard') {
     gotoCharCardHandler(action.data);
   } else if (action.type === 'showChoices') {
-    // 단일 선택 — 씬 구간 선택에 사용
-    const choices = action.data.choices;
-    const uid = 'sc-' + Date.now();
-    const bodyHTML = '<div class="choice-intro">작업할 구간을 선택하세요:</div>' +
-      '<div class="choice-list" id="' + uid + '">' +
-      choices.map((c, i) =>
-        '<button class="choice-option" onclick="selectSceneChunk(this,\'' + uid + '\')" data-val="' + escH(c).replace(/"/g,'&quot;') + '">' +
-        '<span class="choice-key">' + (i+1) + '</span>' + escH(c) + '</button>'
-      ).join('') + '</div>';
-    showResponsePanel('choice', '작업 구간 선택', bodyHTML,
-      '<button class="rp-btn" onclick="confirmSceneChunk(\'' + uid + '\')">✓ 선택</button>' +
-      '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
+    if (action.data.intent) {
+      // 일반 선택지 (intent 있음) → survey 패널로 라우팅
+      showChoicesPanel(action.data.prompt, action.data.choices, action.data.intent);
+    } else {
+      // 씬 구간 선택 전용 (intent 없음)
+      const choices = action.data.choices;
+      const uid = 'sc-' + Date.now();
+      const bodyHTML = '<div class="choice-intro">작업할 구간을 선택하세요:</div>' +
+        '<div class="choice-list" id="' + uid + '">' +
+        choices.map((c, i) =>
+          '<button class="choice-option" onclick="selectSceneChunk(this,\'' + uid + '\')" data-val="' + escH(c).replace(/"/g,'&quot;') + '">' +
+          '<span class="choice-key">' + (i+1) + '</span>' + escH(c) + '</button>'
+        ).join('') + '</div>';
+      showResponsePanel('choice', '작업 구간 선택', bodyHTML,
+        '<button class="rp-btn" onclick="confirmSceneChunk(\'' + uid + '\')">✓ 선택</button>' +
+        '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
+    }
   } else if (action.type === 'showMultiChoices') {
-    showMultiChoicesPanel(action.data.prompt, action.data.choices);
+    showMultiChoicesPanel(action.data.prompt, action.data.choices, action.data.intent);
   } else if (action.type === 'suggestAnalysis') {
     const _origPrompt = action.originalPrompt || '';
     const _afterAnalysis = () => {
@@ -9016,7 +9099,7 @@ async function floRoute(text) {
   return { intent, sceneCount, isTheatrical };
 }
 
-async function handleChatPrompt(text, _skipAnalysisRoute = false) {
+async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent = null) {
   text = await normalizeSceneNums(text);
   switchTab('chat');
   // P1: pending approveSequence → 자연어로 버튼 실행
@@ -9195,7 +9278,14 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false) {
       }
     }
     // M2: floRoute로 의도 분류 후 시스템 프롬프트 보정
-    const { intent: _floIntent, sceneCount: _floSceneCount, isTheatrical: _floIsTheatrical } = await floRoute(text);
+    // _forceIntent가 있으면 floRoute 호출 스킵 (Survey/Choice 완료 후 intent 직접 주입)
+    let _floIntent, _floSceneCount, _floIsTheatrical;
+    if (_forceIntent) {
+      _floIntent = _forceIntent; _floSceneCount = 0; _floIsTheatrical = false;
+    } else {
+      const _fr = await floRoute(text);
+      _floIntent = _fr.intent; _floSceneCount = _fr.sceneCount; _floIsTheatrical = _fr.isTheatrical;
+    }
     const _hasChars = (S.cur?.characters||[]).length > 0;
     const _sceneCount = (S.cur?.scenes||[]).filter(s=>!s.draft).length;
     let _tagRule = '';
@@ -9323,13 +9413,13 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false) {
     if (multichoicesRaw) {
       let mchoices = null;
       try { mchoices = JSON.parse(multichoicesRaw); } catch {}
-      if (mchoices?.length) actions.push({ type:'showMultiChoices', data:{prompt:text, choices:mchoices}, label:'선택하기', style:'purple' });
+      if (mchoices?.length) actions.push({ type:'showMultiChoices', data:{prompt:text, choices:mchoices, intent:_floIntent}, label:'선택하기', style:'purple' });
     }
     // L8: 단일 선택지 (<choices> 태그)
     if (choicesRaw) {
       let ch = null;
       try { ch = JSON.parse(choicesRaw); } catch {}
-      if (ch?.length) actions.push({ type:'showChoices', data:{prompt:text, choices:ch}, label:'선택하기', style:'purple' });
+      if (ch?.length) actions.push({ type:'showChoices', data:{prompt:text, choices:ch, intent:_floIntent}, label:'선택하기', style:'purple' });
     }
     // 분석 제안 버튼 — J5: 씬 없을 때 characters 분석 억제
     if (suggestRaw) {
@@ -9351,7 +9441,7 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false) {
     if (surveyRaw) { try { _surveyDataParsed = JSON.parse(surveyRaw); } catch {} }
     if (_surveyDataParsed?.length && seqTitlesData?.length) {
       // 시퀀스 + 서베이 동시 → 버튼으로 제공
-      actions.push({ type:'openSurvey', data:_surveyDataParsed, label:'💬 서베이로 더 의논하기', style:'' });
+      actions.push({ type:'openSurvey', data:_surveyDataParsed, intent:_floIntent, label:'💬 서베이로 더 의논하기', style:'' });
     }
     const _mergedActions = [...actions, ..._floExtraActions];
     addMsg('assistant', displayText, _mergedActions.length ? _mergedActions : null);
@@ -9359,15 +9449,15 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false) {
     // survey > multichoices > choices 우선순위로 패널 자동 오픈
     // seqTitlesData가 있으면 자동 오픈 스킵 (버튼으로 이미 제공됨)
     if (_surveyDataParsed?.length) {
-      if (!seqTitlesData?.length) setTimeout(() => showSurveyPanel(_surveyDataParsed), 200);
+      if (!seqTitlesData?.length) setTimeout(() => showSurveyPanel(_surveyDataParsed, _floIntent), 200);
     } else if (multichoicesRaw) {
       let mchoices = null;
       try { mchoices = JSON.parse(multichoicesRaw); } catch {}
-      if (mchoices?.length) setTimeout(() => showMultiChoicesPanel(text, mchoices), 200);
+      if (mchoices?.length) setTimeout(() => showMultiChoicesPanel(text, mchoices, _floIntent), 200);
     } else if (choicesRaw) {
       let ch = null;
       try { ch = JSON.parse(choicesRaw); } catch {}
-      if (ch?.length) setTimeout(() => showChoicesPanel(text, ch), 200);
+      if (ch?.length) setTimeout(() => showChoicesPanel(text, ch, _floIntent), 200);
     }
 
     // F: 플로 콘텐츠 감지 — character / synopsis / setting_update 태그
@@ -11335,25 +11425,32 @@ async function handleFillSingleLine(sc, li) {
   const line = sc.lines[li];
   if (!line || !line.text.includes('???')) return;
   const scenes = S.cur?.scenes || [];
+  const scIdx = scenes.indexOf(sc);
   const scLabel = getSceneLabel(sc, scenes);
   const chars = (S.cur?.characters||[]).map(c=>c.name+'('+c.role+')').join(', ');
-  const before = (sc.lines||[]).slice(Math.max(0,li-4), li).map(l=>l.type+': '+l.text).join('\n');
-  const after = (sc.lines||[]).slice(li+1, li+4).map(l=>l.type+': '+l.text).join('\n');
-
-
-  // 해당 줄 로딩 표시
-  const els = document.querySelectorAll('.line-el');
-  const targetEl = [...els].find(el => el.closest('.line-wrap') &&
-    el.textContent.includes('???'));
+  const before = (sc.lines||[]).slice(Math.max(0,li-6), li).map(l=>l.type+': '+l.text).join('\n');
+  const after = (sc.lines||[]).slice(li+1, li+6).map(l=>l.type+': '+l.text).join('\n');
+  const memos = getChatMemos().slice(0,8).join('\n');
+  const synopsis = S.cur?.synopsis ? S.cur.synopsis.slice(0,150) : '';
+  const prevSc = scenes.slice(0, scIdx).reverse().find(s => !s.draft);
+  const nextSc = scenes.slice(scIdx + 1).find(s => !s.draft);
+  const prevCtx = prevSc ? getSceneLabel(prevSc,scenes)+' "'+prevSc.title+'": '+(prevSc.lines||[]).map(l=>l.text).join(' ').slice(0,150) : '';
+  const nextCtx = nextSc ? getSceneLabel(nextSc,scenes)+' "'+nextSc.title+'": '+(nextSc.lines||[]).map(l=>l.text).join(' ').slice(0,150) : '';
+  const curSceneFull = (sc.lines||[]).map(l=>l.type+': '+l.text).join('\n').slice(0,400);
 
   showAnalyzing('??? 채우는 중...');
   try {
     const raw = await callClaude(
       [{role:'user', content:
-        scLabel + ' 씬, 등장인물: ' + chars + '\n\n' +
-        '앞 내용:\n' + before + '\n\n' +
-        '채울 부분: ' + line.type + ': ' + line.text + '\n\n' +
-        '뒤 내용:\n' + after + '\n\n' +
+        (synopsis ? '[시놉시스] ' + synopsis + '\n' : '') +
+        (memos ? '[핵심 결정사항]\n' + memos + '\n\n' : '') +
+        '[등장인물] ' + chars + '\n\n' +
+        (prevCtx ? '[앞 장면] ' + prevCtx + '\n\n' : '') +
+        '[현재 씬] ' + scLabel + ' "' + sc.title + '"\n' + curSceneFull + '\n\n' +
+        (nextCtx ? '[뒷 장면] ' + nextCtx + '\n\n' : '') +
+        '— 채울 줄 앞:\n' + before + '\n' +
+        '채울 부분: ' + line.type + ': ' + line.text + '\n' +
+        '채울 줄 뒤:\n' + after + '\n\n' +
         '??? 자리에 들어갈 내용만 작성하세요.'}],
       '요청한 줄 타입(' + line.type + ')에 맞게 텍스트만 반환하세요. 설명 없이.',
       150, 'claude-haiku-4-5-20251001'
@@ -11382,19 +11479,33 @@ async function handleFillPlaceholders() {
   });
   if (!targets.length) { toast('??? 표시된 부분이 없습니다.'); return; }
 
+  const synopsis = S.cur?.synopsis ? S.cur.synopsis.slice(0,150) : '';
+  const memos = getChatMemos().slice(0,8).join('\n');
+  const chars = (S.cur?.characters||[]).map(c=>c.name+'('+c.role+')').join(', ');
   showAnalyzing('??? 부분을 채우고 있습니다... ✍️');
   try {
     for (const { sc, li, line } of targets) {
-      const scLabel = getSceneLabel(sc, S.cur.scenes);
+      const allScenes = S.cur.scenes || [];
+      const scIdx = allScenes.indexOf(sc);
+      const scLabel = getSceneLabel(sc, allScenes);
       const before = (sc.lines||[]).slice(Math.max(0,li-4), li).map(l=>l.type+': '+l.text).join('\n');
       const after = (sc.lines||[]).slice(li+1, li+4).map(l=>l.type+': '+l.text).join('\n');
-      const chars = (S.cur.characters||[]).map(c=>c.name+'('+c.role+')').join(', ');
+      const prevSc = allScenes.slice(0, scIdx).reverse().find(s => !s.draft);
+      const nextSc = allScenes.slice(scIdx + 1).find(s => !s.draft);
+      const prevCtx = prevSc ? getSceneLabel(prevSc,allScenes)+' "'+prevSc.title+'": '+(prevSc.lines||[]).map(l=>l.text).join(' ').slice(0,120) : '';
+      const nextCtx = nextSc ? getSceneLabel(nextSc,allScenes)+' "'+nextSc.title+'": '+(nextSc.lines||[]).map(l=>l.text).join(' ').slice(0,120) : '';
+      const curSceneFull = (sc.lines||[]).map(l=>l.type+': '+l.text).join('\n').slice(0,300);
       const raw = await callClaude(
         [{role:'user', content:
-          scLabel + ' 씬, 등장인물: ' + chars + '\n\n' +
-          '앞 내용:\n' + before + '\n\n' +
-          '채울 부분 (??? 자리): ' + line.type + ': ' + line.text + '\n\n' +
-          '뒤 내용:\n' + after + '\n\n' +
+          (synopsis ? '[시놉시스] ' + synopsis + '\n' : '') +
+          (memos ? '[핵심 결정사항]\n' + memos + '\n\n' : '') +
+          '[등장인물] ' + chars + '\n\n' +
+          (prevCtx ? '[앞 장면] ' + prevCtx + '\n\n' : '') +
+          '[현재 씬] ' + scLabel + ' "' + sc.title + '"\n' + curSceneFull + '\n\n' +
+          (nextCtx ? '[뒷 장면] ' + nextCtx + '\n\n' : '') +
+          '— 채울 줄 앞:\n' + before + '\n' +
+          '채울 부분 (??? 자리): ' + line.type + ': ' + line.text + '\n' +
+          '채울 줄 뒤:\n' + after + '\n\n' +
           '??? 자리에 들어갈 내용만 작성하세요. 앞뒤 흐름에 자연스럽게 맞춰주세요.'}],
         '요청한 줄 타입(' + line.type + ')에 맞게 텍스트만 반환하세요. 설명 없이.',
         200
@@ -11582,6 +11693,7 @@ async function aiSceneFill(scId) {
   const nextSc = scenes.slice(scIdx + 1).find(s => !isEmptyScene(s));
   const chars = (S.cur.characters||[]).map(c=>c.name+'('+c.role+')').join(', ');
   const synopsis = S.cur.synopsis || '';
+  const memos = getChatMemos().slice(0,8).join('\n');
   const prevCtx = prevSc ? getSceneLabel(prevSc,scenes)+' "'+prevSc.title+'": '+(prevSc.lines||[]).map(l=>l.text).join(' ').slice(0,150) : '(없음)';
   const nextCtx = nextSc ? getSceneLabel(nextSc,scenes)+' "'+nextSc.title+'": '+(nextSc.lines||[]).map(l=>l.text).join(' ').slice(0,150) : '(없음)';
 
@@ -11590,7 +11702,8 @@ async function aiSceneFill(scId) {
     const raw = await callClaude(
       [{role:'user', content:
         '작품: ' + S.cur.title + (synopsis ? '\n시놉시스: ' + synopsis.slice(0,200) : '') + '\n'
-        + '등장인물: ' + chars + '\n\n'
+        + '등장인물: ' + chars + '\n'
+        + (memos ? '핵심 결정사항:\n' + memos + '\n\n' : '')
         + '채울 장면: ' + scLabel + ' "' + sc.title + '"\n\n'
         + '앞 장면: ' + prevCtx + '\n뒷 장면: ' + nextCtx + '\n\n'
         + '앞뒤 흐름에 자연스럽게 맞는 장면을 써주세요.'
@@ -15022,10 +15135,10 @@ function hasAIQuestion(raw, displayText) {
   return false;
 }
 
-function showSurveyPanel(questions) {
+function showSurveyPanel(questions, intent) {
   // questions: [{q, type:"choice"|"multi"|"text", options?:[]}]
   document.getElementById('survey-overlay')?.remove(); // 레거시 정리
-  _surveyState = { questions, answers: new Array(questions.length).fill(null), currentStep: 0 };
+  _surveyState = { questions, answers: new Array(questions.length).fill(null), currentStep: 0, intent: intent || null };
   // response-panel을 열고, body는 _renderSurveyStep이 채움
   const panel = document.getElementById('response-panel');
   const badge = document.getElementById('rp-badge');
@@ -15203,17 +15316,26 @@ async function _onSurveyComplete(state) {
   }).filter(Boolean);
   if (!answered.length) return;
   const summaryText = answered.join(' / ');
-  // 선택/서베이 완료 응답은 분석 라우팅 스킵 — 선택지 텍스트의 키워드(감정/흐름 등)가 오탐 방지
-  await handleChatPrompt(summaryText, true);
+  await handleChoiceResult(summaryText, state.intent || null);
+}
+
+// 선택/서베이 완료 후 intent 기반 자동 라우팅
+// - 선택 내용을 사용자 버블로 표시 (저장은 안 함 → history 중복 방지)
+// - _forceIntent로 floRoute 스킵 후 intent 특화 tagRule 적용
+async function handleChoiceResult(choice, intent) {
+  if (!S.cur) return;
+  // 선택 내용을 사용자 버블로 표시 (appendMsgEl만 — addMsg는 history에 push하므로 제외)
+  appendMsgEl({ role: 'user', text: choice });
+  await handleChatPrompt(choice, true, intent);
 }
 
 // 기존 showChoicesPanel → survey 위임 (단일 질문)
-function showChoicesPanel(prompt, choices) {
-  showSurveyPanel([{ q: prompt || '방향을 선택해주세요', type: 'choice', options: choices }]);
+function showChoicesPanel(prompt, choices, intent) {
+  showSurveyPanel([{ q: prompt || '방향을 선택해주세요', type: 'choice', options: choices }], intent);
 }
 
 // 기존 showMultiChoicesPanel → scene chunk는 유지, 일반은 survey 위임
-function showMultiChoicesPanel(prompt, choices) {
+function showMultiChoicesPanel(prompt, choices, intent) {
   const isSceneChunk = choices.some(c => /SC\d+~SC\d+/.test(c));
   if (isSceneChunk) {
     // 씬 구간 선택은 기존 패널 유지
@@ -15225,7 +15347,7 @@ function showMultiChoicesPanel(prompt, choices) {
       '<button class="rp-btn" onclick="confirmMultiChoicePanel(\'' + uid + '\',\'scene\')">✓ 선택 완료</button>' +
       '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
   } else {
-    showSurveyPanel([{ q: prompt || '해당하는 항목을 모두 선택하세요', type: 'multi', options: choices }]);
+    showSurveyPanel([{ q: prompt || '해당하는 항목을 모두 선택하세요', type: 'multi', options: choices }], intent);
   }
 }
 
@@ -17694,7 +17816,7 @@ function openDrawer(name) {
   currentDrawer = name;
   if (name === 'chars') renderCharsDrawer();
   if (name === 'synopsis') renderSynopsisDrawer();
-  if (name === 'settings') { renderVersionList(); _updateAccountLabel(); }
+  if (name === 'settings') { renderVersionList(); _updateAccountLabel(); _updateSyncToggleUI(); }
 }
 function closeDrawer() {
   document.querySelectorAll('.drawer').forEach(d => d.classList.remove('open'));
