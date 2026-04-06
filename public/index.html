@@ -18710,6 +18710,20 @@ document.addEventListener('mousemove', (e) => {
   }
 });
 
+// ── macOS 한글 IME 조합 중 클릭 시 마지막 글자 중복 입력 방지 ──────────
+(function() {
+  let _imeComposing = false;
+  document.addEventListener('compositionstart', () => { _imeComposing = true; }, true);
+  document.addEventListener('compositionend',   () => { setTimeout(() => { _imeComposing = false; }, 0); }, true);
+  document.addEventListener('mousedown', (e) => {
+    if (!_imeComposing) return;
+    const active = document.activeElement;
+    if (!active || (active.contentEditable !== 'true' && active.tagName !== 'INPUT' && active.tagName !== 'TEXTAREA')) return;
+    if (active === e.target || active.contains(e.target)) return;
+    active.blur(); // 조합 완료를 현재 요소에서 강제 처리 → 새 요소에 중복 입력 방지
+  }, true);
+})();
+
 document.addEventListener('keydown', (e) => {
   const isMac = navigator.platform.toUpperCase().includes('MAC');
   const isMod = isMac ? e.metaKey : e.ctrlKey;
