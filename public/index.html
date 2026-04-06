@@ -1451,7 +1451,7 @@ function closeResponsePanel() {
 </head>
 <script>
 // ★ 버전 — 캐시 키 관리 (업데이트 시 이 값만 변경)
-const SW_VERSION = 'v43.7';
+const SW_VERSION = 'v43.6';
 </script>
 
 <body>
@@ -8105,7 +8105,15 @@ function handleMsgAction(action) {
     // J12: 미리보기 후 저장
     showOrganizeMemoPanel(action.data.organized);
 
-  // ── D: 방안N으로 개선하기 ──────────────────────
+  // ── D: 방안N → 라인에디터 프롬프터에 채우기 ──────────────────────
+  } else if (action.type === 'applyFlowPlanToScript') {
+    closeResponsePanel();
+    switchTab('script');
+    const { planNum, planTitle, planBody } = action.data;
+    const promptText = `방안${planNum} 적용 — ${planTitle}: ${planBody}`;
+    const inp = document.getElementById('prompter-inp');
+    if (inp) { inp.value = promptText; inp.focus(); }
+
   } else if (action.type === 'flowImprovePlan') {
     pendingReminderDismiss();
     flowImprovePlan(action.data);
@@ -14373,14 +14381,28 @@ async function handleFlowAnalysisInChat(text, mode) {
       issueMap[parseInt(im[1])] = im[2].trim();
     }
 
+    // SC번호 정규화: "SC 11, 18, 22" → "SC11, SC18, SC22"
+    function _normScNums(text) {
+      return text
+        .replace(/\bSC\s*(\d+)((?:\s*[,，]\s*\d+)+)/gi, (m, first, rest) =>
+          'SC' + first + rest.replace(/\s*[,，]\s*(\d+)/g, ', SC$1'))
+        .replace(/\bSC\s+(\d+)\b/gi, 'SC$1');
+    }
+
     // 방안 추출 (방안1/2/3)
     const plans = [];
     const planPat = /방안\s*(\d+)\s*[:：]\s*([^\n]+)([\s\S]*?)(?=방안\s*\d+\s*[:：]|$)/g;
     let pm;
     while ((pm = planPat.exec(raw)) !== null) {
       const num = parseInt(pm[1]);
-      const title = pm[2].trim();
-      const body = pm[3].trim().replace(/^[-•]\s*/gm,'').slice(0,300);
+      const title = _normScNums(pm[2].trim());
+      let body = pm[3].trim()
+        .replace(/<flowissues[\s\S]*?<\/flowissues>/gi, '')
+        .replace(/<flowissues>[\s\S]*/gi, '')
+        .replace(/^[-•]\s*/gm, '')
+        .trim()
+        .slice(0, 300);
+      body = _normScNums(body);
       if (num <= 5) plans.push({ num, title, body });
     }
 
@@ -14388,8 +14410,9 @@ async function handleFlowAnalysisInChat(text, mode) {
     const label = modeLabel[mode] || '흐름 분석';
     const cleanText = cleanDisplayText(raw) || '분석 완료됐습니다.';
 
-    // 문제점 섹션 파싱 (번호 목록)
-    const problemLines = cleanText.split('\n').filter(l => l.trim());
+    // 방안 복사용 전역 저장
+    window._flowPlans = plans;
+
     let panelHtml = `<div class="flow-analysis-panel">`;
     panelHtml += `<div class="flow-analysis-header">✦ ${label} 결과</div>`;
 
@@ -14402,10 +14425,14 @@ async function handleFlowAnalysisInChat(text, mode) {
       if (introClean) {
         panelHtml += `<div style="margin-bottom:12px;color:var(--text2);font-size:var(--fs-15);line-height:1.65;">${introClean.replace(/\n/g,'<br>')}</div>`;
       }
-      // 방안별 렌더링
+      // 방안별 렌더링 (복사 버튼 포함)
       plans.forEach(p => {
-        panelHtml += `<div class="flow-plan" style="margin-bottom:10px;">`;
-        panelHtml += `<div class="flow-plan-title">방안${p.num} — ${escH(p.title)}</div>`;
+        const copyText = `방안${p.num} — ${p.title}\n${p.body}`;
+        panelHtml += `<div class="flow-plan" style="margin-bottom:10px;position:relative;">`;
+        panelHtml += `<div class="flow-plan-title" style="display:flex;align-items:center;justify-content:space-between;">`;
+        panelHtml += `<span>방안${p.num} — ${escH(p.title)}</span>`;
+        panelHtml += `<button onclick="navigator.clipboard.writeText(window._flowPlans[${p.num-1}]&&(window._flowPlans[${p.num-1}].title+' '+window._flowPlans[${p.num-1}].body)||'');toast('📋 방안${p.num} 복사됨',1800)" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:11px;padding:2px 5px;border-radius:3px;flex-shrink:0;" title="복사">📋</button>`;
+        panelHtml += `</div>`;
         if (p.body) panelHtml += `<div class="flow-plan-desc">${escH(p.body).replace(/\n/g,'<br>')}</div>`;
         panelHtml += `</div>`;
       });
@@ -14415,14 +14442,14 @@ async function handleFlowAnalysisInChat(text, mode) {
     }
     panelHtml += `</div>`;
 
-    // C: 버튼 구성 — 방안N으로 개선하기 + 플로 종합 제안 + 닫기
+    // C: 버튼 구성 — 방안N (라인에디터 직접) + 플로 종합 제안 + 닫기
     const actions = [];
     if (plans.length > 0) {
       plans.forEach(p => {
         actions.push({
-          type: 'flowImprovePlan',
-          data: { planNum: p.num, planTitle: p.title, planBody: p.body, allPlans: plans, issueMap, problemNums },
-          label: `✦ 방안${p.num}으로 개선하기`,
+          type: 'applyFlowPlanToScript',
+          data: { planNum: p.num, planTitle: p.title, planBody: p.body },
+          label: `방안${p.num}`,
           style: 'amber'
         });
       });
