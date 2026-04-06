@@ -972,9 +972,18 @@ textarea, input { font-family:var(--fb); }
 .rp-close-btn:hover { color:var(--text); }
 .rp-body { flex:1; overflow-y:auto; padding:18px; display:flex; flex-direction:column; gap:8px; }
 .rp-acts { display:flex; gap:8px; padding:14px 18px; border-top:1px solid var(--border); flex-shrink:0; flex-wrap:wrap; }
-.rp-btn { font-size:var(--fs-17); padding:10px 20px; border-radius:var(--r); border:1px solid var(--border2); background:none; color:var(--text2); transition:all .15s; }
+.rp-btn { font-size:var(--fs-17); padding:10px 20px; border-radius:var(--r); border:1px solid var(--border2); background:none; color:var(--text2); transition:all .15s; cursor:pointer; }
 .rp-btn:hover { border-color:var(--border3); color:var(--text); }
 .rp-btn.to-chat { border-color:rgba(168,158,221,.3); color:var(--purple); background:var(--purple2); }
+.rp-act-btn { font-size:var(--fs-15); padding:7px 14px; border-radius:6px; border:1px solid var(--border2); background:var(--bg3); color:var(--text2); cursor:pointer; transition:all .15s; white-space:nowrap; }
+.rp-act-btn:hover { color:var(--text); border-color:var(--border3); background:var(--bg2); }
+.rp-act-btn.amber { border-color:rgba(200,169,110,.35); color:var(--accent); background:rgba(200,169,110,.07); }
+.rp-act-btn.amber:hover { background:rgba(200,169,110,.14); border-color:var(--accent2); }
+.rp-act-btn.purple { border-color:rgba(168,158,221,.3); color:var(--purple,#a89edd); background:rgba(168,158,221,.07); }
+/* 방안 버튼 그룹 */
+.rp-plan-acts { display:flex; gap:6px; flex-wrap:wrap; padding:12px 18px; border-top:1px solid var(--border); flex-shrink:0; align-items:center; }
+.rp-plan-btn { font-size:var(--fs-13); padding:6px 13px; border-radius:20px; border:1px solid rgba(200,169,110,.4); background:rgba(200,169,110,.08); color:var(--accent); cursor:pointer; transition:all .15s; font-weight:500; }
+.rp-plan-btn:hover { background:rgba(200,169,110,.18); border-color:var(--accent); color:var(--text); }
 
 /* Check items */
 .check-item { display:flex; align-items:flex-start; gap:12px; padding:14px 16px; border-radius:var(--r); font-size:var(--fs-18); line-height:1.65; }
@@ -1519,6 +1528,7 @@ const SW_VERSION = 'v43.6';
         <button class="nav-analysis-btn" id="nav-btn-flow" onclick="handleFlowAnalysisInChat('', 'flow')" title="흐름 분석">🌊 흐름</button>
         <button class="nav-analysis-btn" id="nav-btn-emotion" onclick="handleFlowAnalysisInChat('', 'emotion')" title="감정 분석">💭 감정</button>
         <button class="nav-analysis-btn" id="nav-btn-setting" onclick="handleFlowAnalysisInChat('', 'setting')" title="설정 일관성">🔍 일관성</button>
+        <button class="nav-analysis-btn" id="nav-btn-reorder" onclick="reorderByConflict('갈등 흐름 최적화')" title="갈등 강도 기준 씬 순서 재배치" style="grid-column:1/-1;">↕ 갈등 기반 재배치</button>
       </div>
       <div class="nav-scene-sec">
         <div class="nav-scene-hdr">
@@ -7937,21 +7947,12 @@ function handleMsgAction(action) {
   } else if (action.type === 'showMultiChoices') {
     showMultiChoicesPanel(action.data.prompt, action.data.choices, action.data.intent);
   } else if (action.type === 'suggestAnalysis') {
-    const _origPrompt = action.originalPrompt || '';
-    const _afterAnalysis = () => {
-      if (_origPrompt) {
-        setTimeout(() => {
-          toast('✦ 분석 완료 — 다시 제안합니다...', 2000);
-          setTimeout(() => handleChatPrompt(_origPrompt), 600);
-        }, 800);
-      }
-    };
     if (action.data === 'conflict') {
-      checkConflictWithPrompt('갈등 분석').then(_afterAnalysis);
+      checkConflictWithPrompt('갈등 분석');
     } else if (action.data === 'synopsis') {
-      regenSynopsis().then(_afterAnalysis);
+      regenSynopsis();
     } else if (action.data === 'characters') {
-      extractCharsFromScript().then(_afterAnalysis);
+      extractCharsFromScript();
     }
   } else if (action.type === 'gotoScriptEditSingle') {
     // 단일 씬 수정 — response panel 유지하면서 씬 선택 + 프롬프터 입력
@@ -8122,10 +8123,6 @@ function handleMsgAction(action) {
   } else if (action.type === 'flowImprovePlan') {
     pendingReminderDismiss();
     flowImprovePlan(action.data);
-
-  } else if (action.type === 'flowImproveSynth') {
-    pendingReminderDismiss();
-    flowImproveSynth(action.data);
 
   // ── F: 플로 콘텐츠 감지 액션 ──────────────────
   } else if (action.type === 'saveSynopsisWithSequence') {
@@ -13283,7 +13280,6 @@ async function handleSceneConnectionWithTargets(text, targetIds) {
   showResponsePanel('comment', '🔗 씬 연결 분석 — ' + focusLabel,
     '<div class="ai-comment-txt">' + formatRpText(result) + '</div>',
     fixBtns2 +
-    '<button class="rp-btn" onclick="flowPanelToBrainstorm(window._rpBrainPrompt2)">💬 브레인스토밍 →</button>' +
     '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
 }
 
@@ -14257,48 +14253,6 @@ async function flowImprovePlan(data) {
   }
 }
 
-async function flowImproveSynth(data) {
-  const { allPlans, issueMap, problemNums, rawText } = data;
-  if (!S.cur) return;
-  showTyping();
-  try {
-    const scenes = S.cur.scenes || [];
-    const sceneList = scenes.filter(s => !s.draft).map(s => {
-      const lbl = getSceneLabel(s, scenes);
-      const slug = (s.lines||[]).find(l => l.type === 'slug')?.text || '';
-      const preview = (s.lines||[]).find(l => l.type === 'action' || l.type === 'dialogue');
-      return lbl + '. "' + s.title + '"' + (slug?' ['+slug+']':'') + (preview?' — '+preview.text.slice(0,50):'');
-    }).join('\n');
-    const plansText = allPlans.length
-      ? allPlans.map(p => `방안${p.num}: ${p.title}\n${p.body}`).join('\n\n')
-      : rawText;
-    const sys = `당신은 대본 구조 개선 전문가입니다.
-여러 방안들을 종합 분석해서 가장 효과적인 개선 시퀀스를 제안하세요.
-반드시 <sequence_titles>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","hint":"한줄설명"}]</sequence_titles> 형식으로 최종 시퀀스를 제안하세요.
-제안 전에 각 방안의 핵심을 종합한 이유를 자연어로 먼저 설명하세요.`;
-
-    const prompt = `현재 씬 목록:\n${sceneList}\n\n분석된 방안들:\n${plansText}\n\n이 방안들을 종합해서 최적의 시퀀스를 제안해주세요.`;
-    const raw = await callClaude([{role:'user', content: prompt}], sys, 4000);
-    hideTyping();
-
-    const seqRaw = extractTag(raw, 'sequence_titles');
-    const displayText = cleanDisplayText(raw) || '종합 제안을 완료했어요.';
-    const actions = [];
-    if (seqRaw) {
-      let seqData = [];
-      try { seqData = JSON.parse(seqRaw); } catch {}
-      if (seqData.length) {
-        actions.push({ type:'approveSequence', data: seqData, label:'✦ 이 시퀀스로 구성하기', style:'amber' });
-        setPendingReminder('플로 종합 시퀀스 제안이 있어요', null);
-      }
-    }
-    actions.push({ type:'dismiss', label:'닫기', style:'' });
-    addMsg('assistant', displayText, actions);
-  } catch(e) {
-    hideTyping();
-    addMsg('assistant', '오류: ' + e.message);
-  }
-}
 
 // F5: 설정 변경 → 전체 씬 영향도 스캔 → 라인 diff
 async function flowSettingUpdateScan(data) {
@@ -14349,7 +14303,9 @@ function _unlockScriptInput() {
 }
 async function handleFlowAnalysisInChat(text, mode) {
   mode = mode || 'flow';
-  _lockScriptInput();
+  const modeToast = { flow:'🌊 흐름 분석 중...', emotion:'💭 감정 분석 중...', setting:'🔍 일관성 분석 중...' };
+  toast(modeToast[mode] || '분석 중...', 60000);
+  setWaiting(true);
   try {
     const scenes = S.cur?.scenes || [];
     const chars = (S.cur?.characters||[]).map(c => c.name+'('+c.role+'): '+(c.description||'')).join('; ');
@@ -14427,8 +14383,18 @@ async function handleFlowAnalysisInChat(text, mode) {
       const introEnd = raw.search(/방안\s*1\s*[:：]/);
       const introRaw = introEnd > 0 ? raw.slice(0, introEnd) : '';
       const introClean = cleanDisplayText(introRaw).trim();
+      // 첫 문단만 — 섹션 헤더(줄 끝이 :) 나오기 전까지만 표시
       if (introClean) {
-        panelHtml += `<div style="margin-bottom:12px;color:var(--text2);font-size:var(--fs-15);line-height:1.65;">${introClean.replace(/\n/g,'<br>')}</div>`;
+        const introLines = introClean.split('\n');
+        const firstParaLines = [];
+        for (const l of introLines) {
+          if (/^\s*[^\s].{0,30}[:：]\s*$/.test(l)) break; // 섹션 헤더 감지 → 중단
+          firstParaLines.push(l);
+        }
+        const firstPara = firstParaLines.join('\n').trim();
+        if (firstPara) {
+          panelHtml += `<div style="margin-bottom:12px;color:var(--text2);font-size:var(--fs-15);line-height:1.65;">${escH(firstPara).replace(/\n/g,'<br>')}</div>`;
+        }
       }
       // 방안별 렌더링 (복사 버튼 포함)
       plans.forEach(p => {
@@ -14447,62 +14413,43 @@ async function handleFlowAnalysisInChat(text, mode) {
     }
     panelHtml += `</div>`;
 
-    // C: 버튼 구성 — 방안N (라인에디터 직접) + 플로 종합 제안 + 닫기
-    const actions = [];
-    if (plans.length > 0) {
-      plans.forEach(p => {
-        actions.push({
-          type: 'applyFlowPlanToScript',
-          data: { planNum: p.num, planTitle: p.title, planBody: p.body },
-          label: `방안${p.num}`,
-          style: 'amber'
-        });
-      });
-      // 플로 종합 제안 (방안 2개 이상일 때)
-      if (plans.length >= 2) {
-        actions.push({
-          type: 'flowImproveSynth',
-          data: { allPlans: plans, issueMap, problemNums, rawText: cleanText },
-          label: '✦ 플로 종합 제안',
-          style: 'purple'
-        });
-      }
-    } else if (problemNums.length > 0) {
-      // 방안 없고 문제 씬만 있을 때 — 시퀀스 개선으로
-      actions.push({
-        type: 'flowImproveSynth',
-        data: { allPlans: [], issueMap, problemNums, rawText: cleanText },
-        label: '✦ 시퀀스 개선하기',
-        style: 'purple'
-      });
-    }
-    actions.push({ type: 'dismiss', label: '닫기', style: '' });
+    // C: 버튼 구성 — 방안N 필 버튼들 + 닫기
+    const planActions = plans.map(p => ({
+      type: 'applyFlowPlanToScript',
+      data: { planNum: p.num, planTitle: p.title, planBody: p.body },
+      label: `방안${p.num}`
+    }));
 
-    // 히스토리 저장 (패널HTML 포함)
+    // 히스토리 저장
     if (!S.cur.messages) S.cur.messages = [];
-    const msgObj = { role:'assistant', text: panelHtml, actions, _isFlowPanel: true };
+    const msgObj = { role:'assistant', text: panelHtml, actions: [...planActions, { type:'dismiss', label:'닫기', style:'' }], _isFlowPanel: true };
     S.cur.messages.push(msgObj);
     save(true);
 
-    // 탭 무관하게 항상 리스폰스 패널로 즉시 표시
-    const actsHtml = actions.filter(a => a.type !== 'dismiss').map(a => {
-      const cls = a.style === 'amber' ? 'rp-act-btn amber' : a.style === 'purple' ? 'rp-act-btn purple' : 'rp-act-btn';
-      const dataStr = a.data ? ` data-action='${JSON.stringify({type:a.type,data:a.data,label:a.label})}'` : '';
-      return `<button class="${cls}"${dataStr} onclick="handleMsgAction(JSON.parse(this.dataset.action))">${escH(a.label)}</button>`;
+    // 방안 필 버튼 HTML — 별도 .rp-plan-acts 영역
+    const planBtnsHtml = planActions.map(a => {
+      const enc = JSON.stringify({type:a.type, data:a.data, label:a.label}).replace(/'/g, '&#39;');
+      return `<button class="rp-plan-btn" data-action='${enc}' onclick="handleMsgAction(JSON.parse(this.dataset.action))">${escH(a.label)}</button>`;
     }).join('');
+    const actsHtml = planBtnsHtml
+      ? `<div class="rp-plan-acts">${planBtnsHtml}</div><div style="padding:0 18px 14px;"><button class="rp-btn" onclick="closeResponsePanel()">닫기</button></div>`
+      : `<div style="padding:12px 18px;"><button class="rp-btn" onclick="closeResponsePanel()">닫기</button></div>`;
+
     showResponsePanel('check', label, panelHtml, actsHtml);
 
   } catch(e) {
     hideTyping();
     addMsg('assistant', '분석 오류: ' + e.message);
   } finally {
-    _unlockScriptInput();
+    toast('', 0); // 분석 중 토스트 닫기
+    setWaiting(false);
   }
 }
 
 async function checkConsistency() { await checkConsistencyWithPrompt('등장인물 대사와 행동이 캐릭터 설정과 일치하는지 검사해줘'); }
 async function checkConsistencyWithPrompt(text) {
-  _lockScriptInput();
+  toast('🔍 일관성 분석 중...', 60000);
+  setWaiting(true);
   try {
     const ctx = buildProjectContext();
     const scenes = (S.cur?.scenes||[]).map((s,i)=>`SC${i+1}. "${s.title}": ${s.lines.map(l=>l.text).join(' | ')}`).join('\n');
@@ -14518,7 +14465,8 @@ async function checkConsistencyWithPrompt(text) {
     hideTyping();
     showCommentPanel('검사 오류: ' + e.message);
   } finally {
-    _unlockScriptInput();
+    toast('', 0);
+    setWaiting(false);
   }
 }
 
@@ -14979,10 +14927,7 @@ function showFlowCheckPanel(issues, prompt) {
   const fixAllBtn = problemScenes.length > 0
     ? '<button class="rp-btn" onclick="fixAllFlowIssues(window._flowProblemScenes)">✦ 전체 수정하기</button>'
     : '';
-  window._rpBrainPrompt = '다음 씬 흐름 문제들을 어떻게 개선하면 좋을까요?\n\n' + analysisText;
-  const brainBtn = problemScenes.length > 0
-    ? '<button class="rp-btn" onclick="flowPanelToBrainstorm(window._rpBrainPrompt)">💬 브레인스토밍 →</button>'
-    : '';
+  const brainBtn = '';
 
   showResponsePanel('check', '씬 흐름 분석 — ' + issues.filter(i=>i.level!=='ok').length + '개 이슈',
     bodyHTML,
@@ -15214,8 +15159,7 @@ function showCheckPanel(issues, prompt, title) {
   const errCnt = issues.filter(x=>x.level==='error').length;
   const warnCnt = issues.filter(x=>x.level==='warn').length;
   showResponsePanel('check', `${errCnt}개 오류, ${warnCnt}개 경고`, bodyHTML,
-    `<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>
-     <button class="rp-btn to-chat" onclick="takeToBrainstorm()">브레인스토밍에서 계속 →</button>`);
+    `<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>`);
 }
 
 // ═══════════════════════════════════════════
@@ -15651,8 +15595,7 @@ function showCommentPanel(rawText, choices) {
       '</div>'
     : '';
   showResponsePanel('comment', 'AI 응답', `<div class="ai-comment-txt">${formatRpText(text)}</div>${choicesHTML}`,
-    `<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>
-     <button class="rp-btn to-chat" onclick="flowPanelToBrainstorm(window._commentPanelText)">💬 브레인스토밍에서 계속 →</button>`);
+    `<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>`);
 }
 
 function selectCommentChoice(btn) {
@@ -16136,11 +16079,8 @@ async function handleCharDialogueAnalysis(text) {
   const markAllBtn = selectedDlgs.length > 0
     ? '<button class="rp-btn" onclick="markAllKeylines(window._markAllData)">★ 전체 중요 대사 지정</button>'
     : '';
-  window._rpBrainPrompt = foundChar + ' 주요 대사 분석 결과를 바탕으로 캐릭터 arc를 논의하고 싶어';
-  const brainBtn = '<button class="rp-btn" onclick="flowPanelToBrainstorm(window._rpBrainPrompt)">💬 브레인스토밍 →</button>';
-
   showResponsePanel('comment', foundChar + ' 대사 분석', bodyHTML,
-    markAllBtn + brainBtn + '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
+    markAllBtn + '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
 }
 
 function markSingleKeyline(e, data) {
