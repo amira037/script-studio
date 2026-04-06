@@ -1041,14 +1041,21 @@ textarea, input { font-family:var(--fb); }
 .chip-x:hover { opacity:1; }
 .chip-hint { font-size:var(--fs-10); color:var(--text3); font-style:italic; }
 /* 액션 바 */
+.nav-analysis-btn {
+  flex:1; font-size:var(--fs-9); padding:3px 4px; border-radius:var(--r);
+  border:1px solid var(--border2); background:var(--bg3); color:var(--text2);
+  cursor:pointer; font-family:var(--fm); transition:all .15s; white-space:nowrap; text-align:center;
+}
+.nav-analysis-btn:hover:not(:disabled) { border-color:var(--accent2); color:var(--accent); background:var(--accent3); }
+.nav-analysis-btn:disabled { opacity:.3; cursor:default; }
 .action-bar { display:none; gap:5px; flex-wrap:wrap; padding:5px 0 6px; border-top:1px solid var(--border); margin-bottom:5px; }
 .action-bar.show { display:flex; }
 .action-bar-btn {
-  font-size:var(--fs-10); padding:3px 10px; border-radius:10px;
-  border:1px solid var(--border2); background:none; color:var(--text2);
+  font-size:var(--fs-10); padding:4px 12px; border-radius:10px;
+  border:1px solid var(--border3); background:var(--bg3); color:var(--text);
   cursor:pointer; font-family:var(--fm); transition:all .15s; white-space:nowrap;
 }
-.action-bar-btn:hover:not(:disabled) { border-color:var(--accent2); color:var(--accent); }
+.action-bar-btn:hover:not(:disabled) { border-color:var(--accent2); color:var(--accent); background:var(--accent3); }
 .action-bar-btn:disabled { opacity:.35; cursor:default; }
 .action-bar-btn.primary { border-color:var(--accent2); color:var(--accent); background:var(--accent3); }
 /* 인라인 confirm */
@@ -1421,6 +1428,7 @@ textarea, input { font-family:var(--fb); }
 .hidden { display:none !important; }
 </style>
 <script>
+let _lastRpDataEarly = null; // 조기 closeResponsePanel용 플레이스홀더
 function toggleResponsePanel() {
   const col = document.getElementById('rp-collapsible');
   const btn = document.getElementById('rp-collapse-btn');
@@ -1505,6 +1513,12 @@ const SW_VERSION = 'v43.6';
           <span class="nav-meta-label">시놉시스</span>
           <span class="nav-meta-arrow">›</span>
         </div>
+      </div>
+      <div id="nav-analysis-btns" style="display:flex;gap:4px;padding:5px 6px 4px;border-bottom:1px solid var(--border);">
+        <button class="nav-analysis-btn" id="nav-btn-conflict" onclick="checkConflictWithPrompt('')" title="갈등도 분석">⚔ 갈등도</button>
+        <button class="nav-analysis-btn" id="nav-btn-flow" onclick="handleFlowAnalysisInChat('', 'flow')" title="흐름 분석">🌊 흐름</button>
+        <button class="nav-analysis-btn" id="nav-btn-emotion" onclick="handleFlowAnalysisInChat('', 'emotion')" title="감정 분석">💭 감정</button>
+        <button class="nav-analysis-btn" id="nav-btn-setting" onclick="handleFlowAnalysisInChat('', 'setting')" title="설정 일관성">🔍 일관성</button>
       </div>
       <div class="nav-scene-sec">
         <div class="nav-scene-hdr">
@@ -1600,6 +1614,14 @@ const SW_VERSION = 'v43.6';
           <div class="rp-body" id="rp-body"></div>
           <div class="rp-acts" id="rp-acts"></div>
         </div>
+      </div>
+
+      <!-- 최근 응답 축소 바 -->
+      <div id="rp-last" style="display:none;position:absolute;bottom:calc(var(--prompter-h) + 8px);right:12px;z-index:50;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);padding:5px 10px;align-items:center;gap:8px;max-width:360px;box-shadow:0 2px 8px rgba(0,0,0,.4);">
+        <span id="rp-last-badge" style="font-size:var(--fs-9);background:var(--accent3);color:var(--accent);padding:1px 6px;border-radius:3px;flex-shrink:0;"></span>
+        <span id="rp-last-title" style="font-size:var(--fs-10);color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;"></span>
+        <button onclick="expandLastResponse()" style="font-size:var(--fs-9);padding:1px 8px;border-radius:4px;border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;flex-shrink:0;">펼치기</button>
+        <button onclick="document.getElementById('rp-last').style.display='none';" style="font-size:var(--fs-10);background:none;border:none;color:var(--text3);cursor:pointer;padding:0 2px;flex-shrink:0;">✕</button>
       </div>
 
       <!-- E-1: 미처리 제안 리마인더 -->
@@ -1992,16 +2014,40 @@ const _storageKey = (key) => {
   if (key === 'ss_projects') return 'ss_projects_' + USER_ID;
   return key; // ss_api 등 공용 키는 그대로
 };
+// syncToSupabase 디바운스 — 30초. 구조 변경 시 즉시 실행
+let _syncDebounceTimer = null;
+let _syncPendingProjects = null;
+function _scheduleSyncToSupabase(projects, immediate = false) {
+  _syncPendingProjects = projects;
+  if (immediate) {
+    clearTimeout(_syncDebounceTimer);
+    _syncDebounceTimer = null;
+    syncToSupabase(projects).catch(e => console.warn('Supabase sync failed', e));
+  } else {
+    if (_syncDebounceTimer) clearTimeout(_syncDebounceTimer);
+    _syncDebounceTimer = setTimeout(() => {
+      _syncDebounceTimer = null;
+      if (_syncPendingProjects) syncToSupabase(_syncPendingProjects).catch(e => console.warn('Supabase sync failed', e));
+    }, 30000);
+  }
+}
+// 앱 종료/탭 닫기 시 즉시 sync
+window.addEventListener('beforeunload', () => {
+  if (_syncPendingProjects && isSyncEnabled() && !IS_ADMIN) {
+    clearTimeout(_syncDebounceTimer);
+    syncToSupabase(_syncPendingProjects).catch(() => {});
+  }
+});
 const storage = {
   get(key) { try { return JSON.parse(localStorage.getItem(_storageKey(key))); } catch { return null; } },
-  set(key, val) {
+  set(key, val, structuralChange = false) {
     // admin은 로컬 저장 및 Supabase 업로드 안 함
     if (IS_ADMIN) return;
     try {
       localStorage.setItem(_storageKey(key), JSON.stringify(val));
       if (key === 'ss_projects') localStorage.setItem(_storageKey('ss_local_save_time'), String(Date.now()));
     } catch(e) { console.warn('Storage error', e); }
-    if (key === 'ss_projects' && isSyncEnabled()) syncToSupabase(val).catch(e => console.warn('Supabase sync failed', e));
+    if (key === 'ss_projects' && isSyncEnabled()) _scheduleSyncToSupabase(val, structuralChange);
   },
   del(key) { localStorage.removeItem(_storageKey(key)); }
 };
@@ -2010,6 +2056,13 @@ const storage = {
 async function syncToSupabase(projects) {
   // 빈 데이터는 절대 업로드하지 않음
   if (!projects || !projects.length) return;
+  // conflictData와 diff 제외한 데이터만 업로드 (12-3)
+  const uploadData = projects.map(p => {
+    const clean = JSON.parse(JSON.stringify(p));
+    delete clean.conflictData;
+    if (clean.scenes) clean.scenes.forEach(sc => { delete sc.diff; });
+    return clean;
+  });
   try {
     const ctrl = new AbortController();
     const timeoutId = setTimeout(() => ctrl.abort(), 15000); // 15초 타임아웃
@@ -2022,7 +2075,7 @@ async function syncToSupabase(projects) {
       body: JSON.stringify({
         id: USER_ID,
         user_id: USER_ID,
-        data: { projects },
+        data: { projects: uploadData },
         updated_at: new Date().toISOString()
       }),
       signal: ctrl.signal
@@ -2243,7 +2296,9 @@ function save(skipUndo = false) {
       setTimeout(() => tryAutoVersion(), 500);
     }
   }
-  storage.set('ss_projects', S.projects);
+  // skipUndo=false → 구조 변경(씬 추가/삭제/합치기 등) → 즉시 sync
+  // skipUndo=true  → 내용 편집(타이핑 중) → 30초 debounce
+  storage.set('ss_projects', S.projects, !skipUndo);
   storage.set('ss_api', { key: S.apiKey, proxy: S.useProxy });
 }
 
@@ -2407,11 +2462,12 @@ function showStreamPreview(scId) {
     </div>
     <div id="stream-lines-${scId}" style="font-family:var(--fm);font-size:var(--fs-11);color:var(--text2);padding:10px 12px;min-height:48px;max-height:200px;overflow-y:auto;white-space:pre-wrap;line-height:1.8;"></div>
   `;
-  // diff-wrap 앞에 삽입, 없으면 헤더 다음에
-  const diffWrap = block.querySelector('.diff-wrap');
+  // diff-block 앞에 삽입 (같은 위치). 없으면 scene-lines 다음에 삽입
+  const diffBlock = block.querySelector('.diff-block');
   const sceneLines = block.querySelector('.scene-lines');
-  if (diffWrap) block.insertBefore(preview, diffWrap);
-  else if (sceneLines) block.insertBefore(preview, sceneLines);
+  if (diffBlock) block.insertBefore(preview, diffBlock);
+  else if (sceneLines && sceneLines.nextSibling) block.insertBefore(preview, sceneLines.nextSibling);
+  else if (sceneLines) block.appendChild(preview);
   else block.appendChild(preview);
   return preview;
 }
@@ -4583,9 +4639,18 @@ function _enforceDraftAnchor(arr, movedSc) {
   arr.splice(insertAt, 0, movedSc);
 }
 
+function updateNavAnalysisBtns() {
+  const sceneCount = (S.cur?.scenes||[]).filter(s=>!s.draft).length;
+  const enabled = sceneCount >= 2;
+  ['nav-btn-conflict','nav-btn-flow','nav-btn-emotion','nav-btn-setting'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = !enabled;
+  });
+}
 function renderNavSceneList() {
   const list = document.getElementById('nav-scene-list');
   if (!list || !S.cur) return;
+  updateNavAnalysisBtns();
   list.innerHTML = '';
   // 네비게이터 표시 순서: 일반 씬 뒤에 해당 씬의 대안들을 바로 붙임 (배열 순서 무관)
   const _draftsByParent = {};
@@ -4890,6 +4955,11 @@ function toggleSceneSelect(id, checked) {
   if (checked) { S.selectedIds.add(id); S.autoSelectedIds.delete(id); }
   else { S.selectedIds.delete(id); S.autoSelectedIds.delete(id); }
   syncSelection();
+  // 씬 선택 시 네비게이터 해당 항목으로 스크롤
+  if (checked) {
+    const navItem = document.querySelector('.nav-sc-item[data-id="' + id + '"]');
+    if (navItem) navItem.scrollIntoView({ block:'nearest', behavior:'smooth' });
+  }
 }
 function syncSelection() {
   renderNavSceneList();
@@ -9131,7 +9201,6 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
   showTyping();
   try {
     // 씬/대사/분석 관련 — Haiku 라우터
-    const _chatAnalysisKw = /갈등|긴장|흐름\s*(?:분석|어때|이상|어색|확인)|전체\s*흐름|씬\s*흐름|연결\s*(?:분석|어때|이상|어색)|앞뒤.*연결|감정|심리|설정|충돌|모순|일관성|검사|대사.*분석|주요.*대사|중요.*대사|대사.*어때|어때|자연스럽|매끄럽|앞뒤|씬.*어때|재배치|재배열|갈등.*기준|클라이맥스/.test(text);
     const _seqKw = /이 다음|이 뒤|어떻게 이어|다음 이야기|이후 전개|시퀀스|다음 장면|뭐가 오면|어떻게 될까|어떤 이야기가/.test(text);
     const _stuckKw = /막혔|모르겠|아이디어.*없|어떡하|새로.*시작|다시.*시작|영감.*없|떠오르지/.test(text);
 
@@ -9143,21 +9212,6 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     }
     // 시퀀스 제안 키워드
     if (_seqKw && (S.cur?.scenes||[]).length > 0) { hideTyping(); showSequenceSuggestPanel(); return; }
-
-    if (!_skipAnalysisRoute && _chatAnalysisKw && (S.cur?.scenes||[]).length > 0) {
-      const _chatCmd = await haikusRoute(text);
-      if (_chatCmd === 'conflict')   { await checkConflictWithPrompt(text); return; }
-      if (_chatCmd === 'flow')       { await handleFlowAnalysisInChat(text, 'flow'); return; }
-      if (_chatCmd === 'emotion')    { await handleFlowAnalysisInChat(text, 'emotion'); return; }
-      if (_chatCmd === 'setting')    { await handleFlowAnalysisInChat(text, 'setting'); return; }
-      if (_chatCmd === 'consistency'){ await checkConsistencyWithPrompt(text); return; }
-      if (_chatCmd === 'scene_connect') { await handleSceneConnection(text); return; }
-      if (_chatCmd === 'reorder')    { await reorderByConflict(text); return; }
-      if (_chatCmd === 'sequence_suggest') { showSequenceSuggestPanel(); return; }
-      if (_chatCmd === 'stuck')      { showStuckPanel(); return; }
-      if (_chatCmd === 'dialogue_analysis') { switchTab('script'); setTimeout(()=>{const inp=document.getElementById('prompter-inp');if(inp){inp.value=text;inp.dispatchEvent(new Event('input'));inp.focus();}},200); addMsg('assistant','대사 분석은 대본 에디터에서 진행하겠습니다 😊'); return; }
-      // 그 외(edit/brainstorm/merge 등) → 아래 일반 처리로
-    }
     const ctx = buildProjectContext();
     const history = await buildCompressedHistory();
 
@@ -11234,10 +11288,6 @@ async function haikusRoute(text) {
       '씬 수: ' + sceneCount + ', 등장인물: ' + charNames
     }],
     '대본 편집/분석 요청을 분류하세요.\n' +
-    '- 갈등/긴장 강도 분석 → conflict\n' +
-    '- 씬 흐름/연결/전환/앞뒤 분석 → flow\n' +
-    '- 감정/심리 흐름 분석 → emotion\n' +
-    '- 설정 충돌/모순 검사 → setting\n' +
     '- 인물 대사 분석/선별 → dialogue_analysis\n' +
     '- 중요 대사 지정 → keyline\n' +
     '- 다음 이야기/이후 전개/시퀀스 제안/어떻게 이어지면 → sequence_suggest\n' +
@@ -12548,6 +12598,7 @@ async function handleRefSceneCreate(text) {
 
     window._aiInsertMode = 'after';
     window._insertOnly = true;
+    S.selectedIds.clear(); syncSelection();
     showNewSceneInsertPanel(scenesData, toastMsg, refSc, refLabel);
 
   } catch(e) {
@@ -13073,95 +13124,38 @@ async function handleSceneConnection(text, options = {}) {
 
   showAnalyzing();
 
-  const _planFmt = '\n\n개선 제안은 반드시 다음 형식으로 작성하세요:\n방안1: [제목]\n수정대상: SC번호 (반드시 하나만. 앞 씬이 문제면 앞 씬 번호, 뒷 씬이 문제면 뒷 씬 번호)\n유형: 수정 또는 삽입\n내용: 구체적 수정/삽입 내용\n\n유형 구분:\n- 기존 씬 내용 변경 → 유형: 수정\n- 두 씬 사이 새 씬 추가 → 유형: 삽입 (수정대상은 앞 씬 번호)\n\n중요: 수정대상은 반드시 SC번호 하나만. 앞 씬과 뒷 씬 중 더 문제있는 씬을 선택하세요.\n주의: 각 방안은 하나의 방법만. "또는/혹은" 금지. 마크다운 볼드(**) 사용 금지.';
-  const sysPrompt = targetScenes.length === 0
-    ? '대본 전체 흐름을 분석하세요. 어색한 씬 전환, 감정 흐름 단절, 시간 순서 혼란 등을 찾아주세요.' + _planFmt
-    : '씬들의 연결이 자연스러운지 분석하세요.\n연결 평가, 문제점, 개선 제안을 구체적으로 작성하세요.' + _planFmt;
+  const sysPrompt = '씬 연결을 분석하고 반드시 다음 JSON 형식으로만 응답하세요:\n' +
+    '<issues>[{"level":"error|warn|ok","scene":"SC번호","message":"문제 설명","fix":"개선 제안 한 줄"}]</issues>\n' +
+    '- level: error=심각한 단절, warn=어색함, ok=자연스러움\n' +
+    '- scene: 문제 씬 번호 (예: "SC 3")\n' +
+    '- message: 연결 문제 설명\n' +
+    '- fix: 해당 씬 연결 개선 제안\n' +
+    '문제 없으면 <issues>[]</issues>. JSON 외 텍스트 없이.';
 
   const raw = await callClaude(
     [{role:'user', content:'씬 연결 분석 (중심: '+focusLabel+'):\n\n'+combined+'\n\n질문: '+text}],
     sysPrompt, 800
   );
   hideAnalyzing();
-  const result = cleanDisplayText(raw) || raw;
   const scLbl = focusLabel;
 
+  const issuesRaw = extractTag(raw, 'issues');
+  let issues = [];
+  if (issuesRaw) { try { issues = JSON.parse(issuesRaw); } catch {} }
+
   // 브레인스토밍 히스토리에 공유
-  if (S.cur) {
-    if (!S.cur.messages) S.cur.messages = [];
-    S.cur.messages.push({ role:'assistant', text:'[씬 연결 분석 — ' + scLbl + ']\n' + result });
-    save(true);
-    const container = document.getElementById('chat-msgs');
-    if (container) appendMsgEl(S.cur.messages[S.cur.messages.length-1], false);
-  }
-
-  // 방안별 버튼 생성 — 방안N: 패턴 감지
-  // 방안 감지 — raw에서 (cleanDisplayText 전, 마크다운 포함 상태)
-  // "방안1:", "방안 1:", "**방안1**:", "방안1. " 모두 감지
-  const planPat = /\*{0,2}방안\s*(\d+)\*{0,2}\s*[:：.*\s]+/g;
-  let planMatch;
-  const plans = [];
-  while ((planMatch = planPat.exec(raw)) !== null) {
-    const planNum = planMatch[1];
-    const startIdx = planMatch.index;
-    // 다음 방안 또는 600자까지
-    const nextMatch = raw.search(new RegExp('방안\\s*' + (parseInt(planNum)+1)));
-    const endIdx = nextMatch > startIdx ? nextMatch : startIdx + 600;
-    const planBlock = raw.slice(startIdx, endIdx);
-    const planContent = planBlock.replace(/\*+/g,'').replace(/\n/g,' ').trim().slice(0,200);
-    // SC번호 추출 — "수정대상: SCN" 우선, 없으면 첫 번째 SC번호만
-    let planScNums = [];
-    const targetMatch = planBlock.match(/수정대상\s*:\s*SC\s*(\d+)/i);
-    if (targetMatch) {
-      planScNums = [parseInt(targetMatch[1])];
-    } else {
-      // fallback: 첫 번째 SC번호만 사용 (앞 씬 우선)
-      const firstSc = planBlock.match(/SC\s*(\d+)/i);
-      if (firstSc) planScNums = [parseInt(firstSc[1])];
-    }
-    // 삽입 유형 감지
-    const isInsertPlan = /유형\s*:\s*삽입|삽입|뒤에.*새|새.*씬.*삽입/i.test(planBlock);
-    if (planScNums.length > 0) {
-      plans.push({ num: planNum, scNums: planScNums, content: planContent, isInsert: isInsertPlan });
+  if (S.cur && issues.length > 0) {
+    const analysisText = issues.filter(i=>i.level!=='ok').map(i => i.scene + ': ' + i.message + (i.fix ? ' → ' + i.fix : '')).join('\n');
+    if (analysisText) {
+      if (!S.cur.messages) S.cur.messages = [];
+      S.cur.messages.push({ role:'assistant', text:'[씬 연결 분석 — ' + scLbl + ']\n' + analysisText });
+      save(true);
+      const container = document.getElementById('chat-msgs');
+      if (container) appendMsgEl(S.cur.messages[S.cur.messages.length-1], false);
     }
   }
 
-  // 방안 없으면 일반 SC번호 감지
-  const scNums = [];
-  const sp = /SC\s*(\d+)/gi; let sm;
-  while ((sm = sp.exec(result)) !== null) scNums.push(parseInt(sm[1]));
-  const uniqueNums = [...new Set(scNums)].slice(0,5);
-
-  let fixBtns = '';
-  if (plans.length > 0) {
-    plans.forEach(plan => {
-      if (plan.scNums.length > 0) {
-        const prompt = '방안' + plan.num + '으로 수정해줘: ' + plan.content.slice(0,150);
-        window['_planPrompt'+plan.num] = prompt;
-        window['_planScNums'+plan.num] = plan.scNums;
-        window['_planIsInsert'+plan.num] = plan.isInsert || false;
-        fixBtns += '<button class="rp-btn" onclick="applyPlanFix(' + plan.num + ')">✦ 방안' + plan.num + '으로 수정하기</button>';
-      }
-    });
-    if (uniqueNums.length > 0) {
-      const allPrompt = result.slice(0,400);
-      window._rpAllPrompt = allPrompt;
-      window._rpAllNums = uniqueNums;
-      fixBtns += '<button class="rp-btn" onclick="applyAllPlanFix()">✦ 전체 수정하기</button>';
-    }
-  } else {
-    uniqueNums.forEach(n => {
-      fixBtns += '<button class="rp-btn" onclick="selectFlowScenesWithFix(\'SC'+n+'\',\''+escH(scLbl)+' 씬 연결을 자연스럽게 수정해줘\')">✦ SC'+n+' 수정하기</button>';
-    });
-  }
-
-  window._rpBrainPrompt = scLbl + ' 씬 연결 분석 결과:\n' + result.slice(0,300) + '\n\n어떻게 개선하면 좋을까요?';
-
-  showResponsePanel('comment', '🔗 씬 연결 분석 — ' + scLbl,
-    '<div class="ai-comment-txt">' + formatRpText(result) + '</div>',
-    fixBtns +
-    '<button class="rp-btn" onclick="flowPanelToBrainstorm(window._rpBrainPrompt)">💬 브레인스토밍 →</button>' +
-    '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
+  showFlowCheckPanel(issues, scLbl + ' 씬 연결 분석');
 }
 
 // BUG-10: 빈 씬 제외 분석 (targetIds로 직접 호출)
@@ -13713,32 +13707,11 @@ async function handleScriptPrompt(text) {
   }
   if (/요약해|요약 해|씬.*요약|한 줄.*요약/.test(text)) { await handleSceneSummary(text); return; }
 
-  // 분석/대사 관련 — Haiku 라우터
-  const _analysisKw = /갈등|긴장|흐름\s*(?:분석|어때|이상|어색|확인)|전체\s*흐름|씬\s*흐름|연결\s*(?:분석|어때|이상|어색)|앞뒤.*연결|감정|심리|설정|충돌|모순|일관성|검사|대사.*분석|주요.*대사|중요.*대사|대사.*어때|대사.*뽑아|대사.*목록|대사.*조회|어때|자연스럽|매끄럽|앞뒤|씬.*어때/.test(text);
+  // 편집 키워드 우선 — 있으면 분석 라우팅 스킵
+  const _editKwCheck = /써줘|수정|고쳐|재구성|바꿔|채워/.test(text);
 
-  // BUG-9: selectedIds 있고 편집+분석 의도 모두 있는 애매한 경우 → 선택지 제시
-  if (!S._skipAnalysisRoute) {
-    const _editKw = /채워|써줘|수정|고쳐|바꿔|넣어|추가|보강|다듬|확장|만들어|작성/.test(text);
-    if (_analysisKw && _editKw && S.selectedIds.size > 0) {
-      const _selLabels = [...S.selectedIds].map(id => {
-        const sc = (S.cur?.scenes||[]).find(s => s.id === id);
-        return sc ? getSceneLabel(sc, S.cur.scenes) : '';
-      }).filter(Boolean).join(', ');
-      const _capturedText = text;
-      showChoicesPanelCb('방향을 선택해주세요', [
-        _selLabels + ' 편집하기 (직접 수정)',
-        '앞뒤 씬 흐름 분석 후 수정 방향 제안'
-      ], (chosen) => {
-        if (chosen.includes('편집하기')) {
-          S._skipAnalysisRoute = true;
-          handleScriptPrompt(_capturedText);
-        } else {
-          handleSceneConnection(_capturedText);
-        }
-      });
-      return;
-    }
-  }
+  // 대사/keyline 관련 — Haiku 라우터 (분석 제외, 편집 없을 때만)
+  const _analysisKw = !_editKwCheck && /대사.*분석|주요.*대사|중요.*대사|대사.*어때|대사.*뽑아|대사.*목록|대사.*조회/.test(text);
   S._skipAnalysisRoute = false;
 
   // haikusRoute 결과를 편집 의도 판단에 재활용
@@ -14353,8 +14326,17 @@ async function flowSettingUpdateScan(data) {
 // ═══════════════════════════════════════════
 // CONSISTENCY CHECK
 // ═══════════════════════════════════════════
+function _lockScriptInput() {
+  const inp = document.getElementById('prompter-inp');
+  if (inp) { inp.disabled = true; inp._prevPlaceholder = inp.placeholder; inp.placeholder = '분석 중...'; }
+}
+function _unlockScriptInput() {
+  const inp = document.getElementById('prompter-inp');
+  if (inp) { inp.disabled = false; inp.placeholder = inp._prevPlaceholder || '라인에게 씬 수정, 추가, 분석을 지시하세요'; }
+}
 async function handleFlowAnalysisInChat(text, mode) {
   mode = mode || 'flow';
+  _lockScriptInput();
   try {
     const scenes = S.cur?.scenes || [];
     const chars = (S.cur?.characters||[]).map(c => c.name+'('+c.role+'): '+(c.description||'')).join('; ');
@@ -14483,11 +14465,14 @@ async function handleFlowAnalysisInChat(text, mode) {
   } catch(e) {
     hideTyping();
     addMsg('assistant', '분석 오류: ' + e.message);
+  } finally {
+    _unlockScriptInput();
   }
 }
 
 async function checkConsistency() { await checkConsistencyWithPrompt('등장인물 대사와 행동이 캐릭터 설정과 일치하는지 검사해줘'); }
 async function checkConsistencyWithPrompt(text) {
+  _lockScriptInput();
   try {
     const ctx = buildProjectContext();
     const scenes = (S.cur?.scenes||[]).map((s,i)=>`SC${i+1}. "${s.title}": ${s.lines.map(l=>l.text).join(' | ')}`).join('\n');
@@ -14502,6 +14487,8 @@ async function checkConsistencyWithPrompt(text) {
   } catch(e) {
     hideTyping();
     showCommentPanel('검사 오류: ' + e.message);
+  } finally {
+    _unlockScriptInput();
   }
 }
 
@@ -14552,12 +14539,19 @@ async function analyzeSingleScene(scId, focus = 'default') {
     // 개선점/개선 방향 섹션 추출 → window 변수로 안전하게 전달
     const _impMatch = txt.match(/개선\s*(?:점|방향)\s*[:：]\s*([\s\S]*?)(?=(?:씬\s*)?목적\s*[:：]|$)/);
     window._lastSceneImprovements = _impMatch ? _impMatch[1].trim() : txt;
-    const copyImpBtn = '<button class="rp-btn" onclick="navigator.clipboard.writeText(window._lastSceneImprovements).then(()=>toast(\'📋 개선점 복사됨\',1500)).catch(()=>toast(\'복사 실패 — 브라우저 권한 확인\',2000))">📋 개선점 복사</button>';
+    // 개선점 블록 내부 floating 복사 버튼으로 감싸기
+    const formattedTxt = formatRpText(txt);
+    const impBlockHtml = '<div style="position:relative;">' +
+      '<div class="ai-comment-txt">' + formattedTxt + '</div>' +
+      '<button onclick="navigator.clipboard.writeText(window._lastSceneImprovements).then(()=>toast(\'📋 복사됨\',1500)).catch(()=>toast(\'복사 실패\',2000))" ' +
+      'style="position:absolute;bottom:6px;right:6px;font-size:var(--fs-9);padding:2px 8px;border-radius:4px;border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;opacity:.8;">📋 개선점 복사</button>' +
+      '</div>';
     const charBtn = (focus === 'characters' || focus === 'consistency')
       ? ('<button class="rp-btn" onclick="analyzeCharacter(null, [' + scId + '])">인물 분석 →</button>')
       : '';
-    showResponsePanel('comment', lbl + ' 분석', '<div class="ai-comment-txt">' + formatRpText(txt) + '</div>',
-      copyImpBtn + charBtn + '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
+    showResponsePanel('comment', lbl + ' 분석', impBlockHtml,
+      charBtn + '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
+    S.selectedIds.clear(); syncSelection();
   } catch(e) { hideAnalyzing(); showCommentPanel('분석 오류: ' + e.message); }
 }
 
@@ -14611,6 +14605,7 @@ async function analyzeSceneRange(scIds, focus = 'default') {
     }).join('');
     showResponsePanel('comment', rangeLabel + ' 분석', '<div class="ai-comment-txt">' + formatRpText(txt) + '</div>',
       editBtns + '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
+    S.selectedIds.clear(); syncSelection();
   } catch(e) { hideAnalyzing(); showCommentPanel('분석 오류: ' + e.message); }
 }
 
@@ -14674,6 +14669,7 @@ async function analyzeCharacter(names, scIds = null) {
       '<div class="ai-comment-txt">' + formatRpText(txt) + '</div>',
       '<button class="rp-btn" onclick="handleCharDialogueAnalysis(\'' + escH(names[0]) + '\')">대사 분석 →</button>' +
       '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
+    S.selectedIds.clear(); syncSelection();
   } catch(e) { hideAnalyzing(); showCommentPanel('분석 오류: ' + e.message); }
 }
 
@@ -14914,8 +14910,12 @@ async function checkSceneFlowWithPrompt(text) {
 function showFlowCheckPanel(issues, prompt) {
   const bodyHTML = issues.length ? issues.map(iss => {
     const icon = {error:'⚠',warn:'△',ok:'✓'}[iss.level]||'•';
+    const fixSafe = (iss.fix||'').replace(/'/g, "\\'");
     const fixHtml = (iss.fix && iss.level !== 'ok')
-      ? '<div style="font-size:var(--fs-10);color:var(--accent);margin-top:2px;">→ ' + escH(iss.fix) + '</div>'
+      ? '<div style="display:flex;align-items:flex-start;gap:6px;margin-top:4px;">' +
+        '<div style="font-size:var(--fs-10);color:var(--accent);flex:1;">→ ' + escH(iss.fix) + '</div>' +
+        '<button onclick="navigator.clipboard.writeText(\'' + fixSafe + '\').then(()=>toast(\'📋 복사됨\',1500))" style="font-size:var(--fs-9);padding:1px 6px;border-radius:4px;border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;white-space:nowrap;flex-shrink:0;">복사</button>' +
+        '</div>'
       : '';
     const gotoHtml = iss.scene
       ? '<span class="check-goto" onclick="selectFlowScenesWithFix(\'' + escH(iss.scene) + '\',\'' + escH(iss.fix||'') + '\')">✦ 수정하기</span>'
@@ -15090,6 +15090,9 @@ function showResponsePanel(type, title, bodyHTML, actsHTML) {
   const body = document.getElementById('rp-body');
   const acts = document.getElementById('rp-acts');
   const bd = document.getElementById('rp-backdrop');
+  // 새 응답 시 접힌 바 숨기기
+  const lastBar = document.getElementById('rp-last');
+  if (lastBar) lastBar.style.display = 'none';
   badge.className = 'rp-type-badge ' + type;
   badge.textContent = {check:'🔍 검사',choice:'✦ 제안',comment:'💬 AI'}[type]||'AI';
   titleEl.textContent = title;
@@ -15106,15 +15109,54 @@ function showResponsePanel(type, title, bodyHTML, actsHTML) {
   if (bd) bd.classList.add('show');
   requestAnimationFrame(() => requestAnimationFrame(() => panel.classList.add('visible')));
 }
+let _lastRpData = null;
 function closeResponsePanel() {
   const p = document.getElementById('response-panel');
   const bd = document.getElementById('rp-backdrop');
+  // 닫기 전에 현재 패널 상태 저장
+  const badge = document.getElementById('rp-badge');
+  const title = document.getElementById('rp-title');
+  const body = document.getElementById('rp-body');
+  const acts = document.getElementById('rp-acts');
+  if (p && p.classList.contains('show') && title && title.textContent) {
+    _lastRpData = {
+      badgeClass: badge?.className || '',
+      badgeText: badge?.textContent || '',
+      titleText: title?.textContent || '',
+      bodyHTML: body?.innerHTML || '',
+      actsHTML: acts?.innerHTML || '',
+    };
+    const lastBar = document.getElementById('rp-last');
+    if (lastBar) {
+      document.getElementById('rp-last-badge').textContent = _lastRpData.badgeText;
+      document.getElementById('rp-last-title').textContent = _lastRpData.titleText;
+      lastBar.style.display = 'flex';
+    }
+  }
   if (p) { p.classList.remove('visible'); setTimeout(() => p.classList.remove('show'), 280); }
   if (bd) { bd.classList.remove('show'); }
   const col = document.getElementById('rp-collapsible');
   const btn = document.getElementById('rp-collapse-btn');
   if (col) col.style.display = '';
   if (btn) btn.textContent = '▼';
+}
+
+function expandLastResponse() {
+  if (!_lastRpData) return;
+  const lastBar = document.getElementById('rp-last');
+  if (lastBar) lastBar.style.display = 'none';
+  const badge = document.getElementById('rp-badge');
+  const title = document.getElementById('rp-title');
+  const body = document.getElementById('rp-body');
+  const acts = document.getElementById('rp-acts');
+  if (badge) { badge.className = _lastRpData.badgeClass; badge.textContent = _lastRpData.badgeText; }
+  if (title) title.textContent = _lastRpData.titleText;
+  if (body) body.innerHTML = _lastRpData.bodyHTML;
+  if (acts) acts.innerHTML = _lastRpData.actsHTML;
+  const panel = document.getElementById('response-panel');
+  const bd = document.getElementById('rp-backdrop');
+  if (panel) { panel.classList.add('show'); requestAnimationFrame(() => requestAnimationFrame(() => panel.classList.add('visible'))); }
+  if (bd) bd.classList.add('show');
 }
 
 function toggleResponsePanel() {
@@ -18913,8 +18955,8 @@ function renderSelectionActionBar(state) {
     getSceneLabel(state.firstSc, scenes) + ' 분석',
     () => analyzeSingleScene(state.firstSc.id)
   ));
-  const btnFlow = mkBtn('흐름 분석', () => showConfirm(
-    '선택 씬 흐름 분석',
+  const btnFlow = mkBtn('씬 분석', () => showConfirm(
+    '선택 씬 분석',
     () => analyzeSceneRange(state.normalIds)
   ));
   const btnMerge = mkBtn('합치기', () => showConfirm(
