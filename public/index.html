@@ -1528,7 +1528,6 @@ const SW_VERSION = 'v44';
         <button class="nav-analysis-btn" id="nav-btn-flow" onclick="handleFlowAnalysisInChat('', 'flow')" title="흐름 분석">🌊 흐름</button>
         <button class="nav-analysis-btn" id="nav-btn-emotion" onclick="handleFlowAnalysisInChat('', 'emotion')" title="감정 분석">💭 감정</button>
         <button class="nav-analysis-btn" id="nav-btn-setting" onclick="handleFlowAnalysisInChat('', 'setting')" title="설정 일관성">🔍 일관성</button>
-        <button class="nav-analysis-btn" id="nav-btn-reorder" onclick="reorderByConflict('갈등 흐름 최적화')" title="갈등 강도 기준 씬 순서 재배치" style="grid-column:1/-1;">↕ 갈등 기반 재배치</button>
       </div>
       <div class="nav-scene-sec">
         <div class="nav-scene-hdr">
@@ -15688,65 +15687,6 @@ async function handleScriptPromptDirect(text) {
   S._skipBrainCheck = false;
 }
 
-async function reorderByConflict(text) {
-  if (!S.cur) return;
-  const scenes = (S.cur.scenes||[]).filter(s => !s.draft);
-  const conflictData = S.cur.conflictData;
-
-  // 갈등 분석 없으면 먼저 분석 제안
-  if (!conflictData || (conflictData.scenes||[]).length === 0) {
-    addMsg('assistant',
-      '씬 순서를 갈등 강도 기준으로 재배치하려면 먼저 갈등 분석이 필요합니다.',
-      [{ type:'suggestAnalysis', data:'conflict', label:'⚔ 갈등 분석', style:'amber', originalPrompt: text }]
-    );
-    return;
-  }
-
-  showTyping();
-  try {
-    // 갈등 강도 데이터 수집
-    const sceneList = scenes.map(s => {
-      const lbl = getSceneLabel(s, S.cur.scenes);
-      const entry = conflictData.scenes.find(c => c.sceneId === s.id);
-      const intensity = entry?.intensity || 0;
-      const type = entry?.type || '';
-      return lbl + '(강도:' + intensity + ',유형:' + type + '): "' + s.title + '"';
-    }).join('\n');
-
-    const sys = '대본 씬 목록과 갈등 강도를 분석해서 목적에 맞게 최적의 순서를 제안하세요.\n' +
-      '반드시 <reorderscenes>[{"id":"SC번호","newIndex":0부터시작정수}]</reorderscenes> 형식으로만 응답하세요.\n' +
-      '변경이 필요한 씬만 포함하세요. 설명 텍스트 없이 태그만.';
-
-    const raw = await callClaude(
-      [{role:'user', content:'목적: ' + text + '\n\n씬 목록 (현재 순서):\n' + sceneList}],
-      sys, 1000, 'claude-haiku-4-5-20251001'
-    );
-
-    hideTyping();
-    const reorderRaw = extractTag(raw, 'reorderscenes');
-    if (!reorderRaw) {
-      addMsg('assistant', '재배치 계획을 생성할 수 없습니다. 다시 시도해주세요.');
-      return;
-    }
-
-    let reorderData = null;
-    try { reorderData = JSON.parse(reorderRaw); } catch {}
-    if (!reorderData?.length) {
-      addMsg('assistant', '변경이 필요한 씬이 없습니다. 현재 순서가 이미 최적입니다.');
-      return;
-    }
-
-    // 결과 메시지 + 미리보기 버튼
-    const changedCount = reorderData.length;
-    addMsg('assistant',
-      '갈등 강도 기준으로 ' + changedCount + '개 씬의 순서를 재배치했습니다.\n미리보기에서 확인 후 적용하세요.',
-      [{ type:'reorderScenes', data:reorderData, label:'↕ 순서 재배치 미리보기', style:'blue' }]
-    );
-  } catch(e) {
-    hideTyping();
-    if (e.name !== 'AbortError') addMsg('assistant', '오류: ' + e.message);
-  }
-}
 
 function showReorderPreviewModal(reorderData) {
   if (!S.cur) return;
