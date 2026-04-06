@@ -14494,11 +14494,13 @@ async function checkConsistencyWithPrompt(text) {
     const sys = `당신은 대본 일관성 검사 전문가입니다. 캐릭터 설정과 대본을 분석해 이슈를 찾아주세요.
 반드시 <issues>[{"level":"error|warn|ok","scene":"SC번호","message":"이슈 설명"}]</issues> 형식으로 응답하세요.`;
     const raw = await callClaude([{role:'user',content:`${ctx}\n\n대본:\n${scenes}\n\n요청: ${text}`}], sys, 2000);
+    hideTyping();
     const issuesRaw = extractTag(raw, 'issues');
     let issues = null;
     if (issuesRaw) { try { issues = JSON.parse(issuesRaw); } catch {} }
     showCheckPanel(issues || [], text);
   } catch(e) {
+    hideTyping();
     showCommentPanel('검사 오류: ' + e.message);
   }
 }
