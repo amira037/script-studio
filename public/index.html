@@ -13858,9 +13858,10 @@ async function handleScriptPrompt(text) {
       showBrainstormSuggestion(text, '씬이 많아 브레인스토밍에서 방향을 먼저 정하는 게 좋을 것 같습니다 😊\n[여기서 계속] 버튼을 누르면 바로 진행할 수도 있어요.');
       return;
     }
-    // 4~6개 선택 → 경고만
-    if (selCount >= 4 && selCount <= 6 && !(/바꿔줘|수정해줘|고쳐줘/.test(text))) {
-      toast('씬이 ' + selCount + '개라 처리에 시간이 걸릴 수 있습니다.', 2500);
+    // 4~6개 선택 → waiting 잠금 + 안내 toast
+    if (selCount >= 4 && selCount <= 6) {
+      setWaiting(true);
+      toast('✦ ' + selCount + '개 씬 편집 중...', 60000);
     }
     // 항상 Haiku가 판단 — edit|brainstorm|merge 외 특수 cmd도 처리
     const _intentRaw = await callClaude(
@@ -14194,6 +14195,9 @@ async function handleScriptPrompt(text) {
     }
   } catch(e) {
     if (e.name !== 'AbortError') showCommentPanel('오류: ' + e.message);
+  } finally {
+    setWaiting(false);
+    toast('', 0);
   }
 }
 
