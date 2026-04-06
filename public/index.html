@@ -1514,7 +1514,7 @@ const SW_VERSION = 'v43.6';
           <span class="nav-meta-arrow">›</span>
         </div>
       </div>
-      <div id="nav-analysis-btns" style="display:flex;gap:4px;padding:5px 6px 4px;border-bottom:1px solid var(--border);">
+      <div id="nav-analysis-btns" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:5px 6px 4px;border-bottom:1px solid var(--border);">
         <button class="nav-analysis-btn" id="nav-btn-conflict" onclick="checkConflictWithPrompt('')" title="갈등도 분석">⚔ 갈등도</button>
         <button class="nav-analysis-btn" id="nav-btn-flow" onclick="handleFlowAnalysisInChat('', 'flow')" title="흐름 분석">🌊 흐름</button>
         <button class="nav-analysis-btn" id="nav-btn-emotion" onclick="handleFlowAnalysisInChat('', 'emotion')" title="감정 분석">💭 감정</button>
@@ -14451,15 +14451,21 @@ async function handleFlowAnalysisInChat(text, mode) {
     const msgObj = { role:'assistant', text: panelHtml, actions, _isFlowPanel: true };
     S.cur.messages.push(msgObj);
     save(true);
-    if (S.activeTab !== 'chat') {
-      const container = document.getElementById('chat-msgs');
-      if (container) appendMsgEl(msgObj, false);
-    }
-    addMsgRaw(msgObj);
 
-    // E-1: 리마인더 등록
-    if (actions.some(a => a.type === 'flowImprovePlan' || a.type === 'flowImproveSynth')) {
-      setPendingReminder('흐름 분석 개선 제안이 있어요', msgObj);
+    if (S.activeTab !== 'chat') {
+      // 라인 에디터에서 호출 시 → 리스폰스 패널로 직접 표시
+      const actsHtml = actions.filter(a => a.type !== 'dismiss').map(a => {
+        const cls = a.style === 'amber' ? 'rp-act-btn amber' : a.style === 'purple' ? 'rp-act-btn purple' : 'rp-act-btn';
+        const dataStr = a.data ? ` data-action='${JSON.stringify({type:a.type,data:a.data,label:a.label})}'` : '';
+        return `<button class="${cls}"${dataStr} onclick="handleMsgAction(JSON.parse(this.dataset.action))">${escH(a.label)}</button>`;
+      }).join('');
+      showResponsePanel('check', label, panelHtml, actsHtml);
+    } else {
+      addMsgRaw(msgObj);
+      // 채팅 탭에서는 리마인더 등록
+      if (actions.some(a => a.type === 'flowImprovePlan' || a.type === 'flowImproveSynth')) {
+        setPendingReminder('흐름 분석 개선 제안이 있어요', msgObj);
+      }
     }
 
   } catch(e) {
