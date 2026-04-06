@@ -1460,7 +1460,7 @@ function closeResponsePanel() {
 </head>
 <script>
 // ★ 버전 — 캐시 키 관리 (업데이트 시 이 값만 변경)
-const SW_VERSION = 'v44';
+const SW_VERSION = 'v43.6';
 </script>
 
 <body>
@@ -17128,57 +17128,6 @@ function renderConflictBody(body, data, skipChart) {
       const color = adv.level==='error'?'#f09595':adv.level==='warn'?'#c8974a':'#5dcaa5';
       card.innerHTML = '<div style="font-size:var(--fs-11);color:'+color+';margin-bottom:3px;">'+icon+' '+escH(adv.message)+'</div>' +
         (adv.fix ? '<div style="font-size:var(--fs-9);color:var(--text3);margin-bottom:6px;">'+escH(adv.fix)+'</div>' : '');
-      if (adv.level !== 'ok') {
-        const btns = document.createElement('div');
-        btns.style.cssText = 'display:flex;gap:5px;';
-        const brainBtn = document.createElement('button');
-        brainBtn.style.cssText = 'font-size:var(--fs-9);padding:2px 8px;border-radius:3px;border:1px solid rgba(168,158,221,.3);background:rgba(168,158,221,.1);color:#afa9ec;cursor:pointer;';
-        brainBtn.textContent = '💬 브레인스토밍';
-        brainBtn.onclick = () => {
-          document.querySelector('.drawer-overlay')?.click();
-          document.getElementById('conflict-modal')?.remove();
-          const promptText = (adv.scene ? '['+adv.scene+'] ' : '') + adv.message + (adv.fix ? ' — ' + adv.fix : '');
-          setTimeout(() => {
-            switchTab('chat');
-            setTimeout(() => {
-              const inp = document.getElementById('prompter-inp');
-              if (inp) { inp.value = promptText; inp.focus(); inp.dispatchEvent(new Event('input')); }
-            }, 50);
-          }, 150);
-        };
-        const editBtn = document.createElement('button');
-        editBtn.style.cssText = 'font-size:var(--fs-9);padding:2px 8px;border-radius:3px;border:1px solid rgba(110,168,200,.3);background:rgba(110,168,200,.1);color:#85b7eb;cursor:pointer;';
-        editBtn.textContent = '📝 대본 편집';
-        editBtn.onclick = () => {
-          document.querySelector('.drawer-overlay')?.click();
-          document.getElementById('conflict-modal')?.remove();
-          const promptText = (adv.scene ? '['+adv.scene+'] ' : '') + adv.message + (adv.fix ? ' — ' + adv.fix : '');
-          setTimeout(() => {
-            switchTab('script');
-            // 씬 번호 파싱 → 자동 선택
-            const sceneNums = [];
-            const scPat = /SC\s*(\d+)/gi;
-            let m;
-            while ((m = scPat.exec(adv.scene||'')) !== null) sceneNums.push(parseInt(m[1]));
-            if (sceneNums.length > 0 && S.cur) {
-              S.selectedIds.clear();
-              sceneNums.forEach(num => {
-                const found = (S.cur.scenes||[]).find(s => getSceneLabel(s, S.cur.scenes) === 'SC ' + num);
-                if (found) S.selectedIds.add(found.id);
-              });
-              save(true); renderScriptBody(); renderNavSceneList();
-              const firstSc = (S.cur.scenes||[]).find(s => getSceneLabel(s, S.cur.scenes) === 'SC ' + sceneNums[0]);
-              if (firstSc) setTimeout(() => scrollToScene(firstSc.id), 200);
-            }
-            setTimeout(() => {
-              const inp = document.getElementById('prompter-inp');
-              if (inp) { inp.value = promptText; inp.focus(); inp.dispatchEvent(new Event('input')); }
-            }, 50);
-          }, 150);
-        };
-        btns.append(brainBtn, editBtn);
-        card.appendChild(btns);
-      }
       body.appendChild(card);
     });
   }
