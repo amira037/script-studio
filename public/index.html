@@ -8109,10 +8109,15 @@ function handleMsgAction(action) {
   } else if (action.type === 'applyFlowPlanToScript') {
     closeResponsePanel();
     switchTab('script');
-    const { planNum, planTitle, planBody } = action.data;
-    const promptText = `방안${planNum} 적용 — ${planTitle}: ${planBody}`;
+    const { planTitle, planBody } = action.data;
+    const promptText = `${planTitle} ${planBody}`.trim();
     const inp = document.getElementById('prompter-inp');
-    if (inp) { inp.value = promptText; inp.focus(); }
+    if (inp) {
+      inp.value = promptText;
+      autoResize(inp);
+      detectSceneNumbers(promptText);
+      inp.focus();
+    }
 
   } else if (action.type === 'flowImprovePlan') {
     pendingReminderDismiss();
@@ -18313,6 +18318,8 @@ function cleanDisplayText(raw) {
     .replace(/```[\s\S]*?```/g, '')
     .replace(/\[[\s\S]{200,}\]/g, '')
     .replace(/\{[\s\S]{200,}\}/g, '')
+    .replace(/\*\*([^*]*)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
     .trim();
 }
 
