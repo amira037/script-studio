@@ -5045,6 +5045,29 @@ function updateAiWriteBtn() {
   }
 }
 
+function _confirmSlugGhost(sc, line, el) {
+  const ghost = el.dataset.slugGhost;
+  if (!ghost) return;
+  line.text = ghost;
+  el.textContent = ghost;
+  el.style.color = '';
+  el.style.fontStyle = '';
+  el.style.opacity = '';
+  el.setAttribute('data-placeholder', '슬러그라인 (예: INT. 장소 - 시간)');
+  delete el.dataset.slugGhost;
+  save(); renderNavSceneList();
+  toast('✓ 슬러그 확정됨', 1500);
+}
+function _cancelSlugGhost(sc, line, el) {
+  if (!el.dataset.slugGhost) return;
+  delete el.dataset.slugGhost;
+  el.textContent = line.text || '';
+  el.style.color = '';
+  el.style.fontStyle = '';
+  el.style.opacity = '';
+  el.setAttribute('data-placeholder', '슬러그라인 (예: INT. 장소 - 시간)');
+}
+
 function scrollToScene(id) {
   const el = document.getElementById('sb-'+id);
   if (!el) return;
@@ -5412,7 +5435,22 @@ function buildSceneBlock(sc, i) {
   titleInp.addEventListener('focus', () => {
     setTimeout(() => titleInp.scrollIntoView({ block:'nearest', behavior:'smooth' }), 150);
   });
-  titleInp.addEventListener('blur', () => save());
+  titleInp.addEventListener('blur', () => {
+    save();
+    // 슬러그가 비어있거나 기본값이면 AI 제안 트리거
+    const slugLine = sc.lines.find(l => l.type === 'slug');
+    const slugEl = block?.querySelector('.line-el.line-slug');
+    if (slugLine && slugEl && !slugEl.dataset.slugGhost) {
+      const cur = slugLine.text?.trim();
+      if (!cur || cur === 'INT. 장소 - 시간대' || cur === 'INT. 장소 - 낮') {
+        setTimeout(() => {
+          // 씬 렌더 이후 _triggerSlugAI를 el 기준으로 찾아 실행
+          const freshEl = block?.querySelector('.line-el.line-slug');
+          if (freshEl && freshEl._triggerSlugAI) freshEl._triggerSlugAI();
+        }, 300);
+      }
+    }
+  });
   titleInp.addEventListener('keydown', (e) => {
     if (e.isComposing || e.keyCode === 229) return; // IME 조합 중 무시
     if (e.key === 'Enter') { e.preventDefault(); titleInp.blur(); }
@@ -5869,20 +5907,104 @@ function buildSceneBlock(sc, i) {
       if (line.type === 'slug') {
         el.setAttribute('data-placeholder', '슬러그라인 (예: INT. 장소 - 시간)');
         el.style.cssText += ';min-width:60px;';
-        // Prevent deletion via backspace when empty (it's always index 0)
+
+        // ✦ AI 슬러그 제안 버튼
+        const slugAiBtn = document.createElement('button');
+        slugAiBtn.title = 'AI 슬러그 제안';
+        slugAiBtn.textContent = '✦';
+        slugAiBtn.style.cssText = 'font-size:var(--fs-9);padding:1px 5px;border-radius:3px;' +
+          'border:1px solid rgba(200,169,110,.35);background:rgba(200,169,110,.08);' +
+          'color:var(--accent);cursor:pointer;flex-shrink:0;opacity:0;transition:opacity .15s;margin-left:4px;';
+        slugAiBtn.onmouseenter = () => slugAiBtn.style.opacity = '1';
+        slugAiBtn.onmouseleave = () => { if (document.activeElement !== el) slugAiBtn.style.opacity = '0'; };
+        el.addEventListener('focus', () => slugAiBtn.style.opacity = '1');
+        el.addEventListener('blur', () => { setTimeout(() => { if (document.activeElement !== slugAiBtn) slugAiBtn.style.opacity = '0'; }, 150); });
+
+        const _triggerSlugAI = async () => {
+          if (sc.locked) return;
+          const cur = el.textContent.trim();
+          const isEmpty = !cur || cur === 'INT. 장소 - 시간대' || cur === 'INT. 장소 - 낮' || cur === '???';
+          if (!isEmpty) return;
+          slugAiBtn.textContent = '...'; slugAiBtn.disabled = true;
+          try {
+            const allSc = S.cur?.scenes || [];
+            const idx = allSc.indexOf(sc);
+            // 앞뒤 슬러그 2~3개
+            const prevSlugs = allSc.slice(0, idx).filter(s => !s.draft).slice(-3)
+              .map(s => (s.lines||[]).find(l=>l.type==='slug')?.text).filter(Boolean);
+            const nextSlugs = allSc.slice(idx+1).filter(s => !s.draft).slice(0, 2)
+              .map(s => (s.lines||[]).find(l=>l.type==='slug')?.text).filter(Boolean);
+            // 현재 씬 첫 5줄 (slug 제외)
+            const preview = (sc.lines||[]).filter(l=>l.type!=='slug').slice(0,5).map(l=>l.text).join(' ').slice(0,200);
+            const sys = '대본 슬러그라인을 한 줄로만 제안하세요. 형식: INT./EXT. 장소 - 시간대. 다른 말 없이 슬러그라인만 출력.';
+            const userMsg = '씬 제목: ' + sc.title
+              + (prevSlugs.length ? '\n앞 씬 슬러그: ' + prevSlugs.join(' / ') : '')
+              + (nextSlugs.length ? '\n뒷 씬 슬러그: ' + nextSlugs.join(' / ') : '')
+              + (preview ? '\n씬 내용 앞부분: ' + preview : '');
+            const raw = await callClaude([{role:'user', content:userMsg}], sys, 40, 'claude-haiku-4-5-20251001');
+            const suggested = raw.trim().split('\n')[0].trim();
+            if (!suggested || !/^(INT\.|EXT\.|INT\.\/EXT\.)/.test(suggested)) { toast('슬러그 생성 실패, 다시 시도해주세요'); return; }
+            // 인라인 ghost 표시
+            el.dataset.slugGhost = suggested;
+            el.setAttribute('data-placeholder', suggested);
+            el.style.cssText = el.style.cssText.replace('color:var(--accent)', '');
+            // ghost 스타일 적용
+            el.style.color = 'var(--text3)';
+            el.style.fontStyle = 'italic';
+            el.textContent = suggested;
+            el.style.opacity = '0.55';
+            toast('Tab으로 확정, 무시하면 사라짐', 2500);
+          } catch(e) { toast('오류: ' + e.message); }
+          finally { slugAiBtn.textContent = '✦'; slugAiBtn.disabled = false; }
+        };
+
+        // Tab → 확정, Escape → 취소
         const origKeydown = el.onkeydown;
         el.onkeydown = (e) => {
           if (e.key === 'Backspace' && el.textContent === '') { e.preventDefault(); return; }
           if (e.key === 'Enter') { e.preventDefault();
+            // ghost 확정
+            if (el.dataset.slugGhost) _confirmSlugGhost(sc, line, el);
             const nxt = linesWrap.querySelectorAll('.line-el')[1];
             if (nxt) nxt.focus(); return;
           }
+          if (e.key === 'Tab' && el.dataset.slugGhost) {
+            e.preventDefault();
+            _confirmSlugGhost(sc, line, el);
+            const nxt = linesWrap.querySelectorAll('.line-el')[1];
+            if (nxt) nxt.focus(); return;
+          }
+          if (e.key === 'Escape' && el.dataset.slugGhost) {
+            _cancelSlugGhost(sc, line, el); return;
+          }
+          // ??? 입력 감지
+          if (e.key === '?' && el.textContent.endsWith('??')) {
+            e.preventDefault(); el.textContent = ''; _triggerSlugAI(); return;
+          }
           handleLineKeydown(e, sc, li, lw);
         };
+        // blur → ghost가 있으면 취소
+        el.addEventListener('blur', () => {
+          setTimeout(() => {
+            if (el.dataset.slugGhost && document.activeElement !== slugAiBtn) {
+              _cancelSlugGhost(sc, line, el);
+            }
+          }, 200);
+        });
+        // input → ghost 중 수정하면 취소
+        el.addEventListener('input', () => {
+          if (el.dataset.slugGhost) _cancelSlugGhost(sc, line, el);
+          line.text = el.textContent; save(true);
+        });
+        el._triggerSlugAI = _triggerSlugAI;
+        slugAiBtn.onclick = (e) => { e.stopPropagation(); _triggerSlugAI(); };
+
         // Skip context menu for slug
         el.addEventListener('contextmenu', e => e.preventDefault());
         el.addEventListener('touchstart', () => {}, {passive:true});
+        lw.style.cssText += ';display:flex;align-items:center;';
         lw.appendChild(el);
+        lw.appendChild(slugAiBtn);
         linesWrap.appendChild(lw);
         return;
       }
