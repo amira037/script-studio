@@ -5055,10 +5055,14 @@ function scrollToScene(id) {
     el.classList.add('selected');
     setTimeout(() => { if (!S.selectedIds.has(id)) el.classList.remove('selected'); }, 1500);
   }, 100);
-  // highlight nav item
+  // highlight + scroll nav item
   document.querySelectorAll('.nav-sc-item').forEach(x => x.style.background = '');
   const navItem = document.querySelector(`.nav-sc-item[data-id="${id}"]`);
-  if (navItem) { navItem.style.background = 'rgba(232,168,74,.18)'; setTimeout(() => navItem.style.background = '', 1500); }
+  if (navItem) {
+    navItem.style.background = 'rgba(232,168,74,.18)';
+    setTimeout(() => navItem.style.background = '', 1500);
+    navItem.scrollIntoView({ behavior:'smooth', block:'nearest' });
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -8269,15 +8273,21 @@ function detectSceneNumbers(text) {
   if (!found.size) { if (S.selectedIds.size >= 0) syncSelection(); return; }
 
   const scenes = S.cur.scenes;
+  let lastSelected = null;
   found.forEach(n => {
     // draft 제외하고 getSceneLabel로 정확한 씬 검색 (배열 인덱스 직접 사용 금지)
     const sc = scenes.find(s => getSceneLabel(s, scenes) === 'SC ' + n);
     if (sc && !sc.locked) {
       S.selectedIds.add(sc.id);
       S.autoSelectedIds.add(sc.id);
+      lastSelected = sc;
     }
   });
   syncSelection();
+  // 마지막 선택 씬으로 대본 + 네비게이터 스크롤
+  if (lastSelected && S.activeTab === 'script') {
+    setTimeout(() => scrollToScene(lastSelected.id), 80);
+  }
 }
 
 async function sendPrompt() {
