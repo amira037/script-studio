@@ -14452,21 +14452,13 @@ async function handleFlowAnalysisInChat(text, mode) {
     S.cur.messages.push(msgObj);
     save(true);
 
-    if (S.activeTab !== 'chat') {
-      // 라인 에디터에서 호출 시 → 리스폰스 패널로 직접 표시
-      const actsHtml = actions.filter(a => a.type !== 'dismiss').map(a => {
-        const cls = a.style === 'amber' ? 'rp-act-btn amber' : a.style === 'purple' ? 'rp-act-btn purple' : 'rp-act-btn';
-        const dataStr = a.data ? ` data-action='${JSON.stringify({type:a.type,data:a.data,label:a.label})}'` : '';
-        return `<button class="${cls}"${dataStr} onclick="handleMsgAction(JSON.parse(this.dataset.action))">${escH(a.label)}</button>`;
-      }).join('');
-      showResponsePanel('check', label, panelHtml, actsHtml);
-    } else {
-      addMsgRaw(msgObj);
-      // 채팅 탭에서는 리마인더 등록
-      if (actions.some(a => a.type === 'flowImprovePlan' || a.type === 'flowImproveSynth')) {
-        setPendingReminder('흐름 분석 개선 제안이 있어요', msgObj);
-      }
-    }
+    // 탭 무관하게 항상 리스폰스 패널로 즉시 표시
+    const actsHtml = actions.filter(a => a.type !== 'dismiss').map(a => {
+      const cls = a.style === 'amber' ? 'rp-act-btn amber' : a.style === 'purple' ? 'rp-act-btn purple' : 'rp-act-btn';
+      const dataStr = a.data ? ` data-action='${JSON.stringify({type:a.type,data:a.data,label:a.label})}'` : '';
+      return `<button class="${cls}"${dataStr} onclick="handleMsgAction(JSON.parse(this.dataset.action))">${escH(a.label)}</button>`;
+    }).join('');
+    showResponsePanel('check', label, panelHtml, actsHtml);
 
   } catch(e) {
     hideTyping();
