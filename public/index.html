@@ -1460,7 +1460,7 @@ function closeResponsePanel() {
 </head>
 <script>
 // ★ 버전 — 캐시 키 관리 (업데이트 시 이 값만 변경)
-const SW_VERSION = 'v44.1';
+const SW_VERSION = 'v43.6';
 </script>
 
 <body>
@@ -1523,7 +1523,7 @@ const SW_VERSION = 'v44.1';
           <span class="nav-meta-arrow">›</span>
         </div>
       </div>
-      <div id="nav-analysis-btns" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;padding:5px 6px 4px;border-bottom:1px solid var(--border);">
+      <div id="nav-analysis-btns" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:5px 6px 4px;border-bottom:1px solid var(--border);">
         <button class="nav-analysis-btn" id="nav-btn-conflict" onclick="checkConflictWithPrompt('')" title="갈등도 분석">⚔ 갈등도</button>
         <button class="nav-analysis-btn" id="nav-btn-flow" onclick="handleFlowAnalysisInChat('', 'flow')" title="흐름 분석">🌊 흐름</button>
         <button class="nav-analysis-btn" id="nav-btn-emotion" onclick="handleFlowAnalysisInChat('', 'emotion')" title="감정 분석">💭 감정</button>
@@ -8245,7 +8245,9 @@ function handleMsgAction(action) {
     if (inp) {
       inp.value = promptText;
       autoResize(inp);
-      detectSceneNumbers(promptText);
+      // 씬 감지는 planBody 첫 줄만 사용 — 이후 줄의 맥락 씬 언급 오선택 방지
+      const detectTarget = planTitle + ' ' + (planBody.split('\n')[0] || '');
+      detectSceneNumbers(detectTarget);
       inp.focus();
     }
 
@@ -18177,8 +18179,15 @@ async function exportDocxLocal(project, opts) {
 
   // 대본 본문
   (project.scenes||[]).forEach((sc,si) => {
-    if (sc.draft) return;
-    if (sc.collapsed && !opts.includeCollapsed) return;
+    if (sc.draft) {
+      // 대안 씬: 원본이 접혀 있고(숨김 처리) 대안이 펼쳐져 있을 때만 포함
+      const original = (project.scenes||[]).find(s => s.id === sc.draftOf);
+      const originalCollapsed = original && original.collapsed && !opts.includeCollapsed;
+      if (!originalCollapsed) return; // 원본이 보이면 대안은 스킵
+      if (sc.collapsed && !opts.includeCollapsed) return; // 대안도 접혀 있으면 스킵
+    } else {
+      if (sc.collapsed && !opts.includeCollapsed) return;
+    }
     if (si>0) children.push(emptyP());
     const slug = (sc.lines||[]).find(l=>l.type==='slug');
     children.push(new Paragraph({
