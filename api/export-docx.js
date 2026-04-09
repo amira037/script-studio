@@ -89,8 +89,15 @@ export default async function handler(req, res) {
     let prevType = null;
 
     (project.scenes||[]).forEach((sc) => {
-      if (sc.draft) return;
-      if (sc.collapsed && !includeCollapsed) return;
+      if (sc.draft) {
+        // 대안 씬: 원본이 접혀 있고 대안이 펼쳐져 있을 때만 포함
+        const original = (project.scenes||[]).find(s => s.id === sc.draftOf);
+        const originalCollapsed = original && original.collapsed && !includeCollapsed;
+        if (!originalCollapsed) return;
+        if (sc.collapsed && !includeCollapsed) return;
+      } else {
+        if (sc.collapsed && !includeCollapsed) return;
+      }
       const si = sceneCount++;
 
       // 씬 간격 — 넓게
