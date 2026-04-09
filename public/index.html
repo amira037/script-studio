@@ -1523,11 +1523,12 @@ const SW_VERSION = 'v43.6';
           <span class="nav-meta-arrow">›</span>
         </div>
       </div>
-      <div id="nav-analysis-btns" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:5px 6px 4px;border-bottom:1px solid var(--border);">
+      <div id="nav-analysis-btns" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;padding:5px 6px 4px;border-bottom:1px solid var(--border);">
         <button class="nav-analysis-btn" id="nav-btn-conflict" onclick="checkConflictWithPrompt('')" title="갈등도 분석">⚔ 갈등도</button>
         <button class="nav-analysis-btn" id="nav-btn-flow" onclick="handleFlowAnalysisInChat('', 'flow')" title="흐름 분석">🌊 흐름</button>
         <button class="nav-analysis-btn" id="nav-btn-emotion" onclick="handleFlowAnalysisInChat('', 'emotion')" title="감정 분석">💭 감정</button>
         <button class="nav-analysis-btn" id="nav-btn-setting" onclick="handleFlowAnalysisInChat('', 'setting')" title="설정 일관성">🔍 일관성</button>
+        <button class="nav-analysis-btn" id="nav-btn-stats" onclick="showScriptStats()" title="전체 분량 통계" style="grid-column:span 2;">📊 분량 통계</button>
       </div>
       <div class="nav-scene-sec">
         <div class="nav-scene-hdr">
@@ -4655,6 +4656,8 @@ function updateNavAnalysisBtns() {
     const btn = document.getElementById(id);
     if (btn) btn.disabled = !enabled;
   });
+  const statsBtn = document.getElementById('nav-btn-stats');
+  if (statsBtn) statsBtn.disabled = sceneCount < 1;
 }
 function renderNavSceneList() {
   const list = document.getElementById('nav-scene-list');
@@ -6452,6 +6455,7 @@ function handleLineKeydown(e, sc, lineIdx, lw) {
     const targetEl = e.key === 'ArrowUp' ? allEls[curIdx - 1] : allEls[curIdx + 1];
     if (targetEl && targetEl.contentEditable === 'true') {
       e.preventDefault();
+      if (e.isComposing) document.activeElement?.blur(); // IME 조합 중: 현재 요소에서 조합 완료 처리
       targetEl.focus();
       // 커서를 줄 끝으로
       const r = document.createRange(); const s = window.getSelection();
@@ -13109,14 +13113,106 @@ function hideAnalyzing() {
   setWaiting(false);
 }
 
+function showScriptStats() {
+  const scenes = (S.cur?.scenes || []).filter(s => !s.draft);
+  if (!scenes.length) { toast('씬이 없습니다.'); return; }
+
+  // 전체 줄 집계
+  let totalDialogue = 0, totalAction = 0, totalChar = 0, totalParenth = 0;
+  let totalDlgChars = 0, totalActChars = 0;
+  const charStats = {};
+
+  scenes.forEach(sc => {
+    let lastChar = '';
+    (sc.lines || []).forEach(l => {
+      if (l.type === 'character') { totalChar++; lastChar = l.text; }
+      else if (l.type === 'dialogue') {
+        totalDialogue++;
+        totalDlgChars += l.text.length;
+        if (lastChar) charStats[lastChar] = (charStats[lastChar] || 0) + 1;
+      }
+      else if (l.type === 'action') { totalAction++; totalActChars += l.text.length; }
+      else if (l.type === 'parenthetical') { totalParenth++; }
+    });
+  });
+
+  // 러닝타임 (대사 250자/분, 지문 150자/분)
+  const totalMins = totalDlgChars / 250 + totalActChars / 150;
+  const minStr = totalMins < 1
+    ? Math.round(totalMins * 60) + '초'
+    : totalMins < 60
+      ? Math.round(totalMins * 10) / 10 + '분'
+      : Math.floor(totalMins / 60) + '시간 ' + Math.round(totalMins % 60) + '분';
+
+  // 인물별 대사 순위 — 상위 5명만 표시, 나머지는 안내
+  const allCharRank = Object.entries(charStats).sort((a, b) => b[1] - a[1]);
+  const charRank = allCharRank.slice(0, 5);
+  const remainCount = allCharRank.length - charRank.length;
+
+  const rankHTML = charRank.length
+    ? charRank.map((e, i) =>
+        '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);">' +
+          '<span style="color:var(--text);font-size:var(--fs-12);">' + (i + 1) + '. ' + escH(e[0]) + '</span>' +
+          '<span style="display:flex;align-items:center;gap:6px;">' +
+            '<span style="color:var(--accent);font-weight:600;font-size:var(--fs-12);">' + e[1] + '줄</span>' +
+            '<button onclick="closeResponsePanel();analyzeCharacter([\'' + escH(e[0]) + '\'],null)" ' +
+              'style="font-size:var(--fs-9);padding:2px 7px;border-radius:3px;border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;white-space:nowrap;">✦ 분석</button>' +
+            '<button onclick="closeResponsePanel();handleCharDialogueAnalysis(\'' + escH(e[0]) + '\')" ' +
+              'style="font-size:var(--fs-9);padding:2px 7px;border-radius:3px;border:1px solid var(--border2);background:none;color:var(--text2);cursor:pointer;white-space:nowrap;">💬 대사</button>' +
+          '</span>' +
+        '</div>'
+      ).join('')
+      + (remainCount > 0
+        ? '<div style="font-size:var(--fs-10);color:var(--text3);padding:6px 0 2px;text-align:center;">외 ' + remainCount + '명 → <span onclick="closeResponsePanel();openDrawer(\'chars\')" style="color:var(--accent);cursor:pointer;text-decoration:underline;">등장인물 탭</span>에서 확인</div>'
+        : '')
+    : '<div style="color:var(--text3);">대사 없음</div>';
+
+  // 관계 분석 안내
+  const relHint =
+    '<div style="margin-top:12px;padding:8px 10px;background:var(--bg3);border-radius:var(--r);border-left:2px solid var(--border2);">' +
+      '<div style="font-size:var(--fs-10);color:var(--text3);line-height:1.7;">' +
+        '💡 <b style="color:var(--text2);">두 인물 관계 분석</b>은 프롬프터에 자연어로 입력하세요<br>' +
+        '<span style="color:var(--text3);">예: <i>"심봉사와 복순이 관계 분석해줘"</i></span>' +
+      '</div>' +
+    '</div>';
+
+  const body =
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">' +
+      '<div style="background:var(--bg3);border-radius:var(--r);padding:10px;text-align:center;">' +
+        '<div style="font-size:var(--fs-22);font-weight:700;color:var(--accent);">' + scenes.length + '</div>' +
+        '<div style="font-size:var(--fs-11);color:var(--text3);">씬</div>' +
+      '</div>' +
+      '<div style="background:var(--bg3);border-radius:var(--r);padding:10px;text-align:center;">' +
+        '<div style="font-size:var(--fs-22);font-weight:700;color:var(--accent);">' + minStr + '</div>' +
+        '<div style="font-size:var(--fs-11);color:var(--text3);">예상 러닝타임</div>' +
+      '</div>' +
+      '<div style="background:var(--bg3);border-radius:var(--r);padding:10px;text-align:center;">' +
+        '<div style="font-size:var(--fs-22);font-weight:700;color:var(--text);">' + totalDialogue + '</div>' +
+        '<div style="font-size:var(--fs-11);color:var(--text3);">대사 줄</div>' +
+      '</div>' +
+      '<div style="background:var(--bg3);border-radius:var(--r);padding:10px;text-align:center;">' +
+        '<div style="font-size:var(--fs-22);font-weight:700;color:var(--text);">' + totalAction + '</div>' +
+        '<div style="font-size:var(--fs-11);color:var(--text3);">지문 줄</div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="font-size:var(--fs-11);color:var(--text3);margin-bottom:6px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;">주요 인물 대사 순위</div>' +
+    rankHTML +
+    relHint;
+
+  showResponsePanel('comment', '📊 분량 통계', '<div class="ai-comment-txt">' + body + '</div>',
+    '<button class="rp-btn" onclick="closeResponsePanel()">닫기</button>');
+}
+
 function handleSceneTime(text) {
   const scenes = S.cur?.scenes || [];
   const scPat = /SC\s*(\d+)/i;
   const m = text.match(scPat);
   const targets = m
     ? [scenes.find(s => getSceneLabel(s, scenes) === 'SC ' + parseInt(m[1]))].filter(Boolean)
-    : [...S.selectedIds].map(id=>scenes.find(s=>s.id===id)).filter(Boolean);
-  if (!targets.length) { toast('씬을 선택해주세요.'); return; }
+    : S.selectedIds.size > 0
+      ? [...S.selectedIds].map(id=>scenes.find(s=>s.id===id)).filter(Boolean)
+      : scenes.filter(s => !s.draft);
+  if (!targets.length) { toast('씬이 없습니다.'); return; }
 
   const results = targets.map(sc => {
     const dialogues = (sc.lines||[]).filter(l=>l.type==='dialogue');
@@ -13531,7 +13627,7 @@ async function handleScriptPrompt(text) {
   const _chars = (S.cur?.characters||[]).map(c=>c.name);
   const _foundChars = _chars.filter(n => text.includes(n));
   const _isCharEditKw = /써줘|보이게|수정|고쳐|바꿔|넣어|추가|만들어|작성|채워|보강|다듬|확장/.test(text);
-  const _isCharAnalysis = _foundChars.length > 0 && !_isCharEditKw && /어때|분석|어떻|어떤|어떠|인물|캐릭터|매력|기여|관계.*분석|관계.*어때|역학|내면/.test(text);
+  const _isCharAnalysis = _foundChars.length > 0 && !_isCharEditKw && /어때|분석|어떻|어떤|어떠|인물|캐릭터|매력.*분석|매력.*어때|매력.*어떻|매력.*어떤|기여|관계.*분석|관계.*어때|역학|내면/.test(text);
   if (_isCharAnalysis) {
     const _scPat2 = /SC\s*(\d+)/i;
     const _scMatch2 = text.match(_scPat2);
@@ -16471,6 +16567,21 @@ function buildCharCard(c) {
   };
   card.appendChild(dlgToggleBtn);
   card.appendChild(dlgDiv);
+
+  // 인물 분석 버튼 행
+  const analysisRow = document.createElement('div');
+  analysisRow.style.cssText = 'display:flex;gap:5px;padding:6px 10px;border-top:1px solid var(--border);';
+  const analyzeBtn = document.createElement('button');
+  analyzeBtn.style.cssText = 'flex:1;font-size:var(--fs-10);padding:4px 0;border-radius:var(--r);border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;font-family:var(--fm);';
+  analyzeBtn.textContent = '✦ 인물 분석';
+  analyzeBtn.onclick = (e) => { e.stopPropagation(); closeDrawer(); analyzeCharacter([c.name], null); };
+  const dialogueBtn = document.createElement('button');
+  dialogueBtn.style.cssText = 'flex:1;font-size:var(--fs-10);padding:4px 0;border-radius:var(--r);border:1px solid var(--border2);background:none;color:var(--text2);cursor:pointer;font-family:var(--fm);';
+  dialogueBtn.textContent = '💬 대사 분석';
+  dialogueBtn.onclick = (e) => { e.stopPropagation(); closeDrawer(); handleCharDialogueAnalysis(c.name); };
+  analysisRow.appendChild(analyzeBtn);
+  analysisRow.appendChild(dialogueBtn);
+  card.appendChild(analysisRow);
 
   // 편집창
   const editDiv = document.createElement('div'); editDiv.className = 'char-card-editing'; editDiv.id = 'char-edit-'+c.id; editDiv.style.display='none';
