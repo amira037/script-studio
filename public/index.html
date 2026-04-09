@@ -12319,9 +12319,10 @@ async function handleAiWriteSelected() {
           '★ 수정할 부분:\n' + target + '\n\n' +
           '뒤 컨텍스트:\n' + after + '\n\n' +
           '지시: ' + instruction}],
-        '수정할 부분만 같은 줄 수와 타입 형식으로 반환하세요.\n' +
+        '지시에 따라 수정된 줄들만 반환하세요. 줄 수는 지시에 맞게 자유롭게 늘리거나 줄여도 됩니다.\n' +
+        '타입도 지시에 맞게 자유롭게 바꿀 수 있습니다. 사용 가능한 타입: action, character, dialogue, parenthetical, slug\n' +
         '형식: type: 내용 (한 줄씩, 예: dialogue: 이제 돌아가야 해.)\n설명 없이 수정된 줄들만.',
-        500
+        1500
       );
 
       const newLines = raw.trim().split('\n').map(row => {
