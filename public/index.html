@@ -2775,9 +2775,12 @@ function load() {
 // CLAUDE API
 // ═══════════════════════════════════════════
 let _currentAbortCtrl = null;
+let _bgAbortCtrl = null; // 배경 작업(갈등도·인물 분석) 전용
 
 function abortCurrentRequest() {
   if (_currentAbortCtrl) { _currentAbortCtrl.abort(); _currentAbortCtrl = null; }
+  // 메인 요청 시작 시 배경 작업도 중단
+  if (_bgAbortCtrl) { _bgAbortCtrl.abort(); _bgAbortCtrl = null; }
 }
 
 async function callClaude(messages, system, maxTokens = 2000, model = 'claude-sonnet-4-20250514') {
@@ -2811,6 +2814,28 @@ async function callClaude(messages, system, maxTokens = 2000, model = 'claude-so
   }
   _currentAbortCtrl = null;
   throw lastErr;
+}
+
+// 배경 작업용 callClaude — 메인 요청과 컨트롤러 분리, AbortError 시 null 반환
+async function callClaudeBackground(messages, system, maxTokens = 200, model = 'claude-haiku-4-5-20251001') {
+  if (IS_ADMIN || isWaiting) return null;
+  if (_bgAbortCtrl) { _bgAbortCtrl.abort(); }
+  _bgAbortCtrl = new AbortController();
+  try {
+    const resp = await fetch('/api/claude', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, max_tokens: maxTokens, system, messages }),
+      signal: _bgAbortCtrl.signal
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    _bgAbortCtrl = null;
+    return data.content.map(b => b.text || '').join('');
+  } catch(e) {
+    if (e.name !== 'AbortError') console.warn('bg API error', e);
+    return null; // AbortError는 조용히 무시
+  }
 }
 
 // L6: 스트리밍 버전 callClaude — 라인 에디터용
@@ -3223,7 +3248,7 @@ async function processSummaryQueue() {
     if (!sc || sc.summary?.conflictScore != null) continue;
     try {
       await calcConflictScoreBackground(sc);
-    } catch(e) { /* 실패해도 계속 */ }
+    } catch(e) { if (e.name !== 'AbortError') console.warn('bg conflict calc failed', e); }
     await new Promise(r => setTimeout(r, 1800)); // 1.8초 간격
   }
   _summaryQueueRunning = false;
@@ -3234,12 +3259,12 @@ async function calcConflictScoreBackground(sc) {
   const text = (sc.lines||[]).map(l=>l.text).join(' ').slice(0,400);
   if (!text || text.length < 20) return;
   try {
-    const raw = await callClaude(
+    const raw = await callClaudeBackground(
       [{role:'user', content:'씬 내용:\n' + text}],
       '이 씬의 갈등 강도를 0~5로 평가하세요.\n' +
       '갈등 유형도 romantic/external/internal/none 중 하나로.\n' +
       '반드시 <score>{"intensity":숫자,"type":"유형"}</score> 형식으로만.',
-      60, 'claude-haiku-4-5-20251001'
+      60
     );
     const scoreRaw = extractTag(raw, 'score');
     if (scoreRaw) {
@@ -7349,7 +7374,7 @@ async function _analyzeCharFromDiff(newLines, sc) {
   }));
 
   try {
-    const raw = await callClaude(
+    const raw = await callClaudeBackground(
       [{ role: 'user', content:
         '씬 텍스트:\n' + sceneText + '\n\n등록된 인물:\n' + JSON.stringify(registeredJson) }],
       '씬 텍스트를 분석해서 두 가지를 추출하세요.\n' +
@@ -7358,9 +7383,9 @@ async function _analyzeCharFromDiff(newLines, sc) {
       '없으면 빈 배열. 확실하지 않으면 포함하지 말 것.\n' +
       '반드시 <analysis>{"new":[{"name":"배역명","pronoun":"지시어(없으면 빈 문자열)","role":"역할","traits":["속성"]}],' +
       '"updates":[{"name":"인물명","newTraits":["속성"],"conflictTraits":[{"old":"기존","new":"새것"}]}]}</analysis> 형식으로만.',
-      300, 'claude-haiku-4-5-20251001'
+      300
     );
-    const analysisRaw = extractTag(raw, 'analysis');
+    const analysisRaw = raw && extractTag(raw, 'analysis');
     if (!analysisRaw) return;
     let analysis;
     try { analysis = JSON.parse(analysisRaw); } catch { return; }
@@ -7434,7 +7459,7 @@ async function _analyzeCharFromDiff(newLines, sc) {
       _pendingCharUpdates = updateItems;
       _showCharUpdatePanel();
     }
-  } catch(e) { console.warn('char analyze error', e); }
+  } catch(e) { if (e.name !== 'AbortError') console.warn('char analyze error', e); }
 }
 
 // 기존 인물 속성 업데이트 통합 패널
