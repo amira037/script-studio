@@ -2314,12 +2314,23 @@ const _storageKey = (key) => {
 // syncToSupabase 디바운스 — 30초. 구조 변경 시 즉시 실행
 let _syncDebounceTimer = null;
 let _syncPendingProjects = null;
-let _dirtyProjectIds = new Set(); // 변경된 프로젝트 ID만 추적
+// 변경된 프로젝트 ID — localStorage에 저장해서 앱 재시작 후에도 유지
+const _dirtyKey = 'ss_dirty_ids_' + USER_ID;
+let _dirtyProjectIds = (() => {
+  try { return new Set(JSON.parse(localStorage.getItem(_dirtyKey) || '[]')); }
+  catch { return new Set(); }
+})();
+function _saveDirtyIds() {
+  localStorage.setItem(_dirtyKey, JSON.stringify([..._dirtyProjectIds]));
+}
+function _clearDirtyIds() {
+  _dirtyProjectIds.clear();
+  localStorage.removeItem(_dirtyKey);
+}
 function _scheduleSyncToSupabase(projects, immediate = false) {
   _syncPendingProjects = projects;
   // 현재 열린 프로젝트만 dirty 표시. S.cur 없으면 아무것도 추가 안 함
-  // (syncToSupabase에서 dirty 비면 전체 업로드로 fallback)
-  if (S.cur?.id) _dirtyProjectIds.add(S.cur.id);
+  if (S.cur?.id) { _dirtyProjectIds.add(S.cur.id); _saveDirtyIds(); }
   if (immediate) {
     clearTimeout(_syncDebounceTimer);
     _syncDebounceTimer = null;
@@ -2358,10 +2369,8 @@ async function syncToSupabase(projects) {
   // 빈 데이터는 절대 업로드하지 않음
   if (!projects || !projects.length) return;
 
-  // dirty 프로젝트만 업로드. dirty 비면(앱 재시작 등) 전체 fallback
-  const toUpload = _dirtyProjectIds.size > 0
-    ? projects.filter(p => _dirtyProjectIds.has(p.id))
-    : projects;
+  // dirty 프로젝트만 업로드
+  const toUpload = projects.filter(p => _dirtyProjectIds.has(p.id));
   if (!toUpload.length) return;
 
   // 프로젝트별 정리 (conflictData, diff, 재계산 가능 필드, 구채팅 제거)
@@ -2407,7 +2416,7 @@ async function syncToSupabase(projects) {
 
     clearTimeout(timeoutId);
     if (allOk) {
-      _dirtyProjectIds.clear();
+      _clearDirtyIds();
       localStorage.setItem(_storageKey('ss_last_upload_time'), String(Date.now()));
       updateSyncStatus('✓ 저장됨');
     } else {
@@ -2488,6 +2497,7 @@ async function syncFromSupabase(force = false) {
         localStorage.setItem(_storageKey('ss_projects'), JSON.stringify(remote));
         localStorage.setItem(_storageKey('ss_local_save_time'), String(remoteTime));
         localStorage.setItem(_storageKey('ss_last_upload_time'), String(remoteTime));
+        _clearDirtyIds(); // 원격에서 덮어썼으므로 dirty 초기화
       }
       S.projects = remote;
       _syncReady = true;
@@ -2501,6 +2511,11 @@ async function syncFromSupabase(force = false) {
       toast(msg, 3000);
     } else if (force && (!remoteIsNewer || hasUnsyncedChanges)) {
       _syncReady = true;
+      // dirty 없으면(추적 정보 유실) 전체를 dirty로 복구
+      if (_dirtyProjectIds.size === 0) {
+        S.projects.forEach(p => _dirtyProjectIds.add(p.id));
+        _saveDirtyIds();
+      }
       syncToSupabase(S.projects).catch(e => console.warn('Re-sync to Supabase failed', e));
       const reason = hasUnsyncedChanges && remoteIsNewer ? '미업로드 변경 보호 — 클라우드에 업로드' : '로컬 데이터가 최신 — 클라우드에 업로드';
       updateSyncStatus('✓ ' + reason);
@@ -3828,6 +3843,7 @@ function duplicateProject(id, e) {
   dup.title = dup.title + ' (복사본)';
   dup.lastOpened = 0;
   S.projects.push(dup);
+  _dirtyProjectIds.add(dup.id); _saveDirtyIds();
   save(); renderHome(); toast(`"${dup.title}" 복제됨`);
 }
 
