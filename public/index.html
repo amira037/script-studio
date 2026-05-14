@@ -2068,13 +2068,22 @@ const storage = {
 async function syncToSupabase(projects) {
   // 빈 데이터는 절대 업로드하지 않음
   if (!projects || !projects.length) return;
-  // conflictData와 diff 제외한 데이터만 업로드 (12-3)
+  // conflictData, diff, 재계산 가능한 필드, 오래된 채팅 메시지 제외 (용량 절감 — 108씬+ 대응)
   const uploadData = projects.map(p => {
     const clean = JSON.parse(JSON.stringify(p));
     delete clean.conflictData;
-    if (clean.scenes) clean.scenes.forEach(sc => { delete sc.diff; });
+    if (clean.scenes) clean.scenes.forEach(sc => {
+      delete sc.diff;
+      delete sc.summary;    // 앱 로드 시 재계산
+      delete sc.collapsed;  // UI 상태, 로컬만 유지
+    });
+    if (Array.isArray(clean.messages) && clean.messages.length > 20) {
+      clean.messages = clean.messages.slice(-20);
+    }
     return clean;
   });
+  const payload = JSON.stringify({ id: USER_ID, user_id: USER_ID, data: { projects: uploadData }, updated_at: new Date().toISOString() });
+  console.log(`[sync] 업로드 크기: ${(payload.length / 1024).toFixed(1)} KB`);
   try {
     const ctrl = new AbortController();
     const timeoutId = setTimeout(() => ctrl.abort(), 15000); // 15초 타임아웃
@@ -2084,12 +2093,7 @@ async function syncToSupabase(projects) {
         'Content-Type': 'application/json',
         'Prefer': 'resolution=merge-duplicates'
       },
-      body: JSON.stringify({
-        id: USER_ID,
-        user_id: USER_ID,
-        data: { projects: uploadData },
-        updated_at: new Date().toISOString()
-      }),
+      body: payload,
       signal: ctrl.signal
     });
     clearTimeout(timeoutId);
@@ -3209,7 +3213,8 @@ async function regenSynopsisInPanel() {
 }
 
 function floDetectContent(raw, displayText) {
-  if (!S.cur || S.activeTab !== 'chat') return;
+  if (!S.cur || S.activeTab !== 'chat') return false;
+  let _charPanelOpened = false;
 
   // 모든 <character> 태그 추출 (extractTag는 첫 번째만 반환하므로 matchAll 사용)
   const allCharMatches = [...(raw.matchAll(/<character[^>]*>([\s\S]*?)<\/character>/gi))];
@@ -3268,7 +3273,7 @@ function floDetectContent(raw, displayText) {
         }
       }
     }
-    if (newCharsToAdd.length > 0) showCharacterAddPanel(newCharsToAdd);
+    if (newCharsToAdd.length > 0) { showCharacterAddPanel(newCharsToAdd); _charPanelOpened = true; }
   }
 
   if (allCharMatches.length === 0) {
@@ -3306,6 +3311,7 @@ function floDetectContent(raw, displayText) {
       });
     }
   }
+  return _charPanelOpened;
 }
 
 // 평문 인물 설명 폴백 감지 — <character> 태그 없이 출력된 경우
@@ -3325,7 +3331,15 @@ async function _detectCharsFromPlainText(displayText) {
     let chars;
     try { chars = JSON.parse(charsRaw); } catch { return; }
     const newOnes = (chars || []).filter(c => c.name && !existingNames.has(c.name));
-    if (newOnes.length > 0) showCharacterAddPanel(newOnes);
+    if (newOnes.length > 0) {
+      // 응답 패널이 이미 열려있으면 덮어쓰지 않음 (시놉시스 미리보기 등과 충돌 방지)
+      const rp = document.getElementById('response-panel');
+      if (rp?.classList.contains('show')) {
+        toast(`👤 ${newOnes.length}명 인물 감지됨 — 패널을 닫은 후 다시 확인하세요`, 4000);
+      } else {
+        showCharacterAddPanel(newOnes);
+      }
+    }
   } catch(e) {}
 }
 
@@ -8559,6 +8573,12 @@ function handleMsgAction(action) {
     _markDetectDone(item);
     item.onConfirm();
 
+  } else if (action.type === 'detectConfirm') {
+    const item = action.data;
+    if (item._done) { toast('이미 처리됐어요'); return; }
+    _markDetectDone(item);
+    if (item.onConfirm) item.onConfirm();
+
   } else if (action.type === 'detectDismiss') {
     const item = action.data;
     _markDetectDone(item);
@@ -10082,22 +10102,26 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     const _mergedActions = [...actions, ..._floExtraActions];
     addMsg('assistant', displayText, _mergedActions.length ? _mergedActions : null);
 
+    // F: 플로 콘텐츠 감지 — character / synopsis / setting_update 태그
+    // survey/choices 자동오픈보다 먼저 실행해서 인물추가 패널 여부를 확인
+    const _charPanelOpened = floDetectContent(raw, displayText);
+
     // survey > multichoices > choices 우선순위로 패널 자동 오픈
     // seqTitlesData가 있으면 자동 오픈 스킵 (버튼으로 이미 제공됨)
-    if (_surveyDataParsed?.length) {
-      if (!seqTitlesData?.length) setTimeout(() => showSurveyPanel(_surveyDataParsed, _floIntent), 200);
-    } else if (multichoicesRaw) {
-      let mchoices = null;
-      try { mchoices = JSON.parse(multichoicesRaw); } catch {}
-      if (mchoices?.length) setTimeout(() => showMultiChoicesPanel(text, mchoices, _floIntent), 200);
-    } else if (choicesRaw) {
-      let ch = null;
-      try { ch = JSON.parse(choicesRaw); } catch {}
-      if (ch?.length) setTimeout(() => showChoicesPanel(text, ch, _floIntent), 200);
+    // 인물추가 패널이 열렸으면 자동오픈 스킵 — 사용자가 채팅 액션 버튼으로 직접 열 수 있음
+    if (!_charPanelOpened) {
+      if (_surveyDataParsed?.length) {
+        if (!seqTitlesData?.length) setTimeout(() => showSurveyPanel(_surveyDataParsed, _floIntent), 200);
+      } else if (multichoicesRaw) {
+        let mchoices = null;
+        try { mchoices = JSON.parse(multichoicesRaw); } catch {}
+        if (mchoices?.length) setTimeout(() => showMultiChoicesPanel(text, mchoices, _floIntent), 200);
+      } else if (choicesRaw) {
+        let ch = null;
+        try { ch = JSON.parse(choicesRaw); } catch {}
+        if (ch?.length) setTimeout(() => showChoicesPanel(text, ch, _floIntent), 200);
+      }
     }
-
-    // F: 플로 콘텐츠 감지 — character / synopsis / setting_update 태그
-    floDetectContent(raw, displayText);
     // J9: 씬 형식 감지
     detectSceneInFlowText(raw, displayText);
     const charNames4 = (S.cur?.characters||[]).map(c=>c.name).filter(Boolean);
