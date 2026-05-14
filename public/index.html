@@ -2068,42 +2068,69 @@ const storage = {
 async function syncToSupabase(projects) {
   // 빈 데이터는 절대 업로드하지 않음
   if (!projects || !projects.length) return;
-  // conflictData, diff, 재계산 가능한 필드, 오래된 채팅 메시지 제외 (용량 절감 — 108씬+ 대응)
-  const uploadData = projects.map(p => {
+
+  // 프로젝트별 정리 (conflictData, diff, 재계산 가능 필드, 구채팅 제거)
+  const cleanProjects = projects.map(p => {
     const clean = JSON.parse(JSON.stringify(p));
     delete clean.conflictData;
     if (clean.scenes) clean.scenes.forEach(sc => {
       delete sc.diff;
-      delete sc.summary;    // 앱 로드 시 재계산
-      delete sc.collapsed;  // UI 상태, 로컬만 유지
+      delete sc.summary;
+      delete sc.collapsed;
     });
     if (Array.isArray(clean.messages) && clean.messages.length > 20) {
       clean.messages = clean.messages.slice(-20);
     }
     return clean;
   });
-  const payload = JSON.stringify({ id: USER_ID, user_id: USER_ID, data: { projects: uploadData }, updated_at: new Date().toISOString() });
-  console.log(`[sync] 업로드 크기: ${(payload.length / 1024).toFixed(1)} KB`);
+
   try {
     const ctrl = new AbortController();
-    const timeoutId = setTimeout(() => ctrl.abort(), 15000); // 15초 타임아웃
-    const resp = await fetch('/api/supabase?path=projects', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Prefer': 'resolution=merge-duplicates'
-      },
-      body: payload,
-      signal: ctrl.signal
-    });
+    const timeoutId = setTimeout(() => ctrl.abort(), 60000);
+    const now = new Date().toISOString();
+    let allOk = true;
+
+    // 프로젝트별 개별 행으로 업로드 (413 방지)
+    for (const proj of cleanProjects) {
+      const row = { id: USER_ID + '_' + String(proj.id), user_id: USER_ID, data: proj, updated_at: now };
+      const payload = JSON.stringify(row);
+      console.log(`[sync] "${proj.title}" ${(payload.length / 1024).toFixed(0)} KB`);
+      const resp = await fetch('/api/supabase?path=projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates' },
+        body: payload,
+        signal: ctrl.signal
+      });
+      if (!resp.ok) {
+        console.warn('Supabase sync HTTP error', resp.status, proj.title);
+        allOk = false;
+      }
+    }
+
+    // 삭제된 프로젝트의 Supabase 행 정리 (구버전 단일 행 포함)
+    if (allOk) {
+      try {
+        const listResp = await fetch('/api/supabase?path=projects&select=id&user_id=eq.' + USER_ID, { signal: ctrl.signal });
+        if (listResp.ok) {
+          const existingRows = await listResp.json();
+          const currentIds = new Set(cleanProjects.map(p => USER_ID + '_' + String(p.id)));
+          const toDelete = existingRows.filter(r => r.id && !currentIds.has(r.id));
+          for (const row of toDelete) {
+            await fetch('/api/supabase?path=projects&id=eq.' + encodeURIComponent(row.id), {
+              method: 'DELETE',
+              signal: ctrl.signal
+            });
+          }
+        }
+      } catch(e) { /* 정리 실패는 무시 */ }
+    }
+
     clearTimeout(timeoutId);
-    if (resp.ok) {
-      // 업로드 성공 시간 기록 (미업로드 변경 감지에 사용)
+    if (allOk) {
       localStorage.setItem(_storageKey('ss_last_upload_time'), String(Date.now()));
       updateSyncStatus('✓ 저장됨');
     } else {
-      console.warn('Supabase sync HTTP error', resp.status);
-      updateSyncStatus('⚠ 클라우드 저장 실패 (' + resp.status + ')');
+      updateSyncStatus('⚠ 일부 프로젝트 클라우드 저장 실패');
     }
   } catch(e) {
     if (e.name === 'AbortError') {
@@ -2120,53 +2147,69 @@ async function syncToSupabase(projects) {
 async function syncFromSupabase(force = false) {
   if (!isSyncEnabled()) return false;
   try {
+    // user_id 기준으로 조회 — 프로젝트별 개별 행 + 구버전 단일 행 모두 포함
     const query = IS_ADMIN
       ? '/api/supabase?path=projects&select=id,user_id,data,updated_at&order=updated_at.desc'
-      : '/api/supabase?path=projects&select=data,updated_at&id=eq.' + USER_ID;
+      : '/api/supabase?path=projects&select=id,data,updated_at&user_id=eq.' + USER_ID + '&order=updated_at.desc';
     const pullCtrl = new AbortController();
-    const pullTimeout = setTimeout(() => pullCtrl.abort(), 12000); // 12초 타임아웃
+    const pullTimeout = setTimeout(() => pullCtrl.abort(), 12000);
     const res = await fetch(query, { signal: pullCtrl.signal });
     clearTimeout(pullTimeout);
     if (!res.ok) {
-      _syncReady = true; // HTTP 오류 — 로컬 데이터로 진행 허용
+      _syncReady = true;
       console.warn('Supabase sync HTTP error', res.status);
       return false;
     }
     const rows = await res.json();
     if (!rows || !rows.length) {
-      _syncReady = true; // 원격 데이터 없음 — 새 유저로 간주, save() 허용
+      _syncReady = true;
       return false;
     }
-    // admin이면 모든 유저 프로젝트 병합
+
     let remote, remoteTime;
     if (IS_ADMIN) {
-      remote = rows.flatMap(r => (r.data?.projects || []).map(p => ({
-        ...p, _owner: r.user_id  // 프로젝트에 소유자 표시
-      })));
+      // admin: 구버전(data.projects 배열) + 신버전(data = 단일 프로젝트) 모두 지원
+      remote = rows.flatMap(r => {
+        if (Array.isArray(r.data?.projects)) return r.data.projects.map(p => ({ ...p, _owner: r.user_id }));
+        return r.data ? [{ ...r.data, _owner: r.user_id }] : [];
+      });
       remoteTime = Math.max(...rows.map(r => new Date(r.updated_at || 0).getTime()));
     } else {
-      remote = rows[0].data?.projects;
-      remoteTime = new Date(rows[0].updated_at || 0).getTime();
+      // 구버전 단일 행 감지: data.projects 배열 보유
+      const oldRow = rows.find(r => Array.isArray(r.data?.projects));
+      const newRows = rows.filter(r => !Array.isArray(r.data?.projects) && r.data);
+      if (newRows.length > 0) {
+        // 신버전: 각 행이 단일 프로젝트
+        remote = newRows.map(r => r.data);
+        remoteTime = Math.max(...newRows.map(r => new Date(r.updated_at || 0).getTime()));
+      } else if (oldRow) {
+        // 구버전: 마이그레이션 대상 (첫 syncToSupabase 호출 시 신버전으로 변환)
+        remote = oldRow.data.projects;
+        remoteTime = new Date(oldRow.updated_at || 0).getTime();
+      } else {
+        _syncReady = true;
+        return false;
+      }
     }
+
     if (!Array.isArray(remote) || !remote.length) {
-      _syncReady = true; // 원격 데이터 형식 오류 — 로컬 데이터로 진행 허용
+      _syncReady = true;
       return false;
     }
-    // 로컬 저장 시간 vs 마지막 업로드 성공 시간 비교 → 미업로드 변경 감지
+
     const localSaveTime = parseInt(localStorage.getItem(_storageKey('ss_local_save_time')) || '0');
     const lastUploadTime = parseInt(localStorage.getItem(_storageKey('ss_last_upload_time')) || '0');
-    // localSaveTime > lastUploadTime+5초 이면 업로드 안 된 로컬 변경 있음
     const hasUnsyncedChanges = localSaveTime > 0 && localSaveTime > lastUploadTime + 5000;
-    const remoteIsNewer = remoteTime >= localSaveTime - 3000; // 3초 여유 (네트워크 지연 고려)
+    const remoteIsNewer = remoteTime >= localSaveTime - 3000;
+
     if (IS_ADMIN || (force && remoteIsNewer && !hasUnsyncedChanges)) {
-      // admin은 로컬 저장 없이 메모리에만
       if (!IS_ADMIN) {
         localStorage.setItem(_storageKey('ss_projects'), JSON.stringify(remote));
         localStorage.setItem(_storageKey('ss_local_save_time'), String(remoteTime));
         localStorage.setItem(_storageKey('ss_last_upload_time'), String(remoteTime));
       }
       S.projects = remote;
-      _syncReady = true; // pull 완료 — 이제 save() 허용
+      _syncReady = true;
       S.cur = null;
       S.selectedIds.clear();
       document.getElementById('app-screen')?.classList.remove('show');
@@ -2176,7 +2219,6 @@ async function syncFromSupabase(force = false) {
       updateSyncStatus(msg);
       toast(msg, 3000);
     } else if (force && (!remoteIsNewer || hasUnsyncedChanges)) {
-      // 로컬이 최신이거나 업로드 안 된 변경 있음 — 로컬 데이터로 Supabase 업데이트
       _syncReady = true;
       syncToSupabase(S.projects).catch(e => console.warn('Re-sync to Supabase failed', e));
       const reason = hasUnsyncedChanges && remoteIsNewer ? '미업로드 변경 보호 — 클라우드에 업로드' : '로컬 데이터가 최신 — 클라우드에 업로드';
@@ -2185,7 +2227,7 @@ async function syncFromSupabase(force = false) {
     return true;
   } catch(e) {
     console.warn('Supabase pull failed', e);
-    _syncReady = true; // 실패해도 차단 해제 (오프라인 등)
+    _syncReady = true;
     return false;
   }
 }
