@@ -3027,9 +3027,17 @@ function buildProjectContext() {
 
 // Parse XML tags from AI response
 function extractTag(text, tag) {
-  const re = new RegExp(`<${tag}([\\s\\S]*?)>([\\s\\S]*?)<\\/${tag}>`, 'i');
-  const m = text.match(re);
-  return m ? m[2].trim() : null;
+  const re = new RegExp(`<${tag}[\\s\\S]*?>([\\s\\S]*?)<\\/${tag}>`, 'gi');
+  const matches = [...text.matchAll(re)];
+  if (!matches.length) return null;
+  if (matches.length === 1) return matches[0][1].trim();
+  // 여러 블록이면 JSON 배열로 병합 (r 태그 등 분리 응답 대응)
+  const parts = matches.map(m => m[1].trim()).filter(Boolean);
+  try {
+    const arrays = parts.map(p => JSON.parse(p));
+    if (arrays.every(Array.isArray)) return JSON.stringify(arrays.flat());
+  } catch {}
+  return parts[0]; // 병합 실패 시 첫 번째
 }
 function extractJSON(text) {
   const m = text.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
@@ -15114,7 +15122,9 @@ async function handleScriptPrompt(text) {
         }).join('\n');
         const chunkSummary = chunk.map(s => {
           const label = getSceneLabel(s, S.cur.scenes);
-          return label+'[id:'+s.id+'] "'+s.title+'": '+JSON.stringify(s.lines.map(l=>({type:l.type,text:l.text,locked:l.locked})));
+          const chkLines = [...(s.lines || [])];
+          while (chkLines.length > 0 && !chkLines[chkLines.length - 1].text?.trim()) chkLines.pop();
+          return label+'[id:'+s.id+'] "'+s.title+'": '+JSON.stringify(chkLines.map(l=>({type:l.type,text:l.text,locked:l.locked})));
         }).join('\n');
         const chunkMemoCtx = getChatMemos().length > 0
           ? '[핵심 결정사항 — 반드시 준수]\n' + getChatMemos().map(m=>'• '+m).join('\n') + '\n\n'
@@ -15208,7 +15218,10 @@ async function handleScriptPrompt(text) {
 
   const sceneSummary = selectedScenes.map((s) => {
     const label = getSceneLabel(s, S.cur.scenes);
-    return label + '[sceneId:' + s.id + '] "' + s.title + '": ' + JSON.stringify(s.lines.map(l=>({type:l.type,text:l.text,locked:l.locked})));
+    // trailing 빈 줄 제거 — AI가 씬 경계를 오인해 분리 응답하는 원인 방지
+    const lines = [...(s.lines || [])];
+    while (lines.length > 0 && !lines[lines.length - 1].text?.trim()) lines.pop();
+    return label + '[sceneId:' + s.id + '] "' + s.title + '": ' + JSON.stringify(lines.map(l=>({type:l.type,text:l.text,locked:l.locked})));
   }).join('\n');
 
   const memoCtxScript = getChatMemos().length > 0
