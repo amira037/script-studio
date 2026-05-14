@@ -2392,23 +2392,8 @@ async function syncToSupabase(projects) {
       }
     }
 
-    // 삭제된 프로젝트의 Supabase 행 정리 (구버전 단일 행 포함)
-    if (allOk) {
-      try {
-        const listResp = await fetch('/api/supabase?path=projects&select=id&user_id=eq.' + USER_ID, { signal: ctrl.signal });
-        if (listResp.ok) {
-          const existingRows = await listResp.json();
-          const currentIds = new Set(cleanProjects.map(p => USER_ID + '_' + String(p.id)));
-          const toDelete = existingRows.filter(r => r.id && !currentIds.has(r.id));
-          for (const row of toDelete) {
-            await fetch('/api/supabase?path=projects&id=eq.' + encodeURIComponent(row.id), {
-              method: 'DELETE',
-              signal: ctrl.signal
-            });
-          }
-        }
-      } catch(e) { /* 정리 실패는 무시 */ }
-    }
+    // 주의: 여기서 일괄 삭제하지 않음 — 다른 기기에서 추가한 프로젝트를 실수로 지울 수 있음
+    // 프로젝트 삭제는 deleteProject()에서 개별적으로 처리
 
     clearTimeout(timeoutId);
     if (allOk) {
@@ -3813,6 +3798,12 @@ function deleteProject(id) {
   save(); renderHome();
   closeDelProjModal();
   toast('삭제됐습니다');
+  // Supabase 행 개별 삭제 (다른 기기 데이터를 건드리지 않음)
+  if (isSyncEnabled() && !IS_ADMIN) {
+    const rowId = USER_ID + '_' + String(id);
+    fetch('/api/supabase?path=projects&id=eq.' + encodeURIComponent(rowId), { method: 'DELETE' })
+      .catch(e => console.warn('Supabase delete failed', e));
+  }
 }
 function confirmDeleteProjectFromModal() {
   if (deletingProjId) deleteProject(deletingProjId);
