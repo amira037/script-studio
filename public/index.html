@@ -1436,6 +1436,291 @@ textarea, input { font-family:var(--fb); }
 
 /* Utility */
 .hidden { display:none !important; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MOBILE PANEL/SURVEY REDESIGN — 2026.05
+   v2 서베이/응답 패널의 기본 골격(모든 화면) + 모바일 전용 사이즈 보정.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── 진행 dot ───────────────────────────────────────────────────────── */
+.survey-progress {
+  display:flex; gap:6px; align-items:center;
+  padding:6px 18px 12px;
+  flex-shrink:0;
+}
+.survey-progress .dot {
+  height:4px; width:12px; flex:0 0 12px;
+  border-radius:999px;
+  background:var(--border2);
+  transition:all .25s;
+}
+.survey-progress .dot.current { flex-basis:28px; width:28px; background:var(--accent); }
+.survey-progress .dot.done { background:var(--accent); opacity:.55; cursor:pointer; }
+
+/* ── 단계 라벨 + 질문 + 힌트 ────────────────────────────────────────── */
+.survey-step-label {
+  font-family:var(--fm);
+  font-size:var(--fs-11);
+  color:var(--accent);
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  padding:0 18px 6px;
+  flex-shrink:0;
+}
+.survey-q {
+  font-size:var(--fs-18); line-height:1.35; font-weight:600;
+  color:var(--text);
+  padding:0 18px 4px;
+  flex-shrink:0;
+}
+.survey-hint {
+  font-size:var(--fs-11); color:var(--text3);
+  padding:0 18px 12px;
+  flex-shrink:0;
+}
+
+/* ── 옵션 카드 (단일/복수 공통) ─────────────────────────────────────── */
+.survey-opt-btn {
+  display:flex;
+  align-items:flex-start;
+  gap:14px;
+  width:100%;
+  padding:16px;
+  min-height:60px;
+  background:var(--bg3);
+  border:1.5px solid var(--border);
+  border-radius:14px;
+  color:var(--text);
+  font-size:var(--fs-15);
+  line-height:1.4;
+  text-align:left;
+  cursor:pointer;
+  transition:background .15s, border-color .15s, box-shadow .15s;
+}
+.survey-opt-btn:hover { border-color:var(--accent2); background:var(--bg4); }
+.survey-opt-btn.selected {
+  background:var(--accent3);
+  border-color:var(--accent);
+  box-shadow:0 0 0 4px rgba(200,169,110,.10);
+}
+.survey-opt-btn .opt-indicator {
+  width:26px; height:26px; flex-shrink:0;
+  border:2px solid var(--border3);
+  background:transparent;
+  margin-top:1px;
+  display:flex; align-items:center; justify-content:center;
+  color:var(--bg); font-size:14px; font-weight:800; line-height:1;
+  transition:background .15s, border-color .15s;
+}
+.survey-opt-btn.radio .opt-indicator { border-radius:50%; }
+.survey-opt-btn.checkbox .opt-indicator { border-radius:7px; }
+.survey-opt-btn.selected .opt-indicator {
+  background:var(--accent);
+  border-color:var(--accent);
+}
+.survey-opt-btn.selected.radio .opt-indicator::after {
+  content:''; width:10px; height:10px; border-radius:50%;
+  background:var(--bg);
+}
+.survey-opt-btn .opt-body { flex:1; min-width:0; }
+.survey-opt-btn .opt-title {
+  font-size:var(--fs-15); color:var(--text);
+  font-weight:600; line-height:1.35;
+}
+.survey-opt-btn .opt-sub {
+  font-size:var(--fs-12); color:var(--text2);
+  margin-top:4px; line-height:1.5;
+}
+
+/* ── 직접 입력 카드 ─────────────────────────────────────────────────── */
+.survey-opt-custom {
+  display:flex; align-items:center; gap:12px;
+  padding:14px 16px;
+  background:transparent;
+  border:1.5px dashed var(--border3);
+  border-radius:14px;
+  font-size:var(--fs-15); color:var(--text2);
+  cursor:pointer;
+  transition:border-color .15s, background .15s;
+}
+.survey-opt-custom:hover { border-color:var(--accent2); background:var(--accent3); }
+.survey-opt-custom .ic {
+  width:28px; height:28px; border-radius:8px;
+  background:var(--bg4);
+  display:flex; align-items:center; justify-content:center;
+  color:var(--text2); font-size:var(--fs-13); flex-shrink:0;
+}
+.survey-opt-custom input {
+  flex:1; background:transparent; border:none; outline:none;
+  color:var(--text); font-size:var(--fs-15);
+  padding:0;
+}
+.survey-opt-custom .ok-btn {
+  background:var(--accent); color:#0e0e10;
+  border:none; border-radius:10px;
+  padding:8px 14px; font-size:var(--fs-13); font-weight:700;
+  cursor:pointer;
+}
+
+/* ── 텍스트 입력 (text 타입) ─────────────────────────────────────────── */
+.survey-text-input {
+  width:100%; min-height:96px;
+  background:var(--bg3);
+  border:1.5px solid var(--border2);
+  border-radius:12px;
+  color:var(--text);
+  font-size:var(--fs-15);
+  padding:12px 14px;
+  resize:vertical;
+  box-sizing:border-box;
+  line-height:1.5;
+}
+.survey-text-input:focus { border-color:var(--accent2); outline:none; }
+
+/* ── CTA 카운트 배지 ────────────────────────────────────────────────── */
+.rp-btn .cta-count {
+  min-width:22px; height:22px;
+  padding:0 7px; margin-left:8px;
+  background:var(--bg); color:var(--accent);
+  font-size:var(--fs-11); font-weight:700;
+  font-family:var(--fm);
+  border-radius:11px;
+  display:inline-flex; align-items:center; justify-content:center;
+}
+.rp-btn.primary {
+  background:var(--accent);
+  color:#0e0e10;
+  border-color:var(--accent);
+  font-weight:700;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MOBILE 전용 사이즈 보정 (max-width:767px)
+   ═══════════════════════════════════════════════════════════════════════ */
+@media (max-width:767px) {
+
+  /* ── 시트: 더 크게, 더 둥글게 ───────────────────────────────────── */
+  .response-panel {
+    height:78vh;
+    max-height:90vh;
+    border-radius:20px 20px 0 0;
+    border-top:1px solid var(--border2);
+    box-shadow:0 -20px 50px rgba(0,0,0,.55);
+  }
+
+  /* ── 큰 드래그 핸들 ─────────────────────────────────────────────── */
+  .rp-hdr::before {
+    top:10px;
+    width:48px; height:5px; border-radius:999px;
+    background:var(--border3);
+  }
+  .rp-hdr {
+    padding:24px 20px 14px;
+    gap:12px;
+    align-items:flex-start;
+    border-bottom:1px solid var(--border);
+  }
+  .rp-type-badge {
+    font-size:13px; padding:5px 10px; border-radius:8px;
+    margin-top:2px;
+  }
+  .rp-title {
+    font-size:20px; line-height:1.3; font-weight:600;
+  }
+  .rp-close-btn {
+    width:36px; height:36px; border-radius:18px;
+    border:1px solid var(--border2);
+    font-size:20px; padding:0; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+  }
+
+  /* ── 본문 영역 ───────────────────────────────────────────────────── */
+  .rp-body {
+    padding:14px 0 16px;
+    gap:0;
+    font-size:16px;
+  }
+
+  /* ── 하단 액션 바: sticky, safe-area, 큰 버튼 ──────────────────── */
+  .rp-acts {
+    padding:14px 16px calc(14px + env(safe-area-inset-bottom));
+    gap:10px;
+    background:var(--bg2);
+    border-top:1px solid var(--border);
+  }
+  .rp-btn {
+    flex:1;
+    height:54px; padding:0 18px;
+    font-size:17px; font-weight:600;
+    border-radius:14px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .rp-act-btn {
+    font-size:15px;
+    padding:10px 14px;
+    border-radius:10px;
+    min-height:44px;
+  }
+
+  /* ── 서베이 본문 사이즈 보정 ───────────────────────────────────── */
+  .survey-step-label { font-size:13px; }
+  .survey-q { font-size:22px; }
+  .survey-hint { font-size:13px; }
+  .survey-opt-btn {
+    padding:16px; min-height:64px;
+    border-radius:16px; font-size:17px;
+  }
+  .survey-opt-btn .opt-title { font-size:17px; }
+  .survey-opt-btn .opt-sub { font-size:15px; }
+  .survey-opt-custom {
+    padding:16px; border-radius:16px; font-size:17px;
+  }
+  .survey-text-input { font-size:17px; padding:14px 16px; min-height:120px; }
+
+  /* ── AI comment 본문 — 모바일 가독성 ──────────────────────────── */
+  .ai-comment-txt {
+    font-size:16px;
+    line-height:1.7;
+    padding:16px 16px;
+    border-radius:12px;
+  }
+
+  /* ── Check item — 모바일 카드 ────────────────────────────────── */
+  .check-item {
+    padding:14px 14px 12px;
+    font-size:16px;
+    border-radius:14px;
+    gap:12px;
+  }
+  .check-icon {
+    width:32px; height:32px; border-radius:8px;
+    background:rgba(255,255,255,.06);
+    display:flex; align-items:center; justify-content:center;
+    font-size:18px;
+    margin-top:0;
+  }
+  .check-item.err .check-icon { background:rgba(224,85,85,.18); color:var(--red); }
+  .check-item.warn .check-icon { background:rgba(232,168,74,.18); color:var(--amber); }
+  .check-item.ok .check-icon { background:rgba(110,200,154,.18); color:var(--green); }
+  .check-msg { font-size:16px; line-height:1.55; }
+  .check-scene-tag {
+    font-size:12px; font-weight:600; letter-spacing:.06em;
+  }
+  .check-item.err .check-scene-tag { color:var(--red); }
+  .check-item.warn .check-scene-tag { color:var(--amber); }
+  .check-goto {
+    display:inline-flex; align-items:center; gap:6px;
+    margin-top:8px;
+    padding:8px 14px;
+    font-size:13px; font-weight:600;
+    border:1px solid;
+    border-radius:8px;
+    text-decoration:none;
+  }
+  .check-item.err .check-goto { color:var(--red); border-color:rgba(224,85,85,.4); }
+  .check-item.warn .check-goto { color:var(--amber); border-color:rgba(232,168,74,.4); }
+}
+
 </style>
 <script>
 let _lastRpDataEarly = null; // 조기 closeResponsePanel용 플레이스홀더
@@ -15954,126 +16239,199 @@ function _renderSurveyStep(stepIdx) {
 
   const q = state.questions[stepIdx];
   const total = state.questions.length;
-  const circleNums = ['①','②','③','④','⑤','⑥'];
-
-  // 제목 업데이트
-  if (titleEl) titleEl.textContent = total > 1 ? '(' + (stepIdx+1) + '/' + total + ') ' + q.q : q.q;
-
-  body.innerHTML = '';
-  body.style.gap = '8px';
-
-  // ── 다중 질문 내비게이션 ──────────────────────────────────────────────
-  if (total > 1) {
-    const nav = document.createElement('div');
-    nav.style.cssText = 'display:flex;align-items:center;gap:8px;padding-bottom:4px;border-bottom:1px solid var(--border);margin-bottom:2px;';
-    const prevBtn = document.createElement('button');
-    prevBtn.textContent = '←';
-    prevBtn.style.cssText = 'background:none;border:none;font-size:20px;padding:2px 6px;cursor:' + (stepIdx>0?'pointer':'default') + ';color:' + (stepIdx>0?'var(--accent)':'var(--border2)') + ';line-height:1;';
-    prevBtn.onclick = () => { if (stepIdx > 0) _renderSurveyStep(stepIdx - 1); };
-    const ctr = document.createElement('span');
-    ctr.style.cssText = 'font-size:var(--fs-11);color:var(--text3);font-family:var(--fm);flex:1;text-align:center;';
-    ctr.textContent = (stepIdx+1) + ' / ' + total;
-    const nextBtn = document.createElement('button');
-    nextBtn.textContent = '→';
-    nextBtn.style.cssText = 'background:none;border:none;font-size:20px;padding:2px 6px;cursor:' + (stepIdx<total-1?'pointer':'default') + ';color:' + (stepIdx<total-1?'var(--accent)':'var(--border2)') + ';line-height:1;';
-    nextBtn.onclick = () => { if (stepIdx < total-1) _renderSurveyStep(stepIdx+1); };
-    nav.append(prevBtn, ctr, nextBtn);
-    body.appendChild(nav);
-  }
-
   const currentAnswer = state.answers[stepIdx];
 
-  // ── 텍스트 입력 ──────────────────────────────────────────────────────
+  // rp-title: 짧은 라벨만 (질문 본문은 body에 크게)
+  if (titleEl) titleEl.textContent = total > 1 ? '질문 ' + (stepIdx + 1) + ' / ' + total : '질문';
+
+  body.innerHTML = '';
+  body.style.gap = '';
+  body.style.padding = '0';
+
+  // ── 진행 dot ─────────────────────────────────────────────────────────
+  if (total > 1) {
+    const prog = document.createElement('div');
+    prog.className = 'survey-progress';
+    for (let i = 0; i < total; i++) {
+      const d = document.createElement('div');
+      d.className = 'dot' + (i === stepIdx ? ' current' : (i < stepIdx ? ' done' : ''));
+      if (i < stepIdx) d.onclick = () => _renderSurveyStep(i);
+      d.style.cursor = i < stepIdx ? 'pointer' : 'default';
+      prog.appendChild(d);
+    }
+    body.appendChild(prog);
+  }
+
+  // ── 단계 라벨 ────────────────────────────────────────────────────────
+  const stepLabel = document.createElement('div');
+  stepLabel.className = 'survey-step-label';
+  const typeTag = q.type === 'multi' ? ' · 복수 선택' : (q.type === 'text' ? ' · 자유 입력' : '');
+  stepLabel.textContent = total > 1
+    ? '질문 ' + (stepIdx + 1) + ' / ' + total + typeTag
+    : (typeTag ? typeTag.replace(' · ', '') : '질문');
+  body.appendChild(stepLabel);
+
+  // ── 질문 본문 (큰 글씨) ──────────────────────────────────────────────
+  const qEl = document.createElement('div');
+  qEl.className = 'survey-q';
+  qEl.textContent = q.q;
+  body.appendChild(qEl);
+
+  // ── 힌트 ─────────────────────────────────────────────────────────────
+  const hintEl = document.createElement('div');
+  hintEl.className = 'survey-hint';
+  hintEl.id = 'survey-hint';
+  if (q.type === 'multi') {
+    const c = Array.isArray(currentAnswer) ? currentAnswer.length : 0;
+    hintEl.textContent = '여러 개 골라도 좋아요' + (c ? ' · ' + c + '개 선택됨' : '');
+  } else if (q.type === 'choice') {
+    hintEl.textContent = '하나만 선택해주세요';
+  } else {
+    hintEl.textContent = '자유롭게 입력하면 됩니다';
+  }
+  body.appendChild(hintEl);
+
+  // ── 옵션 컨테이너 ────────────────────────────────────────────────────
+  const optWrap = document.createElement('div');
+  optWrap.style.cssText = 'display:flex;flex-direction:column;gap:10px;padding:6px 16px 16px;';
+
+  // ── TEXT 타입 ────────────────────────────────────────────────────────
   if (q.type === 'text') {
     const ta = document.createElement('textarea');
-    ta.style.cssText = 'width:100%;min-height:72px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-size:var(--fs-15);padding:10px 12px;resize:vertical;box-sizing:border-box;font-family:var(--fm);';
+    ta.className = 'survey-text-input';
     ta.placeholder = '자유롭게 입력해주세요...';
     ta.value = currentAnswer || '';
-    body.appendChild(ta);
-    const confirmBtn = document.createElement('button');
-    confirmBtn.style.cssText = 'background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:11px;font-size:var(--fs-15);font-weight:600;cursor:pointer;width:100%;';
-    confirmBtn.textContent = stepIdx < total-1 ? '저장 후 다음 →' : '✓ 완료';
-    confirmBtn.onclick = () => { state.answers[stepIdx] = ta.value.trim() || null; _surveyStepDone(stepIdx, ta.value.trim()); };
-    body.appendChild(confirmBtn);
+    optWrap.appendChild(ta);
+    body.appendChild(optWrap);
     setTimeout(() => ta.focus(), 100);
+    _renderSurveyActs(stepIdx, total, () => {
+      const v = ta.value.trim();
+      state.answers[stepIdx] = v || null;
+      _surveyStepDone(stepIdx, v);
+    });
 
-  // ── 복수 선택 ────────────────────────────────────────────────────────
+  // ── MULTI 타입 ───────────────────────────────────────────────────────
   } else if (q.type === 'multi') {
     const opts = q.options || [];
     const selSet = new Set(Array.isArray(currentAnswer) ? currentAnswer : []);
-    opts.forEach((opt, i) => {
-      const row = document.createElement('label');
+    opts.forEach(opt => {
       const isSel = selSet.has(opt);
-      row.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer;background:' + (isSel?'var(--accent3)':'var(--bg3)') + ';border:1px solid ' + (isSel?'var(--accent2)':'var(--border)') + ';border-radius:var(--r);padding:10px 12px;font-size:var(--fs-15);color:var(--text);transition:all .1s;';
-      const cb = document.createElement('input'); cb.type='checkbox'; cb.checked=isSel; cb.style.accentColor='var(--accent)';
-      const lbl = document.createElement('span'); lbl.textContent = (circleNums[i]||String(i+1)) + ' ' + opt;
-      row.append(cb, lbl);
-      row.onclick = () => {
-        if (selSet.has(opt)) { selSet.delete(opt); row.style.background='var(--bg3)'; row.style.borderColor='var(--border)'; cb.checked=false; }
-        else { selSet.add(opt); row.style.background='var(--accent3)'; row.style.borderColor='var(--accent2)'; cb.checked=true; }
+      const btn = document.createElement('button');
+      btn.className = 'survey-opt-btn checkbox' + (isSel ? ' selected' : '');
+      btn.innerHTML =
+        '<div class="opt-indicator">' + (isSel ? '✓' : '') + '</div>' +
+        '<div class="opt-body"><div class="opt-title">' + escH(opt) + '</div></div>';
+      btn.onclick = () => {
+        const nowSel = !selSet.has(opt);
+        if (nowSel) selSet.add(opt); else selSet.delete(opt);
+        btn.classList.toggle('selected', nowSel);
+        btn.querySelector('.opt-indicator').textContent = nowSel ? '✓' : '';
+        const h = document.getElementById('survey-hint');
+        if (h) h.textContent = '여러 개 골라도 좋아요' + (selSet.size ? ' · ' + selSet.size + '개 선택됨' : '');
+        const ctaCount = document.getElementById('survey-cta-count');
+        if (ctaCount) ctaCount.textContent = selSet.size;
+        const ctaBtn = document.getElementById('survey-cta-btn');
+        if (ctaBtn) ctaBtn.style.opacity = selSet.size ? '1' : '.4';
       };
-      body.appendChild(row);
+      optWrap.appendChild(btn);
     });
-    const confirmBtn = document.createElement('button');
-    confirmBtn.style.cssText = 'background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:11px;font-size:var(--fs-15);font-weight:600;cursor:pointer;margin-top:2px;width:100%;';
-    confirmBtn.textContent = stepIdx < total-1 ? '저장 후 다음 →' : '✓ 완료';
-    confirmBtn.onclick = () => { const sel=[...selSet]; state.answers[stepIdx]=sel.length?sel:null; _surveyStepDone(stepIdx, sel.join(', ')); };
-    body.appendChild(confirmBtn);
+    body.appendChild(optWrap);
+    _renderSurveyActs(stepIdx, total, () => {
+      const sel = [...selSet];
+      state.answers[stepIdx] = sel.length ? sel : null;
+      _surveyStepDone(stepIdx, sel.join(', '));
+    }, { multi: true, getCount: () => selSet.size });
 
-  // ── 단일 선택 ────────────────────────────────────────────────────────
+  // ── CHOICE (단일 선택) ───────────────────────────────────────────────
   } else {
     const opts = q.options || [];
-    opts.forEach((opt, i) => {
+    let selected = currentAnswer;
+    opts.forEach(opt => {
       const isSel = currentAnswer === opt;
       const btn = document.createElement('button');
-      btn.className = 'survey-opt-btn';
-      btn.style.cssText = 'display:flex;align-items:center;gap:10px;text-align:left;cursor:pointer;background:' + (isSel?'var(--accent3)':'var(--bg3)') + ';border:1px solid ' + (isSel?'var(--accent)':'var(--border)') + ';border-radius:var(--r);padding:11px 12px;font-size:var(--fs-15);color:var(--text);width:100%;transition:all .1s;';
-      btn.innerHTML = '<span style="color:var(--accent);font-weight:600;flex-shrink:0;">' + (circleNums[i]||String(i+1)) + '</span><span>' + escH(opt) + '</span>';
+      btn.className = 'survey-opt-btn radio' + (isSel ? ' selected' : '');
+      btn.innerHTML =
+        '<div class="opt-indicator"></div>' +
+        '<div class="opt-body"><div class="opt-title">' + escH(opt) + '</div></div>';
       btn.onclick = () => {
+        selected = opt;
         state.answers[stepIdx] = opt;
-        body.querySelectorAll('.survey-opt-btn').forEach(b => { b.style.background='var(--bg3)'; b.style.borderColor='var(--border)'; });
-        btn.style.background='var(--accent3)'; btn.style.borderColor='var(--accent)';
-        setTimeout(() => _surveyStepDone(stepIdx, opt), 220);
+        optWrap.querySelectorAll('.survey-opt-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        const ctaBtn = document.getElementById('survey-cta-btn');
+        if (ctaBtn) ctaBtn.style.opacity = '1';
       };
-      body.appendChild(btn);
+      optWrap.appendChild(btn);
     });
-    // 직접 입력
+    // 직접 입력 카드
     const customWrap = document.createElement('div');
-    customWrap.style.cssText = 'display:flex;align-items:center;gap:6px;';
-    const customBtn = document.createElement('button');
-    customBtn.style.cssText = 'display:flex;align-items:center;gap:8px;text-align:left;cursor:pointer;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:11px 12px;font-size:var(--fs-15);color:var(--text3);flex:1;';
-    customBtn.innerHTML = '<span style="flex-shrink:0;">○</span><span>직접 입력</span>';
-    customBtn.onclick = () => {
-      customWrap.innerHTML = '';
-      const inp2 = document.createElement('input'); inp2.type='text';
-      inp2.style.cssText = 'flex:1;background:var(--bg3);border:1px solid var(--accent2);border-radius:var(--r);color:var(--text);font-size:var(--fs-15);padding:9px 12px;font-family:var(--fm);';
-      inp2.placeholder = '직접 입력...';
+    customWrap.className = 'survey-opt-custom';
+    customWrap.innerHTML = '<div class="ic">✎</div><div style="flex:1">직접 입력하기</div>';
+    customWrap.onclick = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+      customWrap.innerHTML = '<div class="ic">✎</div>';
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.placeholder = '직접 입력...';
       const okBtn = document.createElement('button');
-      okBtn.textContent = '→'; okBtn.style.cssText = 'background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:9px 14px;font-size:var(--fs-15);cursor:pointer;flex-shrink:0;';
-      okBtn.onclick = () => { const v=inp2.value.trim(); if(!v)return; state.answers[stepIdx]=v; _surveyStepDone(stepIdx, v, true); };
-      inp2.onkeydown = e => { if(e.key==='Enter'){e.preventDefault();okBtn.click();} };
-      customWrap.append(inp2, okBtn); setTimeout(() => inp2.focus(), 50);
+      okBtn.className = 'ok-btn';
+      okBtn.textContent = '→';
+      okBtn.onclick = () => {
+        const v = inp.value.trim();
+        if (!v) return;
+        state.answers[stepIdx] = v;
+        _surveyStepDone(stepIdx, v, true);
+      };
+      inp.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); okBtn.click(); } };
+      customWrap.append(inp, okBtn);
+      setTimeout(() => inp.focus(), 50);
     };
-    customWrap.appendChild(customBtn);
-    body.appendChild(customWrap);
+    optWrap.appendChild(customWrap);
+    body.appendChild(optWrap);
+    _renderSurveyActs(stepIdx, total, () => {
+      if (!selected) return;
+      _surveyStepDone(stepIdx, selected);
+    }, { disabled: () => !selected });
+  }
+}
+
+// rp-acts 영역에 건너뛰기 + 주요 CTA를 그립니다.
+function _renderSurveyActs(stepIdx, total, onConfirm, opts) {
+  opts = opts || {};
+  const acts = document.getElementById('rp-acts');
+  if (!acts) return;
+  acts.innerHTML = '';
+
+  // 좌측: 건너뛰기 (다중 질문, 마지막 아닐 때)
+  if (total > 1 && stepIdx < total - 1) {
+    const skip = document.createElement('button');
+    skip.className = 'rp-btn';
+    skip.textContent = '건너뛰기';
+    skip.style.flex = '0 0 100px';
+    skip.onclick = () => _renderSurveyStep(stepIdx + 1);
+    acts.appendChild(skip);
   }
 
-  // ── rp-acts: 건너뛰기 + 닫기 ────────────────────────────────────────
-  if (acts) {
-    acts.innerHTML = '';
-    if (total > 1 && stepIdx < total-1) {
-      const skipBtn = document.createElement('button');
-      skipBtn.className = 'rp-btn';
-      skipBtn.textContent = '건너뛰기 →';
-      skipBtn.onclick = () => _renderSurveyStep(stepIdx+1);
-      acts.appendChild(skipBtn);
-    }
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'rp-btn';
-    closeBtn.textContent = '닫기';
-    closeBtn.onclick = () => { closeResponsePanel(); _surveyState = null; };
-    acts.appendChild(closeBtn);
+  // 우측: 주요 CTA
+  const next = document.createElement('button');
+  next.className = 'rp-btn primary';
+  next.id = 'survey-cta-btn';
+  const isLast = stepIdx >= total - 1;
+  const lbl = isLast ? '✓ 완료' : '다음 질문';
+  if (opts.multi) {
+    const c = opts.getCount();
+    next.innerHTML = '<span>' + lbl + '</span>' +
+      '<span id="survey-cta-count" class="cta-count">' + c + '</span>' +
+      (isLast ? '' : '<span style="margin-left:6px">→</span>');
+    if (!c) next.style.opacity = '.4';
+  } else {
+    next.innerHTML = '<span>' + lbl + '</span>' + (isLast ? '' : '<span style="margin-left:6px">→</span>');
+    if (opts.disabled && opts.disabled()) next.style.opacity = '.4';
   }
+  next.onclick = onConfirm;
+  acts.appendChild(next);
+
+  // 우상단 모서리: 닫기는 rp-close-btn으로 이미 있음 (헤더에)
 }
 
 async function _surveyStepDone(stepIdx, value, isCustom) {
