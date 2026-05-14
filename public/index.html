@@ -2241,6 +2241,26 @@ const SW_VERSION = 'v43.6';
   </div>
 </div>
 
+<!-- Sync Conflict Modal -->
+<div class="modal-overlay" id="sync-conflict-modal">
+  <div class="modal" style="width:min(360px,90vw);gap:14px;">
+    <div class="modal-title" style="font-size:16px;">☁️ 동기화 충돌</div>
+    <div style="font-size:var(--fs-13);color:var(--text2);line-height:1.8;">
+      <span id="sync-conflict-local-info" style="color:var(--text);"></span><br>
+      클라우드도 업데이트됐어요.<br>
+      어떻게 할까요?
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px;">
+      <button id="sync-conflict-upload-btn" style="background:var(--accent);color:#111;border:none;border-radius:var(--r);font-size:var(--fs-13);font-weight:600;padding:10px;cursor:pointer;">
+        내 변경사항 → 클라우드에 올리기
+      </button>
+      <button id="sync-conflict-download-btn" style="background:transparent;color:var(--text2);border:1px solid var(--border2);border-radius:var(--r);font-size:var(--fs-13);padding:10px;cursor:pointer;">
+        클라우드 가져오기 (내 변경사항 버림)
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 <div class="content-toast" id="content-toast"></div>
@@ -2433,6 +2453,51 @@ async function syncToSupabase(projects) {
   }
 }
 
+function showSyncConflictModal(remote, remoteTime) {
+  // dirty 프로젝트 이름 수집
+  const dirtyNames = [..._dirtyProjectIds]
+    .map(id => S.projects.find(p => p.id === id)?.title)
+    .filter(Boolean);
+  const localInfo = dirtyNames.length
+    ? `"${dirtyNames.join('", "')}" 에 저장 안 된 변경사항이 있고,`
+    : '로컬에 저장 안 된 변경사항이 있고,';
+  document.getElementById('sync-conflict-local-info').textContent = localInfo;
+
+  const modal = document.getElementById('sync-conflict-modal');
+  modal.classList.add('show');
+
+  const uploadBtn = document.getElementById('sync-conflict-upload-btn');
+  const downloadBtn = document.getElementById('sync-conflict-download-btn');
+
+  const close = () => modal.classList.remove('show');
+
+  uploadBtn.onclick = () => {
+    close();
+    if (_dirtyProjectIds.size === 0) {
+      S.projects.forEach(p => _dirtyProjectIds.add(p.id));
+      _saveDirtyIds();
+    }
+    syncToSupabase(S.projects).catch(e => console.warn('Conflict upload failed', e));
+    updateSyncStatus('✓ 내 변경사항 클라우드에 업로드');
+  };
+
+  downloadBtn.onclick = () => {
+    close();
+    localStorage.setItem(_storageKey('ss_projects'), JSON.stringify(remote));
+    localStorage.setItem(_storageKey('ss_local_save_time'), String(remoteTime));
+    localStorage.setItem(_storageKey('ss_last_upload_time'), String(remoteTime));
+    _clearDirtyIds();
+    S.projects = remote;
+    S.cur = null;
+    S.selectedIds.clear();
+    document.getElementById('app-screen')?.classList.remove('show');
+    document.getElementById('home-screen').style.display = 'flex';
+    renderHome();
+    updateSyncStatus('✓ 클라우드에서 불러옴');
+    toast('☁️ 클라우드 데이터로 교체됐습니다', 3000);
+  };
+}
+
 // Supabase에서 최신 데이터 가져오기 (Vercel 프록시 경유)
 async function syncFromSupabase(force = false) {
   if (!isSyncEnabled()) return false;
@@ -2509,16 +2574,20 @@ async function syncFromSupabase(force = false) {
       const msg = IS_ADMIN ? '✓ ADMIN — 전체 ' + remote.length + '개 프로젝트 (읽기 전용)' : '✓ 클라우드에서 불러옴 (' + remote.length + '개)';
       updateSyncStatus(msg);
       toast(msg, 3000);
-    } else if (force && (!remoteIsNewer || hasUnsyncedChanges)) {
+    } else if (force && remoteIsNewer && hasUnsyncedChanges) {
+      // 충돌: 로컬 변경사항 + 클라우드 변경사항 → 사용자에게 선택 요청
       _syncReady = true;
-      // dirty 없으면(추적 정보 유실) 전체를 dirty로 복구
+      updateSyncStatus('⚠ 동기화 충돌 — 선택 필요');
+      showSyncConflictModal(remote, remoteTime);
+    } else if (force && !remoteIsNewer) {
+      // 로컬이 더 최신 → 클라우드에 업로드
+      _syncReady = true;
       if (_dirtyProjectIds.size === 0) {
         S.projects.forEach(p => _dirtyProjectIds.add(p.id));
         _saveDirtyIds();
       }
       syncToSupabase(S.projects).catch(e => console.warn('Re-sync to Supabase failed', e));
-      const reason = hasUnsyncedChanges && remoteIsNewer ? '미업로드 변경 보호 — 클라우드에 업로드' : '로컬 데이터가 최신 — 클라우드에 업로드';
-      updateSyncStatus('✓ ' + reason);
+      updateSyncStatus('✓ 로컬 데이터가 최신 — 클라우드에 업로드');
     }
     return true;
   } catch(e) {
