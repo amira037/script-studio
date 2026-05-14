@@ -2328,7 +2328,9 @@ function getSB() {
 // 로컬 우선 storage (로컬에 항상 저장, 백그라운드로 Supabase 동기화)
 // ss_projects는 유저별로 분리 (ss_projects_me, ss_projects_director 등)
 const _storageKey = (key) => {
-  if (key === 'ss_projects') return 'ss_projects_' + USER_ID;
+  // 유저별로 분리해야 하는 키
+  if (['ss_projects', 'ss_local_save_time', 'ss_last_upload_time'].includes(key))
+    return key + '_' + USER_ID;
   return key; // ss_api 등 공용 키는 그대로
 };
 // syncToSupabase 디바운스 — 30초. 구조 변경 시 즉시 실행
