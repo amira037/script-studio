@@ -2314,8 +2314,13 @@ const _storageKey = (key) => {
 // syncToSupabase 디바운스 — 30초. 구조 변경 시 즉시 실행
 let _syncDebounceTimer = null;
 let _syncPendingProjects = null;
+let _dirtyProjectIds = new Set(); // 변경된 프로젝트 ID만 추적
 function _scheduleSyncToSupabase(projects, immediate = false) {
   _syncPendingProjects = projects;
+  // 현재 열린 프로젝트만 dirty 표시. S.cur 없으면(홈화면 구조 변경) 전체 표시
+  const changedId = S.cur?.id;
+  if (changedId) _dirtyProjectIds.add(changedId);
+  else projects.forEach(p => _dirtyProjectIds.add(p.id));
   if (immediate) {
     clearTimeout(_syncDebounceTimer);
     _syncDebounceTimer = null;
@@ -2350,12 +2355,18 @@ const storage = {
 };
 
 // Supabase에 프로젝트 데이터 저장 (Vercel 프록시 경유)
-async function syncToSupabase(projects) {
+async function syncToSupabase(projects, uploadAll = false) {
   // 빈 데이터는 절대 업로드하지 않음
   if (!projects || !projects.length) return;
 
+  // dirty 프로젝트만 업로드 (uploadAll=true면 전체)
+  const toUpload = uploadAll || _dirtyProjectIds.size === 0
+    ? projects
+    : projects.filter(p => _dirtyProjectIds.has(p.id));
+  if (!toUpload.length) return;
+
   // 프로젝트별 정리 (conflictData, diff, 재계산 가능 필드, 구채팅 제거)
-  const cleanProjects = projects.map(p => {
+  const cleanProjects = toUpload.map(p => {
     const clean = JSON.parse(JSON.stringify(p));
     delete clean.conflictData;
     if (clean.scenes) clean.scenes.forEach(sc => {
@@ -2397,6 +2408,7 @@ async function syncToSupabase(projects) {
 
     clearTimeout(timeoutId);
     if (allOk) {
+      _dirtyProjectIds.clear();
       localStorage.setItem(_storageKey('ss_last_upload_time'), String(Date.now()));
       updateSyncStatus('✓ 저장됨');
     } else {
@@ -2490,7 +2502,7 @@ async function syncFromSupabase(force = false) {
       toast(msg, 3000);
     } else if (force && (!remoteIsNewer || hasUnsyncedChanges)) {
       _syncReady = true;
-      syncToSupabase(S.projects).catch(e => console.warn('Re-sync to Supabase failed', e));
+      syncToSupabase(S.projects, true).catch(e => console.warn('Re-sync to Supabase failed', e));
       const reason = hasUnsyncedChanges && remoteIsNewer ? '미업로드 변경 보호 — 클라우드에 업로드' : '로컬 데이터가 최신 — 클라우드에 업로드';
       updateSyncStatus('✓ ' + reason);
     }
