@@ -7189,12 +7189,20 @@ function handleLineKeydown(e, sc, lineIdx, lw) {
     const targetEl = e.key === 'ArrowUp' ? allEls[curIdx - 1] : allEls[curIdx + 1];
     if (targetEl && targetEl.contentEditable === 'true') {
       e.preventDefault();
-      if (e.isComposing) document.activeElement?.blur(); // IME 조합 중: 현재 요소에서 조합 완료 처리
-      targetEl.focus();
-      // 커서를 줄 끝으로
-      const r = document.createRange(); const s = window.getSelection();
-      r.selectNodeContents(targetEl); r.collapse(false);
-      s.removeAllRanges(); s.addRange(r);
+      const doMove = () => {
+        targetEl.focus();
+        const r = document.createRange(); const sel = window.getSelection();
+        r.selectNodeContents(targetEl); r.collapse(false);
+        sel.removeAllRanges(); sel.addRange(r);
+      };
+      // IME 조합 중이면 현재 요소 blur로 조합 완료 후 다음 프레임에 이동
+      // (즉시 이동하면 macOS 한글 IME가 마지막 글자를 두 줄에 중복 입력)
+      if (e.isComposing || e.keyCode === 229) {
+        document.activeElement?.blur();
+        setTimeout(doMove, 0);
+      } else {
+        doMove();
+      }
       return;
     }
   }
