@@ -6904,7 +6904,7 @@ function buildSceneBlock(sc, i) {
         const typeRow = document.createElement('div');
         typeRow.style.cssText = 'display:flex;gap:3px;margin-bottom:4px;';
         const types = [['action','지문'],['character','배역명'],['dialogue','대사'],['parenthetical','(지문)']];
-        if (isMusicalProject()) types.push(['lyric','가사']);
+        if (isTheatricalProject()) types.push(['lyric','가사']);
         types.forEach(([t, label]) => {
           const btn = document.createElement('button');
           const isActive = line.type === t;
@@ -7104,7 +7104,7 @@ function buildSceneBlock(sc, i) {
       const addRow = document.createElement('div');
       addRow.style.cssText = 'display:flex;gap:4px;padding:6px 0 2px;flex-wrap:wrap;';
       const lineTypes = [['action','지문'],['character','배역명'],['dialogue','대사'],['parenthetical','괄호 지문']];
-      if (isMusicalProject()) lineTypes.push(['lyric','가사']);
+      if (isTheatricalProject()) lineTypes.push(['lyric','가사']);
       lineTypes.forEach(([t, label]) => {
         const btn = document.createElement('button');
         btn.style.cssText = 'font-size:var(--fs-9);padding:2px 8px;border-radius:3px;border:1px dashed var(--border2);background:none;color:var(--text2);cursor:pointer;';
@@ -7148,7 +7148,7 @@ function handleLineKeydown(e, sc, lineIdx, lw) {
     const line = sc.lines[lineIdx];
     if (!line || line.locked || sc.locked) return;
     if (line.type === 'slug') return;
-    const _typeCycle = isMusicalProject()
+    const _typeCycle = isTheatricalProject()
       ? ['action', 'character', 'dialogue', 'parenthetical', 'lyric']
       : ['action', 'character', 'dialogue', 'parenthetical'];
     const _typeLabels = { action: '지문', character: '배역명', dialogue: '대사', parenthetical: '(지문)', lyric: '가사' };
