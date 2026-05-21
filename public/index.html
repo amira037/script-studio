@@ -7195,10 +7195,10 @@ function handleLineKeydown(e, sc, lineIdx, lw) {
         r.selectNodeContents(targetEl); r.collapse(false);
         sel.removeAllRanges(); sel.addRange(r);
       };
-      // IME 조합 중이면 현재 요소 blur로 조합 완료 후 다음 프레임에 이동
-      // (즉시 이동하면 macOS 한글 IME가 마지막 글자를 두 줄에 중복 입력)
+      // IME 조합 중이면 다음 프레임으로 이동 지연
+      // blur() 호출 금지 — 브라우저가 ArrowKey로 이미 조합을 커밋하므로
+      // blur()까지 부르면 커밋이 2번 발생해 같은 자리에 글자 중복
       if (e.isComposing || e.keyCode === 229) {
-        document.activeElement?.blur();
         setTimeout(doMove, 0);
       } else {
         doMove();
