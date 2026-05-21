@@ -15210,7 +15210,28 @@ async function handleScriptPrompt(text) {
         const _chkSynopsisCtx = (S.cur.synopsis||'').trim()
           ? '[시놉시스]\n' + S.cur.synopsis.slice(0, 300) + '\n\n'
           : '';
-        const chunkSys = '당신은 대본 편집 AI입니다.\n\n' + _chkSynopsisCtx + _chkCharCtx + chunkMemoCtx + chunkFloCtxBlock + '[전체 씬 목록 — 참조용]\n'+chunkFullList+'\n\n[편집 가능한 씬 데이터]\n' +
+        const _chkSiblingCtx = (() => {
+          const subSc = chunkScenes.find(s => s.parentId);
+          if (!subSc) return '';
+          const siblings = (S.cur.scenes||[])
+            .filter(s => s.parentId === subSc.parentId && !s.draft && !chunkScenes.some(c => c.id === s.id))
+            .sort((a, b) => a.subOrder - b.subOrder);
+          if (!siblings.length) return '';
+          const sibText = siblings.map(s => {
+            const lbl = getSceneLabel(s, S.cur.scenes);
+            const lines = (s.lines||[]).map(l => {
+              if (l.type === 'character')     return '[배역] ' + l.text;
+              if (l.type === 'action')        return '[지문] ' + l.text;
+              if (l.type === 'parenthetical') return '(' + l.text + ')';
+              if (l.type === 'lyric')         return '[가사] ' + l.text;
+              if (l.type === 'slug')          return '';
+              return l.text;
+            }).filter(Boolean).join('\n');
+            return lbl + ' "' + s.title + '":\n' + lines;
+          }).join('\n\n');
+          return '[같은 장면 형제 서브씬 — 읽기 전용 맥락. 수정 불가, 흐름 파악용]\n' + sibText + '\n\n';
+        })();
+        const chunkSys = '당신은 대본 편집 AI입니다.\n\n' + _chkSynopsisCtx + _chkCharCtx + chunkMemoCtx + chunkFloCtxBlock + _chkSiblingCtx + '[전체 씬 목록 — 참조용]\n'+chunkFullList+'\n\n[편집 가능한 씬 데이터]\n' +
           '잠금(locked:true)된 줄과 중요 대사(keyline:true)는 절대 수정하지 마세요.\n' +
           '사용자가 압축/단축을 명시적으로 요청하지 않는 한, 각 씬의 lines는 원본과 같거나 더 많아야 합니다. 대사와 지문을 임의로 생략하지 마세요.\n' +
           '편집 시 반드시 <r>[{"sceneId":숫자,"title":"씬제목","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용","locked":false}],"comment":"변경사항 한 줄"}]</r> 형식으로 응답하세요.\n' +
@@ -15311,11 +15332,35 @@ async function handleScriptPrompt(text) {
     ? '[시놉시스]\n' + S.cur.synopsis.slice(0, 300) + '\n\n'
     : '';
 
+  // 서브씬 편집 시 형제 서브씬 전체 내용을 읽기 전용 맥락으로 추가
+  const _siblingCtx = (() => {
+    const subSc = selectedScenes.find(s => s.parentId);
+    if (!subSc) return '';
+    const siblings = allScenes
+      .filter(s => s.parentId === subSc.parentId && !s.draft && !selectedScenes.some(sel => sel.id === s.id))
+      .sort((a, b) => a.subOrder - b.subOrder);
+    if (!siblings.length) return '';
+    const sibText = siblings.map(s => {
+      const lbl = getSceneLabel(s, allScenes);
+      const lines = (s.lines || []).map(l => {
+        if (l.type === 'character')     return '[배역] ' + l.text;
+        if (l.type === 'action')        return '[지문] ' + l.text;
+        if (l.type === 'parenthetical') return '(' + l.text + ')';
+        if (l.type === 'lyric')         return '[가사] ' + l.text;
+        if (l.type === 'slug')          return '';
+        return l.text;
+      }).filter(Boolean).join('\n');
+      return lbl + ' "' + s.title + '":\n' + lines;
+    }).join('\n\n');
+    return '[같은 장면 형제 서브씬 — 읽기 전용 맥락. 수정 불가, 흐름 파악용]\n' + sibText + '\n\n';
+  })();
+
   const sys = '당신은 대본 편집 AI입니다.\n\n' +
     _synopsisCtx +
     _charCtx +
     memoCtxScript +
     floCtxBlock +
+    _siblingCtx +
     '[전체 씬 목록 — 참조용]\n' + fullSceneList + '\n\n' +
     '[편집 가능한 씬 데이터]\n' +
     '⚠️ 중요: 씬 데이터에 표시된 sceneId를 반드시 그대로 사용하세요. SC번호(1,2,3...)가 아닌 sceneId 숫자값을 그대로 써야 합니다.\n' +
