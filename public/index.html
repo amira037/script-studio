@@ -5914,12 +5914,15 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
       wrap.remove();
       // afterId 위치에 씬들 삽입
       let insertAfter = afterId;
+      // 첫 삽입 위치가 서브씬이면 같은 부모로 상속
+      const _firstAnchor = S.cur.scenes?.find(s => s.id == afterId);
+      const _inheritParentId = _firstAnchor?.parentId || null;
       scenesData.forEach(s => {
         const newSc = {
           id: Date.now() + Math.floor(Math.random() * 100000),
           title: s.title || '새 씬',
           locked: false,
-          parentId: null, subOrder: 0, subSceneType: null,
+          parentId: _inheritParentId, subOrder: 0, subSceneType: _inheritParentId ? (_firstAnchor.subSceneType || null) : null,
           lines: [
             { type:'slug', text: isTheatricalProject() ? (s.slug || '1막 1장') : (s.slug || 'INT. 장소 - 시간대'), locked:false },
             ...(s.lines||[]).map(l => ({ type: l.type||'action', text:l.text||'', locked:false }))
@@ -5932,13 +5935,20 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
           S.cur.scenes.push(newSc);
         } else if (insertAfter === '__first__') {
           S.cur.scenes.unshift(newSc);
-          insertAfter = newSc.id; // 다음 씬은 이 씬 뒤에
+          insertAfter = newSc.id;
         } else {
           const idx = S.cur.scenes.findIndex(s => s.id == insertAfter);
           S.cur.scenes.splice(idx + 1, 0, newSc);
           insertAfter = newSc.id;
         }
       });
+      // 서브씬 삽입 후 subOrder 재정렬
+      if (_inheritParentId) {
+        S.cur.scenes
+          .filter(s => s.parentId === _inheritParentId && !s.draft)
+          .sort((a, b) => S.cur.scenes.indexOf(a) - S.cur.scenes.indexOf(b))
+          .forEach((s, i) => { s.subOrder = i; });
+      }
       save(); renderScriptBody(); renderNavSceneList();
       if (isTheatricalProject()) {
         toast(`✓ 씬 ${scenesData.length}개 추가 완료! 각 씬을 우클릭 → '서브씬으로 나누기'로 분할할 수 있습니다.`, 5000);
@@ -6015,7 +6025,20 @@ function addSceneAt(title, afterId, slug) {
     S.cur.scenes.unshift(sc);
   } else {
     const idx = S.cur.scenes.findIndex(s => s.id == afterId);
-    S.cur.scenes.splice(idx + 1, 0, sc);
+    const afterSc = S.cur.scenes[idx];
+    // 서브씬 사이에 삽입하면 같은 부모의 서브씬으로 자동 처리
+    if (afterSc?.parentId) {
+      sc.parentId = afterSc.parentId;
+      sc.subSceneType = afterSc.subSceneType;
+      S.cur.scenes.splice(idx + 1, 0, sc);
+      // 부모 아래 서브씬 subOrder 재정렬
+      S.cur.scenes
+        .filter(s => s.parentId === sc.parentId && !s.draft)
+        .sort((a, b) => S.cur.scenes.indexOf(a) - S.cur.scenes.indexOf(b))
+        .forEach((s, i) => { s.subOrder = i; });
+    } else {
+      S.cur.scenes.splice(idx + 1, 0, sc);
+    }
   }
   save(); renderScriptBody(); renderNavSceneList();
   setTimeout(() => scrollToScene(sc.id), 100);
