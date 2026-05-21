@@ -816,7 +816,7 @@ textarea, input { font-family:var(--fb); }
 .line-parenthetical { text-align:center; color:var(--text3); font-style:italic; }
 .line-dialogue { max-width:min(600px, 90%); margin:0 auto; text-align:center; color:#eae6e0; word-break:keep-all; overflow-wrap:break-word; }
 .line-slug { color:var(--accent); font-weight:600; letter-spacing:.08em; font-size:var(--fs-13); text-transform:uppercase; border-bottom:1px solid rgba(200,169,110,.2); padding-bottom:6px; margin-bottom:4px; display:block; }
-.line-lyric { max-width:min(600px, 90%); margin:0 auto; text-align:center; color:var(--purple); word-break:keep-all; overflow-wrap:break-word; font-style:italic; }
+.line-lyric { max-width:min(560px, 92%); margin:0 auto; padding-left:14px; border-left:2px solid var(--purple); color:var(--purple); word-break:keep-all; overflow-wrap:break-word; font-style:italic; font-size:0.97em; line-height:1.9; }
 .line-slug:empty:before { content:attr(data-placeholder); color:var(--text3); font-weight:400; letter-spacing:0; text-transform:none; font-style:italic; pointer-events:none; }
 
 /* Ghost suggestion */
@@ -7081,6 +7081,7 @@ function buildSceneBlock(sc, i) {
       const addRow = document.createElement('div');
       addRow.style.cssText = 'display:flex;gap:4px;padding:6px 0 2px;flex-wrap:wrap;';
       const lineTypes = [['action','지문'],['character','배역명'],['dialogue','대사'],['parenthetical','괄호 지문']];
+      if (isMusicalProject()) lineTypes.push(['lyric','가사']);
       lineTypes.forEach(([t, label]) => {
         const btn = document.createElement('button');
         btn.style.cssText = 'font-size:var(--fs-9);padding:2px 8px;border-radius:3px;border:1px dashed var(--border2);background:none;color:var(--text2);cursor:pointer;';
@@ -7124,8 +7125,10 @@ function handleLineKeydown(e, sc, lineIdx, lw) {
     const line = sc.lines[lineIdx];
     if (!line || line.locked || sc.locked) return;
     if (line.type === 'slug') return;
-    const _typeCycle = ['action', 'character', 'dialogue', 'parenthetical'];
-    const _typeLabels = { action: '지문', character: '배역명', dialogue: '대사', parenthetical: '(지문)' };
+    const _typeCycle = isMusicalProject()
+      ? ['action', 'character', 'dialogue', 'parenthetical', 'lyric']
+      : ['action', 'character', 'dialogue', 'parenthetical'];
+    const _typeLabels = { action: '지문', character: '배역명', dialogue: '대사', parenthetical: '(지문)', lyric: '가사' };
     const _curIdx = _typeCycle.indexOf(line.type);
     line.type = _typeCycle[(_curIdx + 1) % _typeCycle.length];
     const el = lw.querySelector('.line-el');
@@ -7668,7 +7671,13 @@ async function splitIntoSubScenes(scId) {
 
   showAnalyzing('서브씬 분석 중...');
 
-  const scText = sc.lines.map(l => l.text).join('\n');
+  const scText = sc.lines.map(l => {
+    if (l.type === 'character')     return '[배역] ' + l.text;
+    if (l.type === 'action')        return '[지문] ' + l.text;
+    if (l.type === 'parenthetical') return '(' + l.text + ')';
+    if (l.type === 'lyric')         return '[가사] ' + l.text;
+    return l.text;
+  }).join('\n');
   const charList = (S.cur.characters || []).map(c => c.name).join(', ');
 
   const typeOptions = isMusicalProject()
@@ -7697,6 +7706,9 @@ ${scText}
 - 분할선은 반드시 대사나 지문의 자연스러운 경계에서
 - type은 반드시 다음 중 하나: ${typeOptions}
 - 뮤지컬 "number" 서브씬의 lines는 type:"lyric" 사용
+- 입력 텍스트의 [배역] 표시는 배역명 줄 → lines에서 type:"character"로 반드시 포함
+- 입력 텍스트의 [지문] 표시는 type:"action", (괄호) 표시는 type:"parenthetical", [가사] 표시는 type:"lyric"
+- 배역명(character) 줄은 절대 생략하지 말 것
 
 반드시 아래 형식으로만 반환:
 <subscenes>[
