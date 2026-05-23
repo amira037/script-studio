@@ -5392,7 +5392,7 @@ function renderNavSceneList() {
       subTypeBadge +
       '</div>' +
       '<div class="sc-nav-name" style="display:flex;align-items:center;gap:4px;' + (isSubScene ? 'color:var(--text2);' : '') + '">' + escH(sc.title) + diffDot + '</div>' +
-      (slugTxt ? '<div class="sc-nav-slug">' + escH(slugTxt) + '</div>' : '') +
+      (!isTheatricalProject() && slugTxt ? '<div class="sc-nav-slug">' + escH(slugTxt) + '</div>' : '') +
       '';
     item.appendChild(info);
 
@@ -5981,10 +5981,47 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
     aiBtn.textContent = '✦ AI 제안'; aiBtn.disabled = false;
   };
 
+  // 서브씬 다음 삽입인 경우 — 마지막 서브씬일 때만 토글 표시
+  let _addAsTopLevel = false;
+  const _afterSc = S.cur?.scenes?.find(s => s.id == afterId);
+  const _isLastSubScene = _afterSc?.parentId && (() => {
+    const scenes = S.cur?.scenes || [];
+    const nextSc = scenes[scenes.indexOf(_afterSc) + 1];
+    return !nextSc || nextSc.parentId !== _afterSc.parentId;
+  })();
+  if (_isLastSubScene && isTheatricalProject()) {
+    const typeRow = document.createElement('div');
+    typeRow.style.cssText = 'display:flex;gap:4px;padding:4px 14px 2px;';
+    const mkTypeBtn = (label, isActive) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.style.cssText = 'flex:1;font-size:var(--fs-10);padding:4px 0;border-radius:var(--r);cursor:pointer;font-family:var(--fm);transition:all .12s;' +
+        (isActive ? 'background:var(--accent3);border:1px solid var(--accent2);color:var(--accent);' : 'background:none;border:1px solid var(--border);color:var(--text3);');
+      return b;
+    };
+    const subBtn = mkTypeBtn('서브씬으로 추가', true);
+    const topBtn = mkTypeBtn('독립 씬으로 추가', false);
+    subBtn.onclick = () => {
+      _addAsTopLevel = false;
+      subBtn.style.cssText = subBtn.style.cssText.replace('background:none;border:1px solid var(--border);color:var(--text3);', 'background:var(--accent3);border:1px solid var(--accent2);color:var(--accent);');
+      topBtn.style.cssText = topBtn.style.cssText.replace('background:var(--accent3);border:1px solid var(--accent2);color:var(--accent);', 'background:none;border:1px solid var(--border);color:var(--text3);');
+    };
+    topBtn.onclick = () => {
+      _addAsTopLevel = true;
+      topBtn.style.cssText = topBtn.style.cssText.replace('background:none;border:1px solid var(--border);color:var(--text3);', 'background:var(--accent3);border:1px solid var(--accent2);color:var(--accent);');
+      subBtn.style.cssText = subBtn.style.cssText.replace('background:var(--accent3);border:1px solid var(--accent2);color:var(--accent);', 'background:none;border:1px solid var(--border);color:var(--text3);');
+    };
+    typeRow.append(subBtn, topBtn);
+    // slug input 앞에 삽입
+    const slugDiv = wrap.querySelector('#nsi-slug')?.parentElement;
+    if (slugDiv) slugDiv.parentElement.insertBefore(typeRow, slugDiv);
+    else wrap.querySelector('.new-scene-inline-acts')?.before(typeRow);
+  }
+
   wrap.querySelector('.new-scene-save').onclick = () => {
     const title = titleInp.value.trim() || '새 씬';
     const slug = slugInp.value.trim() || 'INT. 장소 - 시간대';
-    addSceneAt(title, afterId, slug);
+    addSceneAt(title, afterId, slug, _addAsTopLevel);
     wrap.remove();
   };
   titleInp.onkeydown = (e) => { if (e.key==='Enter') { e.preventDefault(); slugInp.focus(); } if (e.key==='Escape') { wrap.remove(); } };
@@ -5995,7 +6032,7 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
     if (!document.body.contains(wrap)) return;
     const title = titleInp.value.trim() || '새 씬';
     const slug = slugInp.value.trim() || 'INT. 장소 - 시간대';
-    addSceneAt(title, afterId, slug);
+    addSceneAt(title, afterId, slug, _addAsTopLevel);
     wrap.remove();
   };
   setTimeout(() => {
@@ -6016,7 +6053,7 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
   titleInp.focus();
 }
 
-function addSceneAt(title, afterId, slug) {
+function addSceneAt(title, afterId, slug, forceTopLevel = false) {
   const sc = makeScene(title, slug);
   if (!S.cur.scenes) S.cur.scenes = [];
   if (!afterId || afterId === 'null') {
@@ -6026,8 +6063,8 @@ function addSceneAt(title, afterId, slug) {
   } else {
     const idx = S.cur.scenes.findIndex(s => s.id == afterId);
     const afterSc = S.cur.scenes[idx];
-    // 서브씬 사이에 삽입하면 같은 부모의 서브씬으로 자동 처리
-    if (afterSc?.parentId) {
+    // 서브씬 다음 삽입 — forceTopLevel이면 독립 씬으로, 아니면 같은 부모 서브씬으로
+    if (afterSc?.parentId && !forceTopLevel) {
       sc.parentId = afterSc.parentId;
       sc.subSceneType = afterSc.subSceneType;
       S.cur.scenes.splice(idx + 1, 0, sc);
@@ -6036,6 +6073,15 @@ function addSceneAt(title, afterId, slug) {
         .filter(s => s.parentId === sc.parentId && !s.draft)
         .sort((a, b) => S.cur.scenes.indexOf(a) - S.cur.scenes.indexOf(b))
         .forEach((s, i) => { s.subOrder = i; });
+    } else if (afterSc?.parentId && forceTopLevel) {
+      // 독립 씬: 해당 부모의 마지막 서브씬 뒤에 삽입
+      const parentId = afterSc.parentId;
+      let lastSubIdx = idx;
+      for (let i = idx + 1; i < S.cur.scenes.length; i++) {
+        if (S.cur.scenes[i].parentId === parentId && !S.cur.scenes[i].draft) lastSubIdx = i;
+        else break;
+      }
+      S.cur.scenes.splice(lastSubIdx + 1, 0, sc);
     } else {
       S.cur.scenes.splice(idx + 1, 0, sc);
     }
@@ -6297,16 +6343,23 @@ function buildSceneBlock(sc, i) {
         menu.appendChild(b);
       };
       const hasChildren = (S.cur.scenes||[]).some(s => s.parentId === sc.id);
-      // 최상위 씬: 서브씬으로 나누기
-      if (!sc.parentId && !sc.draft) {
+      // 최상위 씬: 서브씬으로 나누기 (연극/뮤지컬 전용)
+      if (!sc.parentId && !sc.draft && isTheatricalProject()) {
         mkHdrBtn('✦ 서브씬으로 나누기', 'var(--accent)', () => splitIntoSubScenes(sc.id));
       }
-      // 서브씬이 있는 부모 씬: 합치기
-      if (!sc.parentId && hasChildren) {
+      // 서브씬이 있는 부모 씬: 합치기 (연극/뮤지컬 전용)
+      if (!sc.parentId && hasChildren && isTheatricalProject()) {
         const div = document.createElement('div');
         div.style.cssText = 'height:1px;background:var(--border);margin:2px 0;';
         menu.appendChild(div);
         mkHdrBtn('↩ 서브씬 합치기', 'var(--text2)', () => mergeSubScenes(sc.id));
+      }
+      // 서브씬: 여기서부터 새 씬으로 분리 (연극/뮤지컬 전용)
+      if (sc.parentId && !sc.draft && isTheatricalProject()) {
+        const div2 = document.createElement('div');
+        div2.style.cssText = 'height:1px;background:var(--border);margin:2px 0;';
+        menu.appendChild(div2);
+        mkHdrBtn('↗ 여기서부터 새 씬으로 분리', 'var(--blue)', () => splitSubScenesFrom(sc.id));
       }
       if (!menu.querySelector('button')) { menu.remove(); return; }
       document.body.appendChild(menu);
@@ -6336,6 +6389,8 @@ function buildSceneBlock(sc, i) {
   const renderAllLines = () => {
     linesWrap.innerHTML = '';
     sc.lines.forEach((line, li) => {
+      // 연극/뮤지컬에서는 슬러그 라인 숨김
+      if (line.type === 'slug' && isTheatricalProject()) return;
       const lw = document.createElement('div'); lw.className = 'line-wrap';
       lw.style.cssText = 'display:flex;align-items:flex-start;position:relative;' +
         (line.aiSelected ? 'background:rgba(232,168,74,0.1);border-left:3px solid var(--accent);padding-left:3px;border-radius:2px;' : '');
@@ -7834,6 +7889,56 @@ function applySubSceneSplit(parentSc, subData) {
   if (panel) panel.remove();
   closeResponsePanel();
   toast(`✓ ${newSubScenes.length}개 서브씬으로 분할됐습니다`);
+}
+
+// 서브씬을 여기서부터 새 씬으로 분리
+// scId 서브씬 및 이후 형제 서브씬들을 새 최상위 씬의 서브씬으로 이동
+function splitSubScenesFrom(scId) {
+  const scenes = S.cur?.scenes;
+  if (!scenes) return;
+  const sc = scenes.find(s => s.id === scId);
+  if (!sc || !sc.parentId) return;
+  const parentId = sc.parentId;
+
+  // 같은 부모의 서브씬 중 sc.subOrder 이상인 것들 (분리 대상)
+  const siblings = scenes
+    .filter(s => s.parentId === parentId && !s.draft)
+    .sort((a, b) => a.subOrder - b.subOrder);
+  const toMove = siblings.filter(s => s.subOrder >= sc.subOrder);
+  if (!toMove.length) return;
+
+  // 새 부모씬 생성 (첫 번째 이동 서브씬의 제목 사용)
+  const newParent = {
+    id: Date.now() + Math.floor(Math.random() * 100000),
+    title: toMove[0].title || '새 장면',
+    locked: false, draft: false, collapsed: false,
+    parentId: null, subOrder: 0, subSceneType: null,
+    lines: [{ type: 'slug', text: '1막 1장', locked: false }],
+    storyboard: [], diff: null,
+  };
+
+  // 현재 부모씬의 마지막 서브씬 위치 파악 → 그 뒤에 새 부모씬 삽입
+  const allSiblingIds = new Set(siblings.map(s => s.id));
+  let lastSiblingIdx = -1;
+  scenes.forEach((s, i) => { if (allSiblingIds.has(s.id)) lastSiblingIdx = i; });
+  scenes.splice(lastSiblingIdx + 1, 0, newParent);
+
+  // 이동 대상 서브씬들의 parentId 변경 + subOrder 재정렬
+  toMove.forEach((s, i) => {
+    s.parentId = newParent.id;
+    s.subOrder = i;
+  });
+
+  // 원래 부모의 남은 서브씬 subOrder 재정렬
+  scenes
+    .filter(s => s.parentId === parentId && !s.draft)
+    .sort((a, b) => a.subOrder - b.subOrder)
+    .forEach((s, i) => { s.subOrder = i; });
+
+  save(); renderScriptBody(); renderNavSceneList();
+  setTimeout(() => scrollToScene(newParent.id), 100);
+  const movedLabels = toMove.map(s => getSceneLabel(s, scenes)).join(', ');
+  toast(`✓ ${movedLabels} → 새 씬으로 분리됨`);
 }
 
 function mergeSubScenes(parentId) {
@@ -14657,7 +14762,7 @@ async function handleScriptPrompt(text) {
   const _chars = (S.cur?.characters||[]).map(c=>c.name);
   const _foundChars = _chars.filter(n => text.includes(n));
   const _isCharEditKw = /써줘|보이게|수정|고쳐|바꿔|넣어|추가|만들어|작성|채워|보강|다듬|확장/.test(text);
-  const _isCharAnalysis = _foundChars.length > 0 && !_isCharEditKw && /어때|분석|어떻|어떤|어떠|인물|캐릭터|매력.*분석|매력.*어때|매력.*어떻|매력.*어떤|기여|관계.*분석|관계.*어때|역학|내면/.test(text);
+  const _isCharAnalysis = _foundChars.length > 0 && !_isCharEditKw && /어때|분석|어떻(?!게)|어떤|어떠|인물|캐릭터|매력.*분석|매력.*어때|매력.*어떻|매력.*어떤|기여|관계.*분석|관계.*어때|역학|내면/.test(text);
   if (_isCharAnalysis) {
     const _scPat2 = /SC\s*(\d+)/i;
     const _scMatch2 = text.match(_scPat2);
@@ -15304,8 +15409,8 @@ async function handleScriptPrompt(text) {
     return lbl2 + '. "' + s.title + '"' + (slug2 ? ' [' + slug2 + ']' : '') + preview;
   }).join('\n');
 
-  // 프롬프트 씬 번호 감지 → 자동 포함
-  const _scPat = /SC\s*(\d+)(?:-([A-Z]))?/gi;
+  // 프롬프트 씬 번호 감지 → 자동 포함 (서브씬 SC N-N + 대안씬 SC N-A 모두 처리)
+  const _scPat = /SC\s*(\d+)(?:-(\d+|[A-Z]))?/gi;
   let _scM;
   while ((_scM = _scPat.exec(text)) !== null) {
     const _n = parseInt(_scM[1]), _s = _scM[2];
