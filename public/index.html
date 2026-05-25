@@ -5819,12 +5819,34 @@ function renderScriptBody() {
 function buildAddBetweenBtn(afterId, idx) {
   const wrap = document.createElement('div');
   wrap.className = 'scene-add-between';
-  wrap.innerHTML = `<div class="scene-add-between-line"></div><button class="scene-add-btn" data-after="${afterId}" data-idx="${idx}">+ 씬 추가</button><div class="scene-add-between-line"></div>`;
-  wrap.querySelector('.scene-add-btn').onclick = (e) => showInlineSceneAdd(e.target.dataset.after, parseInt(e.target.dataset.idx), wrap);
+
+  const afterSc = S.cur?.scenes?.find(s => s.id == afterId);
+  const isSubScene = !!(afterSc?.parentId);
+  const isLastSub = isSubScene && isTheatricalProject() && (() => {
+    const scenes = S.cur?.scenes || [];
+    const nextSc = scenes[scenes.indexOf(afterSc) + 1];
+    return !nextSc || nextSc.parentId !== afterSc.parentId;
+  })();
+  const isMidSub = isSubScene && isTheatricalProject() && !isLastSub;
+
+  if (isLastSub) {
+    // 마지막 서브씬 뒤: 두 버튼 나란히
+    wrap.innerHTML = `<div class="scene-add-between-line"></div><div style="display:flex;gap:4px;flex-shrink:0;"><button class="scene-add-btn" data-after="${afterId}" data-toplevel="false" style="font-size:var(--fs-9);padding:2px 8px;">↳ + 서브씬</button><button class="scene-add-btn" data-after="${afterId}" data-toplevel="true" style="font-size:var(--fs-9);padding:2px 8px;color:var(--blue);border-color:var(--blue);opacity:0.7;">+ 새 씬</button></div><div class="scene-add-between-line"></div>`;
+    wrap.querySelector('[data-toplevel="false"]').onclick = (e) => showInlineSceneAdd(e.target.dataset.after, idx, wrap, false);
+    wrap.querySelector('[data-toplevel="true"]').onclick  = (e) => showInlineSceneAdd(e.target.dataset.after, idx, wrap, true);
+  } else if (isMidSub) {
+    // 서브씬 사이: 서브씬 추가만
+    wrap.innerHTML = `<div class="scene-add-between-line"></div><button class="scene-add-btn" data-after="${afterId}" data-idx="${idx}" style="font-size:var(--fs-9);">↳ + 서브씬</button><div class="scene-add-between-line"></div>`;
+    wrap.querySelector('.scene-add-btn').onclick = (e) => showInlineSceneAdd(e.target.dataset.after, idx, wrap, false);
+  } else {
+    // 일반 씬 사이: 기존 동작
+    wrap.innerHTML = `<div class="scene-add-between-line"></div><button class="scene-add-btn" data-after="${afterId}" data-idx="${idx}">+ 씬 추가</button><div class="scene-add-between-line"></div>`;
+    wrap.querySelector('.scene-add-btn').onclick = (e) => showInlineSceneAdd(e.target.dataset.after, parseInt(e.target.dataset.idx), wrap);
+  }
   return wrap;
 }
 
-function showInlineSceneAdd(afterId, idx, btnWrap) {
+function showInlineSceneAdd(afterId, idx, btnWrap, forceTopLevel) {
   const existing = document.getElementById('inline-scene-add');
   if (existing) existing.remove();
   const wrap = document.createElement('div');
@@ -5981,41 +6003,21 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
     aiBtn.textContent = '✦ AI 제안'; aiBtn.disabled = false;
   };
 
-  // 서브씬 다음 삽입인 경우 — 마지막 서브씬일 때만 토글 표시
-  let _addAsTopLevel = false;
+  // forceTopLevel이 명시된 경우(버튼에서 직접 호출) 그 값 사용, 아니면 afterId 기반 판단
   const _afterSc = S.cur?.scenes?.find(s => s.id == afterId);
-  const _isLastSubScene = _afterSc?.parentId && (() => {
-    const scenes = S.cur?.scenes || [];
-    const nextSc = scenes[scenes.indexOf(_afterSc) + 1];
-    return !nextSc || nextSc.parentId !== _afterSc.parentId;
-  })();
-  if (_isLastSubScene && isTheatricalProject()) {
-    const typeRow = document.createElement('div');
-    typeRow.style.cssText = 'display:flex;gap:4px;padding:4px 14px 2px;';
-    const mkTypeBtn = (label, isActive) => {
-      const b = document.createElement('button');
-      b.textContent = label;
-      b.style.cssText = 'flex:1;font-size:var(--fs-10);padding:4px 0;border-radius:var(--r);cursor:pointer;font-family:var(--fm);transition:all .12s;' +
-        (isActive ? 'background:var(--accent3);border:1px solid var(--accent2);color:var(--accent);' : 'background:none;border:1px solid var(--border);color:var(--text3);');
-      return b;
-    };
-    const subBtn = mkTypeBtn('서브씬으로 추가', true);
-    const topBtn = mkTypeBtn('독립 씬으로 추가', false);
-    subBtn.onclick = () => {
-      _addAsTopLevel = false;
-      subBtn.style.cssText = subBtn.style.cssText.replace('background:none;border:1px solid var(--border);color:var(--text3);', 'background:var(--accent3);border:1px solid var(--accent2);color:var(--accent);');
-      topBtn.style.cssText = topBtn.style.cssText.replace('background:var(--accent3);border:1px solid var(--accent2);color:var(--accent);', 'background:none;border:1px solid var(--border);color:var(--text3);');
-    };
-    topBtn.onclick = () => {
-      _addAsTopLevel = true;
-      topBtn.style.cssText = topBtn.style.cssText.replace('background:none;border:1px solid var(--border);color:var(--text3);', 'background:var(--accent3);border:1px solid var(--accent2);color:var(--accent);');
-      subBtn.style.cssText = subBtn.style.cssText.replace('background:var(--accent3);border:1px solid var(--accent2);color:var(--accent);', 'background:none;border:1px solid var(--border);color:var(--text3);');
-    };
-    typeRow.append(subBtn, topBtn);
-    // slug input 앞에 삽입
+  const _isSubScene = !!(_afterSc?.parentId);
+  const _addAsTopLevel = forceTopLevel !== undefined ? !!forceTopLevel
+    : !_isSubScene; // 서브씬이면 기본 서브씬 추가, 일반 씬이면 독립 씬 추가
+
+  // 서브씬으로 추가하는 경우 슬러그 입력 숨김 (연극/뮤지컬에선 어차피 슬러그 안 씀)
+  if (!_addAsTopLevel && isTheatricalProject()) {
     const slugDiv = wrap.querySelector('#nsi-slug')?.parentElement;
-    if (slugDiv) slugDiv.parentElement.insertBefore(typeRow, slugDiv);
-    else wrap.querySelector('.new-scene-inline-acts')?.before(typeRow);
+    if (slugDiv) slugDiv.style.display = 'none';
+    // 폼 상단에 "서브씬 추가" 배지 표시
+    const badge = document.createElement('div');
+    badge.style.cssText = 'font-size:var(--fs-9);color:var(--text3);font-family:var(--fm);padding:6px 14px 0;';
+    badge.textContent = '↳ 서브씬으로 추가';
+    wrap.querySelector('#nsi-panel-manual')?.prepend(badge);
   }
 
   wrap.querySelector('.new-scene-save').onclick = () => {
@@ -6024,7 +6026,11 @@ function showInlineSceneAdd(afterId, idx, btnWrap) {
     addSceneAt(title, afterId, slug, _addAsTopLevel);
     wrap.remove();
   };
-  titleInp.onkeydown = (e) => { if (e.key==='Enter') { e.preventDefault(); slugInp.focus(); } if (e.key==='Escape') { wrap.remove(); } };
+  const _slugVisible = !(!_addAsTopLevel && isTheatricalProject());
+  titleInp.onkeydown = (e) => {
+    if (e.key==='Enter') { e.preventDefault(); _slugVisible ? slugInp.focus() : wrap.querySelector('.new-scene-save').click(); }
+    if (e.key==='Escape') { wrap.remove(); }
+  };
   slugInp.onkeydown = (e) => { if (e.key==='Enter') wrap.querySelector('.new-scene-save').click(); if (e.key==='Escape') wrap.remove(); };
 
   // Save + close on outside click
@@ -6086,6 +6092,7 @@ function addSceneAt(title, afterId, slug, forceTopLevel = false) {
       S.cur.scenes.splice(idx + 1, 0, sc);
     }
   }
+  S.selectedIds.clear(); renderChips(); updateToolbarInfo(); updateDelBtn();
   save(); renderScriptBody(); renderNavSceneList();
   setTimeout(() => scrollToScene(sc.id), 100);
   toast(`씬 "${sc.title}" 추가됨`);
@@ -6354,11 +6361,12 @@ function buildSceneBlock(sc, i) {
         menu.appendChild(div);
         mkHdrBtn('↩ 서브씬 합치기', 'var(--text2)', () => mergeSubScenes(sc.id));
       }
-      // 서브씬: 여기서부터 새 씬으로 분리 (연극/뮤지컬 전용)
+      // 서브씬: 내용을 서브씬으로 나누기 + 여기서부터 새 씬으로 분리 (연극/뮤지컬 전용)
       if (sc.parentId && !sc.draft && isTheatricalProject()) {
         const div2 = document.createElement('div');
         div2.style.cssText = 'height:1px;background:var(--border);margin:2px 0;';
         menu.appendChild(div2);
+        mkHdrBtn('✦ 서브씬으로 나누기', 'var(--accent)', () => splitSubSceneContent(sc.id));
         mkHdrBtn('↗ 여기서부터 새 씬으로 분리', 'var(--blue)', () => splitSubScenesFrom(sc.id));
       }
       if (!menu.querySelector('button')) { menu.remove(); return; }
@@ -7470,6 +7478,7 @@ async function applyDiff(id) {
   } else {
     toast('✓ 적용됨');
   }
+  S.selectedIds.clear(); renderChips(); updateToolbarInfo(); updateDelBtn();
   save(); renderScriptBody(); renderNavSceneList();
 
   // BUG-4: 캡처한 값으로 플로 히스토리 기록
@@ -7884,6 +7893,7 @@ function applySubSceneSplit(parentSc, subData) {
   }));
 
   S.cur.scenes.splice(parentIdx + 1, 0, ...newSubScenes);
+  S.selectedIds.clear(); renderChips(); updateToolbarInfo(); updateDelBtn();
   save(); renderScriptBody(); renderNavSceneList();
   const panel = document.getElementById('subscene-split-panel');
   if (panel) panel.remove();
@@ -7935,10 +7945,161 @@ function splitSubScenesFrom(scId) {
     .sort((a, b) => a.subOrder - b.subOrder)
     .forEach((s, i) => { s.subOrder = i; });
 
+  S.selectedIds.clear(); renderChips(); updateToolbarInfo(); updateDelBtn();
   save(); renderScriptBody(); renderNavSceneList();
   setTimeout(() => scrollToScene(newParent.id), 100);
   const movedLabels = toMove.map(s => getSceneLabel(s, scenes)).join(', ');
   toast(`✓ ${movedLabels} → 새 씬으로 분리됨`);
+}
+
+// 서브씬 내용을 더 작은 형제 서브씬들로 분할 (AI)
+async function splitSubSceneContent(scId) {
+  const sc = S.cur.scenes.find(s => s.id === scId);
+  if (!sc || !sc.parentId) return;
+
+  showAnalyzing('서브씬 분석 중...');
+
+  const scText = sc.lines.map(l => {
+    if (l.type === 'character')     return '[배역] ' + l.text;
+    if (l.type === 'action')        return '[지문] ' + l.text;
+    if (l.type === 'parenthetical') return '(' + l.text + ')';
+    if (l.type === 'lyric')         return '[가사] ' + l.text;
+    return l.text;
+  }).join('\n');
+  const charList = (S.cur.characters || []).map(c => c.name).join(', ');
+
+  const typeOptions = isMusicalProject()
+    ? '"dialogue"(대화장면) | "number"(넘버/가사) | "transition"(전환)'
+    : '"dialogue"(대화) | "conflict"(갈등/대립) | "turn"(전환/반전)';
+
+  const prompt = `다음은 연극/뮤지컬 대본의 서브씬입니다.
+
+등장인물: ${charList}
+서브씬 제목: ${sc.title}
+
+[대본]
+${scText}
+
+이 서브씬을 자연스러운 단위로 더 세밀하게 분할하세요.
+
+분할 기준 (우선순위 순):
+1. 등장인물 구성 변화 (누군가 등장하거나 퇴장)
+2. 대화의 권력 관계가 역전되는 순간
+3. 새로운 정보/폭로로 긴장 축이 바뀌는 순간
+4. 화제가 완전히 전환되는 지점
+
+규칙:
+- 분할은 2~3개가 적절. 억지로 많이 나누지 말 것
+- 각 분할은 독립적인 극적 단위여야 함
+- 분할선은 반드시 대사나 지문의 자연스러운 경계에서
+- type은 반드시 다음 중 하나: ${typeOptions}
+- 뮤지컬 "number" 서브씬의 lines는 type:"lyric" 사용
+- 입력 텍스트의 [배역] 표시는 배역명 줄 → lines에서 type:"character"로 반드시 포함
+- 입력 텍스트의 [지문] 표시는 type:"action", (괄호) 표시는 type:"parenthetical", [가사] 표시는 type:"lyric"
+- 배역명(character) 줄은 절대 생략하지 말 것
+
+반드시 아래 형식으로만 반환:
+<subscenes>[
+  {
+    "label": "서브씬 레이블 (예: 도입, 균열, 폭발)",
+    "type": "dialogue|conflict|turn|number|transition",
+    "lines": [{"type":"action|character|dialogue|parenthetical|lyric","text":"내용"}]
+  }
+]</subscenes>`;
+
+  const raw = await callClaude(
+    [{ role: 'user', content: prompt }],
+    '',
+    4000,
+    'claude-sonnet-4-20250514'
+  );
+
+  hideAnalyzing();
+
+  const subRaw = extractTag(raw, 'subscenes');
+  if (!subRaw) { toast('분할 분석에 실패했습니다.'); return; }
+
+  let subData;
+  try { subData = JSON.parse(subRaw); } catch { toast('결과 파싱 실패'); return; }
+
+  showSubSceneSiblingPanel(sc, subData);
+}
+
+function showSubSceneSiblingPanel(sc, subData) {
+  closeResponsePanel();
+  const panel = document.createElement('div');
+  panel.className = 'response-panel show';
+  panel.id = 'subscene-sibling-panel';
+  panel.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:500;background:var(--bg2);border-top:1px solid var(--border2);padding:14px 16px;max-height:70vh;overflow-y:auto;';
+
+  const scLabel = getSceneLabel(sc, S.cur.scenes);
+  panel.innerHTML = `<div style="font-size:var(--fs-13);font-weight:600;color:var(--text);margin-bottom:10px;">"${escH(scLabel)}"을 ${subData.length}개로 나눕니다</div>`;
+
+  subData.forEach((sub, idx) => {
+    const previewLabel = scLabel + '-' + String.fromCharCode(97 + idx);
+    const preview = (sub.lines || []).slice(0, 3).map(l => escH(l.text)).join('<br>');
+    const typeLabel = sub.type ? `<span style="font-size:var(--fs-9);color:var(--text3);font-family:var(--fm);margin-left:6px;">[${escH(sub.type)}]</span>` : '';
+    const card = document.createElement('div');
+    card.style.cssText = 'background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;margin-bottom:8px;';
+    card.innerHTML = `<div style="font-size:var(--fs-11);font-weight:600;color:var(--text2);margin-bottom:4px;">${escH(previewLabel)} ${escH(sub.label||'')}${typeLabel}</div>` +
+      `<div style="font-size:var(--fs-11);color:var(--text3);line-height:1.6;">${preview}</div>`;
+    panel.appendChild(card);
+  });
+
+  const actRow = document.createElement('div');
+  actRow.style.cssText = 'display:flex;gap:8px;margin-top:10px;';
+  const applyBtn = document.createElement('button');
+  applyBtn.style.cssText = 'flex:1;background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:9px;font-size:var(--fs-12);font-weight:600;cursor:pointer;';
+  applyBtn.textContent = '분할 적용';
+  applyBtn.onclick = () => applySubSceneSiblingsSplit(sc, subData);
+  const cancelBtn = document.createElement('button');
+  cancelBtn.style.cssText = 'padding:9px 16px;background:none;border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);font-size:var(--fs-12);cursor:pointer;';
+  cancelBtn.textContent = '취소';
+  cancelBtn.onclick = () => panel.remove();
+  actRow.append(applyBtn, cancelBtn);
+  panel.appendChild(actRow);
+  document.body.appendChild(panel);
+}
+
+function applySubSceneSiblingsSplit(sc, subData) {
+  const scenes = S.cur.scenes;
+  const scIdx = scenes.findIndex(s => s.id === sc.id);
+  if (scIdx === -1) return;
+
+  const parentId = sc.parentId;
+
+  // 원본 서브씬 제거
+  scenes.splice(scIdx, 1);
+
+  // 원본 위치에 분할 서브씬들 삽입 (같은 parentId)
+  const newSubScenes = subData.map((sub, idx) => ({
+    id: Date.now() + idx * 1000 + Math.floor(Math.random() * 100),
+    title: sub.label || `${sc.title} ${idx + 1}`,
+    parentId: parentId,
+    subOrder: 0, // 아래서 재정렬
+    subSceneType: sub.type || sc.subSceneType || null,
+    lines: sub.lines || [],
+    draft: false,
+    collapsed: false,
+    locked: false,
+    summary: {},
+    storyboard: [],
+    diff: null,
+  }));
+
+  scenes.splice(scIdx, 0, ...newSubScenes);
+
+  // 부모의 모든 서브씬 subOrder 재정렬
+  scenes
+    .filter(s => s.parentId === parentId && !s.draft)
+    .sort((a, b) => scenes.indexOf(a) - scenes.indexOf(b))
+    .forEach((s, i) => { s.subOrder = i; });
+
+  S.selectedIds.clear(); renderChips(); updateToolbarInfo(); updateDelBtn();
+  save(); renderScriptBody(); renderNavSceneList();
+  const panel = document.getElementById('subscene-sibling-panel');
+  if (panel) panel.remove();
+  toast(`✓ ${newSubScenes.length}개 서브씬으로 분할됐습니다`);
 }
 
 function mergeSubScenes(parentId) {
@@ -7966,6 +8127,7 @@ function mergeSubScenes(parentId) {
     if (idx !== -1) S.cur.scenes.splice(idx, 1);
   });
 
+  S.selectedIds.clear(); renderChips(); updateToolbarInfo(); updateDelBtn();
   save(); renderScriptBody(); renderNavSceneList();
   toast(`✓ 서브씬 ${children.length}개가 합쳐졌습니다`);
 }
@@ -12414,6 +12576,7 @@ function splitSceneAt(sc, splitIdx) {
     };
     const idx = scenes.indexOf(sc);
     scenes.splice(idx + 1, 0, newSc);
+    S.selectedIds.clear(); renderChips(); updateToolbarInfo(); updateDelBtn();
     save(true); renderScriptBody(); renderNavSceneList();
     toast('✂ 씬이 나뉘었습니다 — 제목을 수정해보세요', 3500);
     setTimeout(() => scrollToScene(newSc.id), 100);
