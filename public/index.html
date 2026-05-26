@@ -14939,7 +14939,7 @@ async function handleScriptPrompt(text) {
   const _chars = (S.cur?.characters||[]).map(c=>c.name);
   const _foundChars = _chars.filter(n => text.includes(n));
   const _isCharEditKw = /써줘|보이게|수정|고쳐|바꿔|넣어|추가|만들어|작성|채워|보강|다듬|확장/.test(text);
-  const _isCharAnalysis = _foundChars.length > 0 && !_isCharEditKw && /어때|분석|어떻(?!게)|어떤|어떠|인물|캐릭터|매력.*분석|매력.*어때|매력.*어떻|매력.*어떤|기여|관계.*분석|관계.*어때|역학|내면/.test(text);
+  const _isCharAnalysis = _foundChars.length > 0 && !_isCharEditKw && /어때|분석|어떻(?!게)|어떤|어떠|인물.*어때|인물.*어떤|인물.*어떻|인물.*분석|캐릭터.*어때|캐릭터.*분석|매력.*분석|매력.*어때|매력.*어떻|매력.*어떤|기여|관계.*분석|관계.*어때|역학|내면/.test(text);
   if (_isCharAnalysis) {
     const _scPat2 = /SC\s*(\d+)/i;
     const _scMatch2 = text.match(_scPat2);
