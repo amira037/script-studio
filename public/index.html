@@ -6396,6 +6396,11 @@ function buildSceneBlock(sc, i) {
   const linesWrap = document.createElement('div'); linesWrap.className = 'scene-lines';
   const renderAllLines = () => {
     linesWrap.innerHTML = '';
+    // sc.lines 인덱스 → DOM 인덱스 변환 (연극/뮤지컬에서 slug 줄이 렌더 제외되므로 보정 필요)
+    const toDomIdx = (lineIdx) => {
+      if (!isTheatricalProject()) return lineIdx;
+      return lineIdx - sc.lines.slice(0, lineIdx).filter(l => l.type === 'slug').length;
+    };
     sc.lines.forEach((line, li) => {
       // 연극/뮤지컬에서는 슬러그 라인 숨김
       if (line.type === 'slug' && isTheatricalProject()) return;
@@ -6605,11 +6610,12 @@ function buildSceneBlock(sc, i) {
           save(); renderAllLines();
           setTimeout(() => {
             const els = linesWrap.querySelectorAll('.line-el');
-            if (els[li+1]) {
-              els[li+1].focus();
+            const di = toDomIdx(li + 1);
+            if (els[di]) {
+              els[di].focus();
               // 커서를 새 줄 맨 앞으로
               const r = document.createRange(); const s = window.getSelection();
-              r.setStart(els[li+1], 0); r.collapse(true);
+              r.setStart(els[di], 0); r.collapse(true);
               s.removeAllRanges(); s.addRange(r);
             }
           }, 20);
@@ -6621,9 +6627,10 @@ function buildSceneBlock(sc, i) {
           save(); renderAllLines();
           setTimeout(() => {
             const els = linesWrap.querySelectorAll('.line-el');
-            if (els[li-1]) { els[li-1].focus();
+            const di = toDomIdx(li - 1);
+            if (els[di]) { els[di].focus();
               const range = document.createRange(); const sel = window.getSelection();
-              range.selectNodeContents(els[li-1]); range.collapse(false);
+              range.selectNodeContents(els[di]); range.collapse(false);
               sel.removeAllRanges(); sel.addRange(range);
             }
           }, 20);
@@ -6644,10 +6651,11 @@ function buildSceneBlock(sc, i) {
               save(); renderAllLines();
               setTimeout(() => {
                 const _els = linesWrap.querySelectorAll('.line-el');
-                if (_els[li-1]) {
-                  _els[li-1].focus();
+                const _di = toDomIdx(li - 1);
+                if (_els[_di]) {
+                  _els[_di].focus();
                   // 커서를 병합 지점(원래 앞줄 끝)에 위치
-                  const _node = _els[li-1].firstChild;
+                  const _node = _els[_di].firstChild;
                   if (_node) {
                     const _rng = document.createRange(); const _s = window.getSelection();
                     _rng.setStart(_node, Math.min(_prevLen, _node.length));
@@ -6678,9 +6686,10 @@ function buildSceneBlock(sc, i) {
               save(); renderAllLines();
               setTimeout(() => {
                 const _els2 = linesWrap.querySelectorAll('.line-el');
-                if (_els2[li]) {
-                  _els2[li].focus();
-                  const _node2 = _els2[li].firstChild;
+                const _di2 = toDomIdx(li);
+                if (_els2[_di2]) {
+                  _els2[_di2].focus();
+                  const _node2 = _els2[_di2].firstChild;
                   if (_node2) {
                     const _rng2 = document.createRange(); const _s2 = window.getSelection();
                     _rng2.setStart(_node2, Math.min(_curLen, _node2.length));
@@ -6688,7 +6697,7 @@ function buildSceneBlock(sc, i) {
                     _s2.removeAllRanges(); _s2.addRange(_rng2);
                   } else {
                     const _rng2 = document.createRange(); const _s2 = window.getSelection();
-                    _rng2.setStart(_els2[li], 0); _rng2.collapse(true);
+                    _rng2.setStart(_els2[_di2], 0); _rng2.collapse(true);
                     _s2.removeAllRanges(); _s2.addRange(_rng2);
                   }
                 }
