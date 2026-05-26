@@ -7396,6 +7396,7 @@ function deleteSelected() {
   S.cur.scenes = S.cur.scenes.filter(s => !S.selectedIds.has(s.id));
   S.selectedIds.clear();
   save(); renderScriptBody(); renderNavSceneList(); cancelDelete();
+  renderChips(); updateToolbarInfo(); updateDelBtn();
   toast('씬 삭제됨');
 }
 function cancelDelete() {
