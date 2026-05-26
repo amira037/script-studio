@@ -6594,8 +6594,10 @@ function buildSceneBlock(sc, i) {
             beforeText = preRange.toString();
             afterText = el.textContent.slice(beforeText.length);
           }
-          // 배역명/대사 다음은 자동으로 dialogue, 그 외는 action
-          const nextType = (line.type === 'character' || line.type === 'dialogue') ? 'dialogue' : 'action';
+          // 대사 끝에서 엔터 → 배역명 삽입, 대사 중간 엔터 → 대사 분리, 배역명 → 대사, 그 외 → 지문
+          const nextType = (line.type === 'dialogue' && afterText === '') ? 'character'
+                         : (line.type === 'character' || line.type === 'dialogue') ? 'dialogue'
+                         : 'action';
           line.text = beforeText;
           el.textContent = beforeText;
           const newLine = { type: nextType, text: afterText, locked: false };
