@@ -6499,17 +6499,6 @@ function buildSceneBlock(sc, i) {
         }
       });
 
-      el.addEventListener('focusout', () => {
-        if (line.type !== 'slug' && el.textContent.trim() === '' && !sc.locked) {
-          setTimeout(() => {
-            if (window._lineMenuOpen) return;
-            if (!block.contains(document.activeElement)) {
-              const idx = sc.lines.indexOf(line);
-              if (idx > 0) { sc.lines.splice(idx, 1); save(true); renderAllLines(); }
-            }
-          }, 80);
-        }
-      });
 
       el.oninput = () => {
         line.text = el.textContent;
@@ -6710,6 +6699,13 @@ function buildSceneBlock(sc, i) {
         }
         handleLineKeydown(e, sc, li, lw);
       };
+
+      el.addEventListener('blur', () => {
+        setTimeout(() => {
+          lw.querySelector('.ghost-suggestion')?.remove();
+          lw.querySelector('.ghost-hint-wrap')?.remove();
+        }, 150);
+      });
 
       // Slug line: no type change, no delete, placeholder when empty
       if (line.type === 'slug') {
@@ -7908,10 +7904,10 @@ function applySubSceneSplit(parentSc, subData) {
 
   S.cur.scenes.splice(parentIdx + 1, 0, ...newSubScenes);
   S.selectedIds.clear(); renderChips(); updateToolbarInfo(); updateDelBtn();
-  save(); renderScriptBody(); renderNavSceneList();
   const panel = document.getElementById('subscene-split-panel');
   if (panel) panel.remove();
   closeResponsePanel();
+  save(); renderScriptBody(); renderNavSceneList();
   toast(`✓ ${newSubScenes.length}개 서브씬으로 분할됐습니다`);
 }
 
