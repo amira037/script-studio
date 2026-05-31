@@ -1803,14 +1803,34 @@ textarea, input { font-family:var(--fb); }
 .flo-ab:hover { border-color:var(--border3); color:var(--text); background:rgba(255,255,255,.04); }
 .flo-ab:disabled { opacity:.35; cursor:default; }
 
-.flo-dw-content { flex:1; overflow-y:auto; min-height:0; }
-.flo-dw { display:none; padding:12px 10px; }
-.flo-dw.show { display:block; }
+.flo-dw-content { flex:1; overflow:hidden; min-height:0; display:flex; flex-direction:column; }
+.flo-dw { display:none; flex:1; flex-direction:column; overflow-y:auto; padding:10px; }
+.flo-dw.show { display:flex; }
+#flo-dw-chat.show { padding:0; overflow:hidden; }
 .flo-dw-placeholder {
   text-align:center; color:var(--text3);
   font-family:var(--fm); font-size:var(--fs-12);
   padding:24px 0;
 }
+.flo-chat-inp-row {
+  display:flex; gap:6px; padding:8px;
+  border-top:1px solid var(--border); flex-shrink:0;
+  background:var(--bg3);
+}
+.flo-chat-inp {
+  flex:1; background:var(--bg2); border:1px solid var(--border2);
+  border-radius:var(--r); color:var(--text); font-family:var(--fb);
+  font-size:var(--fs-12); padding:6px 10px; resize:none;
+  outline:none; line-height:1.5; max-height:80px; overflow-y:auto;
+}
+.flo-chat-inp:focus { border-color:var(--accent2); }
+.flo-chat-send {
+  width:32px; height:32px; border-radius:var(--r);
+  border:1px solid var(--accent2); background:var(--accent3);
+  color:var(--accent); font-size:16px; cursor:pointer;
+  flex-shrink:0; transition:all .15s; align-self:flex-end;
+}
+.flo-chat-send:hover { background:rgba(200,169,110,.25); }
 
 /* 하단 칩 "선택 없음" */
 .chip-none {
@@ -1944,30 +1964,12 @@ const SW_VERSION = 'v43.6';
     <!-- Main content -->
     <div class="app-main">
 
-      <!-- Brainstorm tab -->
+      <!-- Brainstorm tab (채팅은 FLO 패널로 이전됨) -->
       <div class="app-tc show" id="tc-chat">
-        <!-- 픽 버튼 -->
-        <div style="padding:6px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:flex-end;background:var(--bg2);">
-          <button onclick="startPick('existing')" style="font-size:var(--fs-11);padding:4px 12px;border-radius:var(--r);border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;font-family:var(--fm);transition:all .15s;" title="픽으로 아이디어 찾기">🎲 픽</button>
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text3);font-family:var(--fm);font-size:var(--fs-12);flex-direction:column;gap:10px;">
+          <span>채팅은 우하단 FLO 패널에서 이용하세요</span>
+          <button onclick="openFloPanel('chat')" style="font-size:var(--fs-11);padding:5px 14px;border-radius:var(--r);border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;">✦ FLO 열기</button>
         </div>
-        <div id="chat-memo-wrap" style="display:none;border-bottom:1px solid var(--border);background:var(--bg3);">
-          <div id="chat-memo-hdr" style="display:flex;align-items:center;justify-content:space-between;padding:7px 14px;cursor:pointer;" onclick="toggleChatMemo()">
-            <span style="font-size:var(--fs-11);color:var(--accent);font-weight:500;">📌 핵심 결정사항</span>
-            <div style="display:flex;align-items:center;gap:8px;" onclick="event.stopPropagation()">
-              <button onclick="organizeMemos()" style="font-size:var(--fs-9);padding:2px 7px;border-radius:var(--r);border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;" title="히스토리 분석 후 설정/인물/스토리/반전으로 정리">✦ 정리하기</button>
-              <button onclick="extractMemosFromScript()" id="btn-extract-script" style="font-size:var(--fs-9);padding:2px 7px;border-radius:var(--r);border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;" title="현재 대본 씬에서 결정사항 재추출">📄 대본 분석</button>
-              <span id="chat-memo-arr" style="font-size:var(--fs-10);color:var(--text3);cursor:pointer;" onclick="toggleChatMemo()">▼</span>
-            </div>
-          </div>
-          <div id="chat-memo-body" style="padding:0 14px 10px;display:none;">
-            <div id="chat-memo-list" style="margin-bottom:8px;"></div>
-            <div style="display:flex;gap:6px;">
-              <input id="chat-memo-inp" type="text" placeholder="직접 메모 추가..." style="flex:1;font-size:var(--fs-11);background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);padding:4px 8px;color:var(--text);outline:none;" onkeydown="if(event.key==='Enter')addChatMemoManual()">
-              <button onclick="addChatMemoManual()" style="font-size:var(--fs-10);padding:3px 8px;border-radius:var(--r);border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;">추가</button>
-            </div>
-          </div>
-        </div>
-        <div class="chat-msgs" id="chat-msgs"></div>
       </div>
 
       <!-- Script tab -->
@@ -2049,17 +2051,44 @@ const SW_VERSION = 'v43.6';
           </div>
         </div>
         <div class="flo-dw-content">
+          <!-- 채팅 드로어: #chat-msgs + 입력창 -->
           <div class="flo-dw show" id="flo-dw-chat">
-            <div class="flo-dw-placeholder">채팅 영역은 다음 단계에서 이전됩니다</div>
+            <div class="chat-msgs" id="chat-msgs"></div>
+            <div class="flo-chat-inp-row">
+              <textarea class="flo-chat-inp" id="flo-chat-inp" rows="1" placeholder="플로에게 이야기 방향, 인물, 구조를 물어보세요"
+                onkeydown="onFloKey(event)" oninput="autoResize(this)"></textarea>
+              <button class="flo-chat-send" onclick="sendFloChat()">↑</button>
+            </div>
           </div>
+          <!-- 결정사항 드로어 -->
           <div class="flo-dw" id="flo-dw-memo">
-            <div class="flo-dw-placeholder">결정사항</div>
+            <div id="chat-memo-wrap" style="border-bottom:1px solid var(--border);background:var(--bg3);margin:-10px -10px 10px;">
+              <div id="chat-memo-hdr" style="display:flex;align-items:center;justify-content:space-between;padding:7px 14px;cursor:pointer;" onclick="toggleChatMemo()">
+                <span style="font-size:var(--fs-11);color:var(--accent);font-weight:500;">📌 핵심 결정사항</span>
+                <div style="display:flex;align-items:center;gap:8px;" onclick="event.stopPropagation()">
+                  <button onclick="organizeMemos()" style="font-size:var(--fs-9);padding:2px 7px;border-radius:var(--r);border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;" title="히스토리 분석 후 설정/인물/스토리/반전으로 정리">✦ 정리하기</button>
+                  <button onclick="extractMemosFromScript()" id="btn-extract-script" style="font-size:var(--fs-9);padding:2px 7px;border-radius:var(--r);border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;" title="현재 대본 씬에서 결정사항 재추출">📄 대본 분석</button>
+                  <span id="chat-memo-arr" style="font-size:var(--fs-10);color:var(--text3);cursor:pointer;" onclick="toggleChatMemo()">▼</span>
+                </div>
+              </div>
+              <div id="chat-memo-body" style="padding:0 14px 10px;display:none;">
+                <div id="chat-memo-list" style="margin-bottom:8px;"></div>
+                <div style="display:flex;gap:6px;">
+                  <input id="chat-memo-inp" type="text" placeholder="직접 메모 추가..." style="flex:1;font-size:var(--fs-11);background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);padding:4px 8px;color:var(--text);outline:none;" onkeydown="if(event.key==='Enter')addChatMemoManual()">
+                  <button onclick="addChatMemoManual()" style="font-size:var(--fs-10);padding:3px 8px;border-radius:var(--r);border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;">추가</button>
+                </div>
+              </div>
+            </div>
           </div>
+          <!-- 히스토리 드로어 -->
           <div class="flo-dw" id="flo-dw-history">
-            <div class="flo-dw-placeholder">히스토리</div>
+            <div class="flo-dw-placeholder">대화 히스토리</div>
           </div>
+          <!-- 픽 드로어 -->
           <div class="flo-dw" id="flo-dw-pick">
-            <div class="flo-dw-placeholder">픽</div>
+            <div style="display:flex;justify-content:center;padding-top:16px;">
+              <button onclick="startPick('existing')" style="font-size:var(--fs-11);padding:6px 16px;border-radius:var(--r);border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;font-family:var(--fm);">🎲 픽 시작</button>
+            </div>
           </div>
         </div>
       </div>
@@ -5937,9 +5966,22 @@ function switchTab(tab) {
   document.getElementById('tab-chat-btn').classList.toggle('on', tab==='chat');
   document.getElementById('tab-script-btn').classList.toggle('on', tab==='script');
   const inp = document.getElementById('prompter-inp');
-  inp.placeholder = tab==='chat'
-    ? '플로에게 이야기의 방향, 인물, 구조를 물어보세요'
-    : '라인에게 씬 수정, 추가, 분석을 지시하세요';
+  if (inp) inp.placeholder = '라인에게 씬 수정, 추가, 분석을 지시하세요';
+  // 채팅 탭 → FLO 패널 채팅 드로어로 리다이렉트
+  if (tab === 'chat') openFloPanel('chat');
+}
+
+function onFloKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendFloChat(); }
+}
+function sendFloChat() {
+  const inp = document.getElementById('flo-chat-inp');
+  if (!inp) return;
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = ''; inp.style.height = '';
+  S.activeTab = 'chat';
+  handleChatPrompt(text);
 }
 
 // ═══════════════════════════════════════════
@@ -10175,15 +10217,12 @@ function toggleChatMemo() {
 }
 
 function openMemoPanel() {
-  switchTab('chat');
+  openFloPanel('memo');
   renderChatMemoWrap();
   const body = document.getElementById('chat-memo-body');
   const arr = document.getElementById('chat-memo-arr');
   if (body) { body.style.display = 'block'; }
   if (arr) { arr.textContent = '▲'; }
-  setTimeout(() => {
-    document.getElementById('chat-memo-wrap')?.scrollIntoView({ behavior:'smooth', block:'nearest' });
-  }, 100);
 }
 
 function addChatMemo(text) {
