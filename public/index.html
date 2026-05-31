@@ -5987,13 +5987,48 @@ function floAnalysis(cmd) {
   if (cmd === 'emotion')  return handleFlowAnalysisInChat('', 'emotion');
   if (cmd === 'setting')  return handleFlowAnalysisInChat('', 'setting');
   if (cmd === 'conflict') return checkConflictWithPrompt('');
-  if (cmd === 'dialogue') return handleCharDialogueAnalysis('');
+  if (cmd === 'dialogue') return _floShowCharPicker();
   if (cmd === 'compare_draft') {
     const scenes = S.cur?.scenes || [];
     const draftSc = scenes.find(s => targetIds.includes(s.id) && s.draft);
     if (!draftSc) { toast('대안 씬을 선택하세요'); return; }
     return compareDraftScene(draftSc.id);
   }
+}
+
+function _floShowCharPicker() {
+  const chars = (S.cur?.characters||[]).map(c=>c.name).filter(Boolean);
+  const content = document.getElementById('flo-dw-content');
+  if (!content) return;
+  // 기존 피커 제거
+  document.getElementById('flo-char-picker')?.remove();
+  const picker = document.createElement('div');
+  picker.id = 'flo-char-picker';
+  picker.style.cssText = 'padding:10px;border-top:1px solid var(--border);background:var(--bg3);flex-shrink:0;';
+  picker.innerHTML = '<div style="font-size:var(--fs-10);color:var(--text3);font-family:var(--fm);margin-bottom:6px;">분석할 인물 선택</div>';
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;';
+  if (chars.length) {
+    chars.forEach(name => {
+      const b = document.createElement('button');
+      b.style.cssText = 'font-size:var(--fs-11);padding:3px 9px;border-radius:var(--r);border:1px solid var(--border2);background:none;color:var(--text2);cursor:pointer;font-family:var(--fm);';
+      b.textContent = name;
+      b.onclick = () => { picker.remove(); handleCharDialogueAnalysis(name); };
+      btnRow.appendChild(b);
+    });
+  } else {
+    btnRow.innerHTML = '<span style="font-size:var(--fs-11);color:var(--text3);font-family:var(--fm);">등록된 인물이 없습니다</span>';
+  }
+  const closeBtn = document.createElement('button');
+  closeBtn.style.cssText = 'font-size:var(--fs-10);color:var(--text3);background:none;border:none;cursor:pointer;padding:0;font-family:var(--fm);';
+  closeBtn.textContent = '취소';
+  closeBtn.onclick = () => picker.remove();
+  picker.appendChild(btnRow);
+  picker.appendChild(closeBtn);
+  // 패널 analysis 영역 바로 뒤에 삽입
+  const analysisEl = document.querySelector('.flo-analysis');
+  if (analysisEl) analysisEl.after(picker);
+  else content.prepend(picker);
 }
 
 function updateFloChip() {
@@ -20868,45 +20903,28 @@ function renderSelectionActionBar(state) {
   }
   const st = effectiveState;
 
-  // ── 버튼 매트릭스 ────────────────────────────────────────────────────
+  // ── 버튼 매트릭스 (구조 조작만) ─────────────────────────────────────
   if (st.count === 1 && !st.hasDraft) {
-    // 1개 일반
-    bar.appendChild(btnAnalyze);
+    // 1개 일반: 앞/뒤 삽입
     bar.appendChild(btnInsertBefore);
     bar.appendChild(btnInsertAfter);
-    bar.appendChild(btnEdit);
   } else if (st.count === 2 && st.isConsecutive && !st.hasMixed) {
     // 2개 연속 일반
     bar.appendChild(btnMerge);
-    bar.appendChild(btnFlow);
     bar.appendChild(btnInsertBetween);
-    bar.appendChild(btnBulkEdit);
     bar.appendChild(btnReorder);
   } else if (st.count === 2 && !st.isConsecutive && !st.hasMixed) {
-    // 2개 비연속 일반
-    bar.appendChild(btnFlow);
-    bar.appendChild(btnBulkEdit);
-  } else if (st.count === 2 && st.hasMixed && st.isConsecutive) {
-    // 2개 혼합 연속
-    bar.appendChild(btnCompareDraft);
-    bar.appendChild(btnBulkEdit);
-  } else if (st.count === 2 && st.hasMixed && !st.isConsecutive) {
-    // 2개 혼합 비연속
-    bar.appendChild(btnBulkEdit);
+    // 2개 비연속
+    bar.appendChild(btnReorder);
   } else if (st.count >= 3 && st.isConsecutive && !st.hasDraft) {
-    // 3개↑ 연속 일반
+    // 3개↑ 연속
     bar.appendChild(btnMerge);
-    bar.appendChild(btnFlow);
-    bar.appendChild(btnBulkEdit);
     bar.appendChild(btnReorder);
   } else if (st.count >= 3 && !st.isConsecutive && !st.hasDraft) {
-    // 3개↑ 비연속 일반
-    bar.appendChild(btnFlow);
-    bar.appendChild(btnBulkEdit);
-  } else if (st.count >= 2 && st.hasDraft && !st.hasMixed) {
-    // draft만 선택 (2개↑)
-    bar.appendChild(btnCompareDraft);
+    // 3개↑ 비연속
+    bar.appendChild(btnReorder);
   }
+  // 씬 분석·일괄 편집·편집 요청·대안 비교 → FLO 패널로
 }
 
 // Keyboard shortcut: Escape closes drawers
