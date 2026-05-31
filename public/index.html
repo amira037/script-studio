@@ -1721,6 +1721,102 @@ textarea, input { font-family:var(--fb); }
   .check-item.warn .check-goto { color:var(--amber); border-color:rgba(232,168,74,.4); }
 }
 
+
+/* ═══════════════════════════════════════════
+   FLO FLOATING PANEL
+═══════════════════════════════════════════ */
+#flo-toggle-btn {
+  display:flex; align-items:center; gap:4px;
+  height:28px; padding:0 10px;
+  border-radius:var(--r); border:1px solid var(--accent2);
+  background:var(--accent3); color:var(--accent);
+  font-size:var(--fs-11); font-family:var(--fm);
+  cursor:pointer; flex-shrink:0; transition:all .15s;
+}
+#flo-toggle-btn:hover { background:rgba(200,169,110,.2); }
+#flo-toggle-btn.active { background:rgba(200,169,110,.25); border-color:var(--accent); }
+
+.flo-panel {
+  position:fixed; bottom:calc(var(--prompter-h) + 12px); right:12px;
+  width:300px; height:420px;
+  background:var(--bg2); border:1px solid var(--border2);
+  border-radius:var(--r2); box-shadow:0 8px 32px rgba(0,0,0,.5);
+  display:flex; flex-direction:column;
+  z-index:400; overflow:hidden;
+  transform:translateY(16px) scale(.97); opacity:0;
+  pointer-events:none;
+  transition:transform .18s ease, opacity .18s ease;
+}
+.flo-panel.open {
+  transform:translateY(0) scale(1); opacity:1;
+  pointer-events:auto;
+}
+
+.flo-hdr {
+  display:flex; align-items:center; gap:6px;
+  padding:8px 10px; border-bottom:1px solid var(--border);
+  flex-shrink:0; background:var(--bg3);
+}
+.flo-chip {
+  font-size:var(--fs-10); font-family:var(--fm);
+  color:var(--text3); flex:1; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap;
+  cursor:default;
+}
+.flo-chip.has-selection { color:var(--accent); }
+.flo-dw-tabs { display:flex; gap:2px; }
+.flo-dw-tab {
+  width:26px; height:26px; border-radius:var(--r);
+  border:1px solid transparent; background:none;
+  color:var(--text3); font-size:var(--fs-13);
+  cursor:pointer; transition:all .15s;
+  display:flex; align-items:center; justify-content:center;
+}
+.flo-dw-tab:hover { color:var(--text2); border-color:var(--border2); }
+.flo-dw-tab.on { background:var(--accent3); border-color:var(--accent2); color:var(--accent); }
+.flo-close-btn {
+  width:24px; height:24px; border-radius:var(--r);
+  border:none; background:none; color:var(--text3);
+  font-size:var(--fs-12); cursor:pointer; flex-shrink:0;
+  transition:color .15s;
+}
+.flo-close-btn:hover { color:var(--text); }
+
+.flo-analysis {
+  padding:8px 10px; border-bottom:1px solid var(--border);
+  flex-shrink:0;
+}
+.flo-analysis-label {
+  font-size:var(--fs-10); color:var(--text3);
+  font-family:var(--fm); margin-bottom:6px;
+  text-transform:uppercase; letter-spacing:.05em;
+}
+.flo-analysis-btns {
+  display:flex; flex-wrap:wrap; gap:4px;
+}
+.flo-ab {
+  font-size:var(--fs-11); font-family:var(--fm);
+  padding:3px 9px; border-radius:var(--r);
+  border:1px solid var(--border2); background:none;
+  color:var(--text2); cursor:pointer; transition:all .15s;
+}
+.flo-ab:hover { border-color:var(--border3); color:var(--text); background:rgba(255,255,255,.04); }
+.flo-ab:disabled { opacity:.35; cursor:default; }
+
+.flo-dw-content { flex:1; overflow-y:auto; min-height:0; }
+.flo-dw { display:none; padding:12px 10px; }
+.flo-dw.show { display:block; }
+.flo-dw-placeholder {
+  text-align:center; color:var(--text3);
+  font-family:var(--fm); font-size:var(--fs-12);
+  padding:24px 0;
+}
+
+/* 하단 칩 "선택 없음" */
+.chip-none {
+  font-size:var(--fs-10); color:var(--text3);
+  font-family:var(--fm); font-style:italic; padding:1px 0;
+}
 </style>
 <script>
 let _lastRpDataEarly = null; // 조기 closeResponsePanel용 플레이스홀더
@@ -1789,6 +1885,7 @@ const SW_VERSION = 'v43.6';
       <button class="tab-sw-btn on" id="tab-chat-btn" onclick="switchTab('chat')" title="브레인스토밍">💬</button>
       <button class="tab-sw-btn" id="tab-script-btn" onclick="switchTab('script')" title="대본">📄</button>
     </div>
+    <button id="flo-toggle-btn" onclick="toggleFloPanel()" title="Flo 분석 패널">✦ FLO</button>
   </div>
 
   <div class="app-layout">
@@ -1926,6 +2023,45 @@ const SW_VERSION = 'v43.6';
         <span class="pr-text" id="pr-text">미처리된 플로 제안이 있어요</span>
         <button class="pr-check" onclick="pendingReminderCheck()">확인하기</button>
         <button class="pr-dismiss" onclick="pendingReminderDismiss()">무시하고 계속</button>
+      </div>
+
+      <!-- FLO Floating Panel -->
+      <div class="flo-panel" id="flo-panel">
+        <div class="flo-hdr">
+          <span class="flo-chip" id="flo-chip">◎ 전체</span>
+          <div class="flo-dw-tabs">
+            <button class="flo-dw-tab on" data-dw="chat" onclick="openFloDw('chat')" title="채팅">💬</button>
+            <button class="flo-dw-tab" data-dw="memo" onclick="openFloDw('memo')" title="결정사항">📌</button>
+            <button class="flo-dw-tab" data-dw="history" onclick="openFloDw('history')" title="히스토리">📖</button>
+            <button class="flo-dw-tab" data-dw="pick" onclick="openFloDw('pick')" title="픽">🎲</button>
+          </div>
+          <button class="flo-close-btn" onclick="closeFloPanel()">✕</button>
+        </div>
+        <div class="flo-analysis">
+          <div class="flo-analysis-label">분석</div>
+          <div class="flo-analysis-btns">
+            <button class="flo-ab" onclick="floAnalysis('flow')">🌊 흐름</button>
+            <button class="flo-ab" onclick="floAnalysis('conflict')">💢 갈등</button>
+            <button class="flo-ab" onclick="floAnalysis('emotion')">💭 감정</button>
+            <button class="flo-ab" onclick="floAnalysis('setting')">🔍 일관성</button>
+            <button class="flo-ab" onclick="floAnalysis('dialogue')">🗣 대사</button>
+            <button class="flo-ab" id="flo-draft-btn" onclick="floAnalysis('compare_draft')" disabled>🧩 대안비교</button>
+          </div>
+        </div>
+        <div class="flo-dw-content">
+          <div class="flo-dw show" id="flo-dw-chat">
+            <div class="flo-dw-placeholder">채팅 영역은 다음 단계에서 이전됩니다</div>
+          </div>
+          <div class="flo-dw" id="flo-dw-memo">
+            <div class="flo-dw-placeholder">결정사항</div>
+          </div>
+          <div class="flo-dw" id="flo-dw-history">
+            <div class="flo-dw-placeholder">히스토리</div>
+          </div>
+          <div class="flo-dw" id="flo-dw-pick">
+            <div class="flo-dw-placeholder">픽</div>
+          </div>
+        </div>
       </div>
 
       <!-- Prompter -->
@@ -4895,6 +5031,7 @@ function openProject(id) {
   renderNavSceneList();
   renderScriptBody();
   renderChatMsgs();
+  initFloPanel();
   renderChatMemoWrap();
   // 메모가 있으면 자동 펼치기
   if ((p.chatMemos||[]).length > 0 || p.chatMemosStructured) {
@@ -5638,6 +5775,7 @@ function syncSelection() {
     if (hdr) hdr.classList.toggle('selected', S.selectedIds.has(id));
   });
   renderChips();
+  updateFloChip();
   updateToolbarInfo();
   updateDelBtn();
   // 액션 바 갱신
@@ -5749,11 +5887,18 @@ function scrollToScene(id) {
 function renderChips() {
   const row = document.getElementById('chip-row');
   const hint = document.getElementById('chip-hint');
+  const inp = document.getElementById('prompter-inp');
   if (!row) return;
   const sel = [...S.selectedIds];
   if (sel.length === 0) {
     row.innerHTML = '';
     if (hint) { hint.style.display='inline'; row.appendChild(hint); }
+    // 빈 상태: "선택 없음" 표시
+    const none = document.createElement('span');
+    none.className = 'chip-none';
+    none.textContent = '편집 대상 없음';
+    row.appendChild(none);
+    if (inp) inp.placeholder = '라인에게 씬 수정, 추가, 분석을 지시하세요';
     return;
   }
   if (hint) hint.style.display='none';
@@ -5766,15 +5911,19 @@ function renderChips() {
     chip.innerHTML = `${chipLabel} <span class="chip-x" onclick="toggleSceneSelect(${id},false)">×</span>`;
     row.appendChild(chip);
   });
-  // 전체 해제 버튼 (칩이 있을 때만)
-  if (sel.length > 0) {
-    const clearBtn = document.createElement('button');
-    clearBtn.style.cssText = 'font-size:var(--fs-10);padding:2px 9px;border-radius:10px;border:1px solid var(--border2);background:none;color:var(--text3);cursor:pointer;margin-left:2px;font-family:var(--fm);transition:all .15s;';
-    clearBtn.textContent = '전체해제';
-    clearBtn.onmouseenter = () => { clearBtn.style.borderColor='var(--red)'; clearBtn.style.color='var(--red)'; };
-    clearBtn.onmouseleave = () => { clearBtn.style.borderColor='var(--border2)'; clearBtn.style.color='var(--text3)'; };
-    clearBtn.onclick = () => { S.selectedIds.clear(); syncSelection(); };
-    row.appendChild(clearBtn);
+  // 전체 해제 버튼
+  const clearBtn = document.createElement('button');
+  clearBtn.style.cssText = 'font-size:var(--fs-10);padding:2px 9px;border-radius:10px;border:1px solid var(--border2);background:none;color:var(--text3);cursor:pointer;margin-left:2px;font-family:var(--fm);transition:all .15s;';
+  clearBtn.textContent = '전체해제';
+  clearBtn.onmouseenter = () => { clearBtn.style.borderColor='var(--red)'; clearBtn.style.color='var(--red)'; };
+  clearBtn.onmouseleave = () => { clearBtn.style.borderColor='var(--border2)'; clearBtn.style.color='var(--text3)'; };
+  clearBtn.onclick = () => { S.selectedIds.clear(); syncSelection(); };
+  row.appendChild(clearBtn);
+  // 다중 선택 시 placeholder 경고
+  if (inp && sel.length >= 2) {
+    inp.placeholder = `선택한 ${sel.length}개 씬을 일괄 편집`;
+  } else if (inp) {
+    inp.placeholder = '라인에게 씬 수정, 추가, 분석을 지시하세요';
   }
 }
 
@@ -5791,6 +5940,84 @@ function switchTab(tab) {
   inp.placeholder = tab==='chat'
     ? '플로에게 이야기의 방향, 인물, 구조를 물어보세요'
     : '라인에게 씬 수정, 추가, 분석을 지시하세요';
+}
+
+// ═══════════════════════════════════════════
+// FLO FLOATING PANEL
+// ═══════════════════════════════════════════
+function openFloPanel(dw) {
+  const panel = document.getElementById('flo-panel');
+  if (!panel) return;
+  panel.classList.add('open');
+  document.getElementById('flo-toggle-btn')?.classList.add('active');
+  localStorage.setItem('ss_flo_open', 'true');
+  if (dw) openFloDw(dw);
+}
+function closeFloPanel() {
+  const panel = document.getElementById('flo-panel');
+  if (!panel) return;
+  panel.classList.remove('open');
+  document.getElementById('flo-toggle-btn')?.classList.remove('active');
+  localStorage.setItem('ss_flo_open', 'false');
+}
+function toggleFloPanel() {
+  const panel = document.getElementById('flo-panel');
+  if (!panel) return;
+  if (panel.classList.contains('open')) closeFloPanel();
+  else openFloPanel();
+}
+function initFloPanel() {
+  const stored = localStorage.getItem('ss_flo_open');
+  if (stored === null || stored === 'true') openFloPanel();
+}
+function openFloDw(dw) {
+  document.querySelectorAll('.flo-dw').forEach(el => el.classList.remove('show'));
+  document.querySelectorAll('.flo-dw-tab').forEach(el => el.classList.toggle('on', el.dataset.dw === dw));
+  const target = document.getElementById('flo-dw-' + dw);
+  if (target) target.classList.add('show');
+}
+
+function floAnalysis(cmd) {
+  if (!S.cur) { toast('프로젝트를 먼저 열어주세요'); return; }
+  const targetIds = [...S.selectedIds];
+  if (cmd === 'flow') {
+    if (targetIds.length) return handleSceneConnection('', { targetIds });
+    return handleFlowAnalysisInChat('', 'flow');
+  }
+  if (cmd === 'emotion')  return handleFlowAnalysisInChat('', 'emotion');
+  if (cmd === 'setting')  return handleFlowAnalysisInChat('', 'setting');
+  if (cmd === 'conflict') return checkConflictWithPrompt('');
+  if (cmd === 'dialogue') return handleCharDialogueAnalysis('');
+  if (cmd === 'compare_draft') {
+    const scenes = S.cur?.scenes || [];
+    const draftSc = scenes.find(s => targetIds.includes(s.id) && s.draft);
+    if (!draftSc) { toast('대안 씬을 선택하세요'); return; }
+    return compareDraftScene(draftSc.id);
+  }
+}
+
+function updateFloChip() {
+  const chip = document.getElementById('flo-chip');
+  const draftBtn = document.getElementById('flo-draft-btn');
+  if (!chip) return;
+  const sel = [...S.selectedIds];
+  const scenes = S.cur?.scenes || [];
+  if (sel.length === 0) {
+    chip.textContent = '◎ 전체';
+    chip.classList.remove('has-selection');
+  } else {
+    const labels = sel.map(id => {
+      const sc = scenes.find(s => s.id === id);
+      return sc ? getSceneLabel(sc, scenes) : null;
+    }).filter(Boolean);
+    chip.textContent = '◎ ' + labels.join(', ');
+    chip.classList.add('has-selection');
+  }
+  // 대안비교 버튼: 선택 중 draft가 있을 때만 활성화
+  if (draftBtn) {
+    const hasDraft = scenes.some(s => sel.includes(s.id) && s.draft);
+    draftBtn.disabled = !hasDraft;
+  }
 }
 
 // ═══════════════════════════════════════════
