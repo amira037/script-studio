@@ -2774,13 +2774,17 @@ async function syncFromSupabase(force = false) {
         continue;
       }
 
-      // per-project 키가 없으면 로컬 변경 있다고 보수적으로 판단 (글로벌 fallback 오판 방지)
       const hasPerProjectKey = localStorage.getItem(_projSaveTimeKey(remoteData.id)) !== null;
+      if (!hasPerProjectKey) {
+        // 이 기기에서 이 프로젝트를 편집한 기록 없음 → 원격 데이터를 무조건 신뢰
+        if (remoteProjectTime > 0) toUpdate.push(remoteData);
+        continue;
+      }
       const localSaveTime = _getProjectSaveTime(remoteData.id);
       if (remoteProjectTime > localSaveTime + 3000) {
         // remote가 명확히 더 최신
         const localUploadTime = _getProjectUploadTime(remoteData.id);
-        const hasLocalChanges = !hasPerProjectKey || (localSaveTime > 0 && localSaveTime > localUploadTime + 5000);
+        const hasLocalChanges = localSaveTime > 0 && localSaveTime > localUploadTime + 5000;
         if (hasLocalChanges) {
           conflicting.push({ localProj, remoteData, remoteTime: remoteProjectTime });
         } else {
