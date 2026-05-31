@@ -6099,6 +6099,28 @@ function addSceneAt(title, afterId, slug, forceTopLevel = false) {
   setTimeout(() => scrollToScene(sc.id), 100);
   toast(`씬 "${sc.title}" 추가됨`);
 }
+function addSubSceneTo(parentId) {
+  const scenes = S.cur?.scenes || [];
+  const parentSc = scenes.find(s => s.id === parentId);
+  if (!parentSc) return;
+  const sc = makeScene('새 장면', '');
+  sc.parentId = parentId;
+  sc.subSceneType = isMusicalProject() ? 'dialogue' : 'dialogue';
+  const siblings = scenes.filter(s => s.parentId === parentId && !s.draft);
+  sc.subOrder = siblings.length;
+  // 이 부모의 마지막 서브씬 바로 다음에 삽입
+  const parentIdx = scenes.findIndex(s => s.id === parentId);
+  let insertIdx = parentIdx;
+  for (let i = parentIdx + 1; i < scenes.length; i++) {
+    if (scenes[i].parentId === parentId && !scenes[i].draft) insertIdx = i;
+    else break;
+  }
+  scenes.splice(insertIdx + 1, 0, sc);
+  S.selectedIds.clear();
+  save(); renderScriptBody(); renderNavSceneList();
+  setTimeout(() => scrollToScene(sc.id), 100);
+  toast(`서브씬 "${sc.title}" 추가됨`);
+}
 function addSceneAtEnd() {
   const scenes = S.cur?.scenes || [];
   // 선택된 씬 없으면 바로 맨 아래 추가
@@ -6125,6 +6147,13 @@ function addSceneAtEnd() {
     return b;
   };
   popup.appendChild(mkOpt('↓ 선택한 씬 아래', () => addSceneAt('새 장면', afterId)));
+  // 연극/뮤지컬: 최상위 씬 선택 시 서브씬 추가 옵션
+  if (isTheatricalProject() && afterId) {
+    const _selSc = scenes.find(s => s.id === afterId);
+    if (_selSc && !_selSc.parentId && !_selSc.draft) {
+      popup.appendChild(mkOpt('↳ 서브씬으로 추가', () => addSubSceneTo(afterId)));
+    }
+  }
   popup.appendChild(mkOpt('↓ 맨 아래', () => addSceneAt('새 장면', null)));
   document.body.appendChild(popup);
   const _close = (e) => { if (!popup.contains(e.target)) { popup.remove(); } document.removeEventListener('mousedown', _close); };
@@ -6352,8 +6381,9 @@ function buildSceneBlock(sc, i) {
         menu.appendChild(b);
       };
       const hasChildren = (S.cur.scenes||[]).some(s => s.parentId === sc.id);
-      // 최상위 씬: 서브씬으로 나누기 (연극/뮤지컬 전용)
+      // 최상위 씬: 서브씬 추가 + 서브씬으로 나누기 (연극/뮤지컬 전용)
       if (!sc.parentId && !sc.draft && isTheatricalProject()) {
+        mkHdrBtn('➕ 서브씬 추가', 'var(--blue)', () => addSubSceneTo(sc.id));
         mkHdrBtn('✦ 서브씬으로 나누기', 'var(--accent)', () => splitIntoSubScenes(sc.id));
       }
       // 서브씬이 있는 부모 씬: 합치기 (연극/뮤지컬 전용)
