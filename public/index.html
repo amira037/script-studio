@@ -6389,7 +6389,6 @@ function buildSceneBlock(sc, i) {
       const hasChildren = (S.cur.scenes||[]).some(s => s.parentId === sc.id);
       // 최상위 씬: 서브씬 추가 + 서브씬으로 나누기 (연극/뮤지컬 전용)
       if (!sc.parentId && !sc.draft && isTheatricalProject()) {
-        mkHdrBtn('➕ 서브씬 추가', 'var(--blue)', () => addSubSceneTo(sc.id));
         mkHdrBtn('✦ 서브씬으로 나누기', 'var(--accent)', () => splitIntoSubScenes(sc.id));
       }
       // 서브씬이 있는 부모 씬: 합치기 (연극/뮤지컬 전용)
