@@ -8173,11 +8173,14 @@ ${scText}
   }
 ]</subscenes>`;
 
-  const raw = await callClaude(
+  let raw = '';
+  await callClaudeStream(
     [{ role: 'user', content: prompt }],
     '',
     4000,
-    'claude-sonnet-4-20250514'
+    'claude-sonnet-4-20250514',
+    (chunk, done) => { raw = chunk; },
+    true
   );
 
   hideAnalyzing();
@@ -8366,11 +8369,14 @@ ${scText}
   }
 ]</subscenes>`;
 
-  const raw = await callClaude(
+  let raw = '';
+  await callClaudeStream(
     [{ role: 'user', content: prompt }],
     '',
     4000,
-    'claude-sonnet-4-20250514'
+    'claude-sonnet-4-20250514',
+    (chunk, done) => { raw = chunk; },
+    true
   );
 
   hideAnalyzing();
@@ -10813,7 +10819,9 @@ async function handleFloWriteMultiSeq(text, sceneCount, scRefs, history, sysBase
       '\n지금 이 씬 하나만 작성하세요. 반드시 <newscenes>[{"title":"...","slug":"...","lines":[...]}]</newscenes> 태그 하나로만 응답. 태그 외 자연어 설명 불필요.';
 
     try {
-      const raw = await callClaude(seqHistory, seqSys, 10000, 'claude-sonnet-4-20250514');
+      let raw = '';
+      await callClaudeStream(seqHistory, seqSys, 10000, 'claude-sonnet-4-20250514',
+        (chunk, done) => { raw = chunk; }, true);
 
       // 대화 히스토리 누적 → 다음 씬이 이전 씬 내용을 알도록
       seqHistory = [...seqHistory,
@@ -15872,9 +15880,12 @@ async function handleScriptPrompt(text) {
           '사용자가 압축/단축을 명시적으로 요청하지 않는 한, 각 씬의 lines는 원본과 같거나 더 많아야 합니다. 대사와 지문을 임의로 생략하지 마세요.\n' +
           '편집 시 반드시 <r>[{"sceneId":숫자,"title":"씬제목","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용","locked":false}],"comment":"변경사항 한 줄"}]</r> 형식으로 응답하세요.\n' +
           'sceneId를 모를 때는 title 필드에 씬 제목을 정확히 적으면 자동 매칭됩니다.';
-        const chunkRaw = await callClaude(
+        let chunkRaw = '';
+        await callClaudeStream(
           [{role:'user', content:'지시: '+text+'\n\n씬 데이터:\n'+chunkSummary}],
-          chunkSys, 15000
+          chunkSys, 15000, 'claude-sonnet-4-20250514',
+          (chunk, done) => { chunkRaw = chunk; },
+          true
         );
         const chunkResult = extractTag(chunkRaw, 'r');
         if (chunkResult) {
