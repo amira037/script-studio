@@ -13927,13 +13927,17 @@ async function executeMerge(targetScenes) {
       (sc.lines||[]).map(l=>l.type+': '+l.text).join('\n')
     ).join('\n\n');
 
-    const raw = await callClaude(
+    let raw = '';
+    await callClaudeStream(
       [{role:'user', content:
         allLabels + '을 ' + lblA + ' 기준으로 자연스럽게 합쳐주세요.\n' +
         lblA + '의 제목과 슬러그를 유지하고, 모든 씬의 내용을 순서대로 자연스럽게 이어주세요.\n\n' +
         combinedContent}],
       '반드시 <scenes>[{"title":"씬 제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만 응답하세요.',
-      8000
+      8000,
+      'claude-sonnet-4-20250514',
+      (chunk, done) => { raw = chunk; },
+      true
     );
     hideAnalyzing();
 
