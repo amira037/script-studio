@@ -6368,6 +6368,15 @@ function buildSceneBlock(sc, i) {
   acts.appendChild(titleAiBtn);
   acts.appendChild(txtEditBtn);
   acts.appendChild(cloneBtn);
+  if (isTheatricalProject() && !sc.parentId && !sc.draft) {
+    const splitBtn = document.createElement('button');
+    splitBtn.className = 'sc-hdr-btn';
+    splitBtn.style.cssText = 'font-size:var(--fs-10);color:var(--accent);border-color:rgba(200,169,110,.4);background:rgba(200,169,110,.08);';
+    splitBtn.textContent = '✦ 나누기';
+    splitBtn.title = '서브씬으로 나누기';
+    splitBtn.onclick = () => splitIntoSubScenes(sc.id);
+    acts.appendChild(splitBtn);
+  }
   acts.appendChild(lockBtn);
   hdr.append(collapseBtn, cb, num, titleInp, acts);
   block.appendChild(hdr);
@@ -6388,9 +6397,6 @@ function buildSceneBlock(sc, i) {
       };
       const hasChildren = (S.cur.scenes||[]).some(s => s.parentId === sc.id);
       // 최상위 씬: 서브씬 추가 + 서브씬으로 나누기 (연극/뮤지컬 전용)
-      if (!sc.parentId && !sc.draft && isTheatricalProject()) {
-        mkHdrBtn('✦ 서브씬으로 나누기', 'var(--accent)', () => splitIntoSubScenes(sc.id));
-      }
       // 서브씬이 있는 부모 씬: 합치기 (연극/뮤지컬 전용)
       if (!sc.parentId && hasChildren && isTheatricalProject()) {
         const div = document.createElement('div');
