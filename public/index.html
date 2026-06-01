@@ -11285,15 +11285,17 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     // 동적 씬 컨텍스트 — 인물 이름/SC번호 감지
     let dynamicCtx = '';
     const allScenes = S.cur.scenes || [];
-    // SC번호 감지
-    const scPat2 = /SC\s*(\d+)/gi;
     const mentionedScIds = new Set();
+
+    // SC번호 감지 — 단순(SC 1), 서브씬(SC 1-4), 대안(SC 1-4-A) 모두 매칭
+    const scPat2 = /SC\s*([\d]+(?:-[\dA-Za-z]+)*)/gi;
     let scM2;
     while ((scM2 = scPat2.exec(text)) !== null) {
-      const num = parseInt(scM2[1]);
-      const found = allScenes.find(s => getSceneLabel(s, allScenes) === 'SC ' + num);
+      const targetLabel = 'SC ' + scM2[1].toUpperCase();
+      const found = allScenes.find(s => getSceneLabel(s, allScenes) === targetLabel);
       if (found) mentionedScIds.add(found.id);
     }
+
     // 인물 이름 감지 → 갈등 높고 대사 많은 씬 최대 5개
     const charNames3 = (S.cur.characters||[]).map(c=>c.name).filter(Boolean);
     const mentionedChars = charNames3.filter(name => text.includes(name));
@@ -11311,19 +11313,19 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
         .map(x => x.s);
       charScenes.forEach(s => mentionedScIds.add(s.id));
     }
-    // "이 씬", "이 장면" → 선택된 씬
-    if (/이 씬|이 장면|현재 씬/.test(text)) {
-      S.selectedIds.forEach(id => mentionedScIds.add(id));
-    }
+
+    // 선택된 씬은 키워드 없어도 항상 컨텍스트에 포함 (FLO 칩 기준 씬 = 분석 대상)
+    S.selectedIds.forEach(id => mentionedScIds.add(id));
     if (mentionedScIds.size > 0) {
       const sceneDetails = [...mentionedScIds].map(id => {
         const s = allScenes.find(x=>x.id===id);
         if (!s) return '';
         const lbl = getSceneLabel(s, allScenes);
-        const lines = (s.lines||[]).map(l=>l.type+': '+l.text).join(' | ').slice(0,400);
-        return lbl+'. "'+s.title+'"\n'+lines;
+        const draftMark = s.draft ? ' [대안]' : '';
+        const lines = (s.lines||[]).map(l=>l.type+': '+l.text).join(' | ').slice(0,600);
+        return lbl + draftMark + '. "' + s.title + '"\n' + lines;
       }).filter(Boolean).join('\n\n');
-      if (sceneDetails) dynamicCtx = '\n\n[참조 씬 상세 데이터]\n' + sceneDetails;
+      if (sceneDetails) dynamicCtx = '\n\n[참조 씬 상세 데이터 — 선택된 씬 포함]\n' + sceneDetails;
     }
 
     const sys = '당신은 창작 대본 작업을 돕는 전문 작가 AI입니다.\n' + ctx + memoCtx + dynamicCtx + '\n\n' +
