@@ -11575,7 +11575,7 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     if (scenesData && Array.isArray(scenesData) && scenesData.length > 0) {
       actions.push({ type:'addScenes', data:scenesData, label:'🎬 씬 '+scenesData.length+'개 대본에 추가', style:'purple' });
     }
-    if (newScenesDataFlo && Array.isArray(newScenesDataFlo) && newScenesDataFlo.length > 0) {
+    if (newScenesDataFlo && Array.isArray(newScenesDataFlo) && newScenesDataFlo.length > 0 && !subSceneGroupData) {
       actions.push({ type:'addScenes', data:newScenesDataFlo, label:'🎬 씬 '+newScenesDataFlo.length+'개 대본에 추가', style:'purple' });
     }
     if (subSceneGroupData && subSceneGroupData.length > 0) {
