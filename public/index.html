@@ -35,6 +35,7 @@
   --r:6px; --r2:10px; --r3:14px;
   --nav-w:188px;
   --prompter-h:56px;
+  --flo-w:380px;
 
   /* ─── Font scale — clamp(최소, vw유동, 최대) — 전체 1단계 크게 ─── */
   --fs-8:  clamp(14px, 1.4vw, 15px);
@@ -1740,20 +1741,50 @@ textarea, input { font-family:var(--fb); }
 #flo-toggle-btn:hover { background:rgba(200,169,110,.2); }
 #flo-toggle-btn.active { background:rgba(200,169,110,.25); border-color:var(--accent); }
 
-.flo-panel {
-  position:fixed; bottom:calc(var(--prompter-h) + 12px); right:12px;
-  width:300px; height:420px;
-  background:var(--bg2); border:1px solid var(--border2);
-  border-radius:var(--r2); box-shadow:0 8px 32px rgba(0,0,0,.5);
+/* §4 도킹 레일 */
+.flo-dock {
+  position:relative; flex-shrink:0; width:var(--flo-w);
+  min-width:320px; max-width:600px;
+  background:var(--bg2); border-left:1px solid var(--border2);
   display:flex; flex-direction:column;
-  z-index:400; overflow:hidden;
-  transform:translateY(16px) scale(.97); opacity:0;
-  pointer-events:none;
-  transition:transform .18s ease, opacity .18s ease;
 }
-.flo-panel.open {
-  transform:translateY(0) scale(1); opacity:1;
-  pointer-events:auto;
+.flo-dock.collapsed { display:none; }
+.flo-resize {
+  position:absolute; left:-3px; top:0; bottom:0; width:6px;
+  cursor:col-resize; z-index:5;
+}
+.flo-resize:hover { background:rgba(200,169,110,.25); }
+.flo-fab {
+  position:fixed; right:20px; bottom:20px; z-index:600;
+  height:44px; padding:0 18px; border-radius:999px;
+  background:var(--accent); color:var(--bg); border:none;
+  font-size:var(--fs-13); font-weight:600; font-family:var(--fm);
+  cursor:pointer; box-shadow:0 6px 20px rgba(0,0,0,.5);
+  display:none; align-items:center; gap:6px;
+}
+.flo-backdrop { display:none; }
+.flo-panel {
+  flex:1; min-height:0; overflow:hidden;
+  display:flex; flex-direction:column; background:var(--bg2);
+}
+@media (max-width:820px) {
+  .flo-resize { display:none; }
+  .flo-backdrop.on {
+    display:block; position:fixed; inset:0;
+    background:rgba(0,0,0,.5); z-index:190;
+  }
+  .flo-dock {
+    position:fixed; left:0; right:0; bottom:0; top:auto; z-index:200;
+    width:auto !important; max-width:none; height:72vh;
+    border-left:none; border-top:1px solid var(--border2);
+    border-radius:16px 16px 0 0; box-shadow:0 -12px 40px rgba(0,0,0,.55);
+    transition:transform .25s ease;
+  }
+  .flo-dock.collapsed { display:flex; transform:translateY(100%); }
+  .flo-panel::before {
+    content:''; display:block; width:36px; height:4px; border-radius:2px;
+    background:var(--border3); margin:8px auto 2px; flex-shrink:0;
+  }
 }
 
 .flo-hdr {
@@ -1930,10 +1961,8 @@ const SW_VERSION = 'v43.6';
           <span class="nav-meta-arrow">›</span>
         </div>
       </div>
-      <div id="nav-analysis-btns" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:5px 6px 4px;border-bottom:1px solid var(--border);">
-        <button class="nav-analysis-btn" id="nav-btn-conflict" onclick="checkConflictWithPrompt('')" title="갈등도 분석">⚔ 갈등도</button>
-        <button class="nav-analysis-btn" id="nav-btn-flow" onclick="handleFlowAnalysisInChat('', 'flow')" title="흐름 분석">🌊 흐름</button>
-        <button class="nav-analysis-btn" id="nav-btn-stats" onclick="showScriptStats()" title="전체 분량 통계" style="grid-column:span 2;">📊 분량 통계</button>
+      <div id="nav-analysis-btns" style="padding:5px 6px 4px;border-bottom:1px solid var(--border);">
+        <button class="nav-analysis-btn" id="nav-btn-stats" onclick="showScriptStats()" title="전체 분량 통계" style="width:100%;">📊 분량 통계</button>
       </div>
       <div class="nav-scene-sec">
         <div class="nav-scene-hdr">
@@ -2027,7 +2056,37 @@ const SW_VERSION = 'v43.6';
         <button class="pr-dismiss" onclick="pendingReminderDismiss()">무시하고 계속</button>
       </div>
 
-      <!-- FLO Floating Panel -->
+      <!-- Prompter -->
+      <div class="prompter" id="prompter">
+        <div class="file-analyze-banner" id="file-analyze-banner">
+          <div class="fab-top">
+            <div class="fab-filename" id="fab-filename"></div>
+            <div class="fab-status" id="fab-status">분석 중...</div>
+          </div>
+          <div class="fab-actions" id="fab-actions"></div>
+        </div>
+        <div class="chip-row" id="chip-row">
+          <span class="chip-hint" id="chip-hint"></span>
+        </div>
+        <div class="action-bar" id="action-bar"></div>
+        <div class="prompter-row">
+          <label class="attach-btn" title="파일 첨부 (txt/md/docx)">
+            📎<input type="file" accept=".txt,.md,.docx,.jpg,.jpeg,.png,.gif,.webp" onchange="handleFileAttach(event)" style="opacity:0;position:absolute;width:0;height:0;overflow:hidden">
+          </label>
+          <textarea class="prompter-inp" id="prompter-inp" rows="1"
+            placeholder="라인에게 씬 수정, 추가, 분석을 지시하세요"
+            onkeydown="onPromptKey(event)"
+            oninput="autoResize(this); if(this.value) detectSceneNumbers(this.value);"></textarea>
+          <button class="prompter-mic" id="prompter-mic" onclick="toggleVoiceInput()" title="음성 입력">🎤</button>
+          <button class="prompter-send" id="prompter-send" onclick="sendPrompt()">↑</button>
+        </div>
+      </div>
+    </div>
+    <!-- FLO Backdrop (모바일) -->
+    <div class="flo-backdrop" id="flo-backdrop" onclick="closeFloPanel()"></div>
+    <!-- FLO Dock -->
+    <div class="flo-dock" id="flo-dock">
+      <div class="flo-resize" id="flo-resize" title="너비 조절"></div>
       <div class="flo-panel" id="flo-panel">
         <div class="flo-hdr">
           <span class="flo-chip" id="flo-chip">◎ 전체</span>
@@ -2048,6 +2107,9 @@ const SW_VERSION = 'v43.6';
             <button class="flo-ab" onclick="floAnalysis('setting')">🔍 일관성</button>
             <button class="flo-ab" onclick="floAnalysis('dialogue')">🗣 대사</button>
             <button class="flo-ab" id="flo-draft-btn" onclick="floAnalysis('compare_draft')" disabled>🧩 대안비교</button>
+          </div>
+          <div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px;">
+            <button class="flo-ab" style="background:var(--accent3);border-color:var(--accent2);color:var(--accent);" onclick="handleAiBtn()">✨ AI 씬추가</button>
           </div>
         </div>
         <div class="flo-dw-content">
@@ -2092,35 +2154,10 @@ const SW_VERSION = 'v43.6';
           </div>
         </div>
       </div>
-
-      <!-- Prompter -->
-      <div class="prompter" id="prompter">
-        <div class="file-analyze-banner" id="file-analyze-banner">
-          <div class="fab-top">
-            <div class="fab-filename" id="fab-filename"></div>
-            <div class="fab-status" id="fab-status">분석 중...</div>
-          </div>
-          <div class="fab-actions" id="fab-actions"></div>
-        </div>
-        <div class="chip-row" id="chip-row">
-          <span class="chip-hint" id="chip-hint"></span>
-        </div>
-        <div class="action-bar" id="action-bar"></div>
-        <div class="prompter-row">
-          <label class="attach-btn" title="파일 첨부 (txt/md/docx)">
-            📎<input type="file" accept=".txt,.md,.docx,.jpg,.jpeg,.png,.gif,.webp" onchange="handleFileAttach(event)" style="opacity:0;position:absolute;width:0;height:0;overflow:hidden">
-          </label>
-          <textarea class="prompter-inp" id="prompter-inp" rows="1"
-            placeholder="라인에게 씬 수정, 추가, 분석을 지시하세요"
-            onkeydown="onPromptKey(event)"
-            oninput="autoResize(this); if(this.value) detectSceneNumbers(this.value);"></textarea>
-          <button class="prompter-mic" id="prompter-mic" onclick="toggleVoiceInput()" title="음성 입력">🎤</button>
-          <button class="prompter-send" id="prompter-send" onclick="sendPrompt()">↑</button>
-        </div>
-      </div>
     </div>
   </div>
 </div>
+<button class="flo-fab" id="flo-fab" onclick="openFloPanel()">💬 플로</button>
 
 <!-- ═══════════════════════════════════════════
      DRAWERS
@@ -5427,10 +5464,7 @@ function moveSceneWithChildren(arr, fromId, toId, insertAfter) {
 function updateNavAnalysisBtns() {
   const sceneCount = (S.cur?.scenes||[]).filter(s=>!s.draft).length;
   const enabled = sceneCount >= 2;
-  ['nav-btn-conflict','nav-btn-flow'].forEach(id => {
-    const btn = document.getElementById(id);
-    if (btn) btn.disabled = !enabled;
-  });
+  // 갈등도·흐름 버튼은 FLO 패널로 이전됨 — 네비엔 분량통계만
   const statsBtn = document.getElementById('nav-btn-stats');
   if (statsBtn) statsBtn.disabled = sceneCount < 1;
 }
@@ -5996,33 +6030,59 @@ function sendFloChat() {
 }
 
 // ═══════════════════════════════════════════
-// FLO FLOATING PANEL
+// FLO DOCK RAIL
 // ═══════════════════════════════════════════
 function openFloPanel(dw) {
-  const panel = document.getElementById('flo-panel');
-  if (!panel) return;
-  panel.classList.add('open');
-  document.getElementById('flo-toggle-btn')?.classList.add('active');
+  const dock = document.getElementById('flo-dock');
+  const fab  = document.getElementById('flo-fab');
+  if (!dock) return;
+  if (!dock.classList.contains('collapsed')) {
+    if (dw) openFloDw(dw);
+    return;
+  }
+  dock.classList.remove('collapsed');
+  if (fab) fab.style.display = 'none';
+  document.getElementById('flo-backdrop')?.classList.add('on');
   localStorage.setItem('ss_flo_open', 'true');
   if (dw) openFloDw(dw);
 }
 function closeFloPanel() {
-  const panel = document.getElementById('flo-panel');
-  if (!panel) return;
-  panel.classList.remove('open');
-  document.getElementById('flo-toggle-btn')?.classList.remove('active');
+  const dock = document.getElementById('flo-dock');
+  const fab  = document.getElementById('flo-fab');
+  if (!dock) return;
+  dock.classList.add('collapsed');
+  if (fab) fab.style.display = 'flex';
+  document.getElementById('flo-backdrop')?.classList.remove('on');
   localStorage.setItem('ss_flo_open', 'false');
 }
 function toggleFloPanel() {
-  const panel = document.getElementById('flo-panel');
-  if (!panel) return;
-  if (panel.classList.contains('open')) closeFloPanel();
-  else openFloPanel();
+  const dock = document.getElementById('flo-dock');
+  if (!dock) return;
+  if (dock.classList.contains('collapsed')) openFloPanel();
+  else closeFloPanel();
 }
 function initFloPanel() {
   const stored = localStorage.getItem('ss_flo_open');
-  if (stored === null || stored === 'true') openFloPanel();
+  if (stored === 'false') closeFloPanel();
+  else openFloPanel(); // 첫 방문(null) 또는 'true' → 열린 상태
 }
+// 너비 드래그
+(function(){
+  const handle = document.getElementById('flo-resize');
+  const dock   = document.getElementById('flo-dock');
+  if (!handle || !dock) return;
+  let drag=false, startX=0, startW=0;
+  handle.addEventListener('mousedown', e=>{
+    drag=true; startX=e.clientX; startW=dock.getBoundingClientRect().width;
+    document.body.style.cursor='col-resize'; e.preventDefault();
+  });
+  document.addEventListener('mousemove', e=>{
+    if (!drag) return;
+    const w = Math.max(320, Math.min(600, startW + (startX - e.clientX)));
+    document.documentElement.style.setProperty('--flo-w', w+'px');
+  });
+  document.addEventListener('mouseup', ()=>{ drag=false; document.body.style.cursor=''; });
+})();
 function openFloDw(dw) {
   document.querySelectorAll('.flo-dw').forEach(el => el.classList.remove('show'));
   document.querySelectorAll('.flo-dw-tab').forEach(el => el.classList.toggle('on', el.dataset.dw === dw));
