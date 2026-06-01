@@ -9928,6 +9928,8 @@ function updateStreamBubble(text) {
     .replace(/<survey>[\s\S]*?<\/survey>/gi, '')
     .replace(/<suggest>[\s\S]*?<\/suggest>/gi, '')
     .replace(/<setting_update>[\s\S]*?<\/setting_update>/gi, '')
+    .replace(/<subscenes>[\s\S]*?<\/subscenes>/gi, '')
+    .replace(/<subscenes>[\s\S]*/gi, '')
     .trim();
   el.textContent = display || '...';
   const container = document.getElementById('chat-msgs');
@@ -11404,8 +11406,8 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
               '- 대사 중심, 지문은 꼭 필요한 것만\n' +
               '- type은 반드시 다음 중 하나: ' + theatricalTypeOptions + '\n' +
               '- 뮤지컬 "number" 서브씬의 lines는 type:"lyric" 사용\n' +
-              '반드시 이 형식만:\n' +
-              '<subscenes>[{"label":"레이블","type":"dialogue|conflict|turn|number|transition","lines":[...]}]</subscenes>';
+              '반드시 이 형식만 (lines 항목은 반드시 {"type":"...","text":"..."} 객체):\n' +
+              '<subscenes>[{"label":"레이블","type":"dialogue","lines":[{"type":"character","text":"배역명"},{"type":"dialogue","text":"대사 내용"},{"type":"action","text":"지문"}]}]</subscenes>';
           })()
         : '- 대본 작성 시: 씬 하나를 완전히 완성한 뒤 다음 씬으로 진행. 씬 경계는 <newscenes> 태그로 구분. 토큰이 부족할 것 같으면 현재 씬을 완성 후 중단하고 "이어서 작성할까요?"로 마무리.'
       );
@@ -11452,7 +11454,9 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     let _tagRule = '';
     let _floExtraActions = [];
     if (['write_multi', 'write_single', 'structure'].includes(_floIntent)) {
-      if (!_hasChars) {
+      if (isTheatricalProject()) {
+        _tagRule = '\n★ 씬 내용을 직접 작성하세요. 반드시 <subscenes> 태그 사용. <newscenes> 사용 금지.';
+      } else if (!_hasChars) {
         _tagRule = '\n★ 씬 구조 제안 가능. <sequence_titles> 또는 <newscenes> 사용 가능.';
       } else {
         _tagRule = '\n★ 씬 구조를 적극 제안하세요. <sequence_titles> 또는 <newscenes> 사용.';
@@ -11537,7 +11541,11 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
             title: sub.label || `서브씬 ${idx + 1}`,
             parentId: parentId, subOrder: idx, subSceneType: sub.type || null,
             locked: false,
-            lines: (sub.lines || []).map(l => ({ type: l.type || 'action', text: l.text || '', locked: false })),
+            lines: (sub.lines || []).map(l =>
+              typeof l === 'string'
+                ? { type: 'dialogue', text: l, locked: false }
+                : { type: l.type || 'action', text: l.text || l.content || '', locked: false }
+            ),
             storyboard: [], diff: null,
           }));
           subSceneGroupData = [parentSc, ...childScs];
@@ -20598,6 +20606,8 @@ function cleanDisplayText(raw) {
     .replace(/<movescene>[\s\S]*/gi, '')
     .replace(/<reorderscenes>[\s\S]*?<\/reorderscenes>/gi, '')
     .replace(/<reorderscenes>[\s\S]*/gi, '')
+    .replace(/<subscenes[\s\S]*?<\/subscenes>/gi, '')
+    .replace(/<subscenes>[\s\S]*/gi, '')
     .replace(/<suggest>[\s\S]*/gi, '')
     .replace(/<selected>[\s\S]*?<\/selected>/gi, '')
     .replace(/<selected>[\s\S]*/gi, '')
@@ -20612,6 +20622,8 @@ function cleanDisplayText(raw) {
     .replace(/<character>[\s\S]*/gi, '')
     .replace(/<setting_update[\s\S]*?<\/setting_update>/gi, '')
     .replace(/<setting_update>[\s\S]*/gi, '')
+    .replace(/<subscenes[\s\S]*?<\/subscenes>/gi, '')
+    .replace(/<subscenes>[\s\S]*/gi, '')
     .replace(/```[\s\S]*?```/g, '')
     .replace(/\[[\s\S]{200,}\]/g, '')
     .replace(/\{[\s\S]{200,}\}/g, '')
