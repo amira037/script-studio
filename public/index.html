@@ -1947,7 +1947,6 @@ const SW_VERSION = 'v43.6';
       <button class="tab-sw-btn on" id="tab-chat-btn" onclick="switchTab('chat')" title="브레인스토밍">💬</button>
       <button class="tab-sw-btn" id="tab-script-btn" onclick="switchTab('script')" title="대본">📄</button>
     </div>
-    <button id="flo-toggle-btn" onclick="toggleFloPanel()" title="Flo 분석 패널">✦ FLO</button>
   </div>
 
   <div class="app-layout">
@@ -2001,16 +2000,11 @@ const SW_VERSION = 'v43.6';
     <!-- Main content -->
     <div class="app-main">
 
-      <!-- Brainstorm tab (채팅은 FLO 패널로 이전됨) -->
-      <div class="app-tc show" id="tc-chat">
-        <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text3);font-family:var(--fm);font-size:var(--fs-12);flex-direction:column;gap:10px;">
-          <span>채팅은 우하단 FLO 패널에서 이용하세요</span>
-          <button onclick="openFloPanel('chat')" style="font-size:var(--fs-11);padding:5px 14px;border-radius:var(--r);border:1px solid var(--accent2);background:var(--accent3);color:var(--accent);cursor:pointer;">✦ FLO 열기</button>
-        </div>
-      </div>
+      <!-- Brainstorm tab (FLO 레일로 이전됨 — 빈 상태 유지) -->
+      <div class="app-tc" id="tc-chat"></div>
 
       <!-- Script tab -->
-      <div class="app-tc" id="tc-script">
+      <div class="app-tc show" id="tc-script">
         <div id="ai-write-banner" style="display:none;background:rgba(232,168,74,0.12);border-bottom:1px solid var(--accent2);padding:6px 12px;display:none;align-items:center;justify-content:space-between;gap:8px;">
           <span style="font-size:var(--fs-12);color:var(--accent);">✨ 줄 선택 모드 — 클릭으로 선택 · 드래그로 범위 · Cmd+C 복사 · Cmd+X 잘라내기 · Cmd+V 붙여넣기</span>
           <button onclick="exitAiWriteMode()" style="font-size:var(--fs-11);background:none;border:1px solid var(--accent2);color:var(--text3);border-radius:var(--r);padding:2px 8px;cursor:pointer;">취소</button>
@@ -2900,7 +2894,7 @@ let S = {
   useProxy: true,
   selectedIds: new Set(),
   autoSelectedIds: new Set(), // detectSceneNumbers로 자동 선택된 것만
-  activeTab: 'chat',
+  activeTab: 'script',
   navOpen: true,
   editingCharId: null,
 };
@@ -6075,10 +6069,16 @@ function toggleFloPanel() {
   else closeFloPanel();
 }
 function initFloPanel() {
-  const stored = localStorage.getItem('ss_flo_open');
-  if (stored === 'false') closeFloPanel();
-  else openFloPanel(); // 첫 방문(null) 또는 'true' → 열린 상태
-  _applyFloAnalysisDefault(); // openFloPanel 얼리 리턴 경우 대비
+  if (window.innerWidth > 820) {
+    // 데스크톱: 레일 상시 표시 (저장 상태 무시)
+    openFloPanel();
+  } else {
+    // 모바일: 저장 상태 복원, 기본 닫힘 → FAB로 열기
+    const stored = localStorage.getItem('ss_flo_open');
+    if (stored === 'true') openFloPanel();
+    else closeFloPanel();
+  }
+  _applyFloAnalysisDefault();
 }
 // 너비 드래그
 (function(){
