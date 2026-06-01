@@ -7478,13 +7478,15 @@ function buildSceneBlock(sc, i) {
             const prevType = line.type;
             line.type = t;
             if (t === 'parenthetical') {
-              const txt = line.text.trim();
-              if (txt && !txt.startsWith('(')) line.text = '(' + (txt.endsWith(')') ? txt : txt + ')');
-              else if (!txt) line.text = '()';
+              let txt = line.text.trim();
+              txt = txt.replace(/^\(/, '').replace(/\)$/, '').trim();
+              line.text = txt ? '(' + txt + ')' : '()';
             }
             if (prevType === 'parenthetical' && t !== 'parenthetical') {
-              const txt = line.text.trim();
-              if (txt.startsWith('(') && txt.endsWith(')')) line.text = txt.slice(1,-1).trim();
+              let txt = line.text.trim();
+              if (txt.startsWith('(')) txt = txt.slice(1);
+              if (txt.endsWith(')'))   txt = txt.slice(0, -1);
+              line.text = txt.trim();
             }
             // 줄 선택 중이면 같은 씬의 선택된 줄 전체 타입 변경
             const hasSelected = (sc.lines||[]).some(l=>l.aiSelected);
@@ -7727,20 +7729,19 @@ function handleLineKeydown(e, sc, lineIdx, lw) {
     const el = lw.querySelector('.line-el');
     if (el) el.className = 'line-el line-' + line.type;
     // parenthetical ↔ 다른 타입 전환 시 ( ) 추가/제거
+    // Tab은 e.preventDefault()로 focusout 미발생 → el.textContent가 line.text보다 정확
     if (_prevType === 'parenthetical' && line.type !== 'parenthetical') {
-      const _txt = (line.text || '').trim();
-      if (_txt.startsWith('(') && _txt.endsWith(')')) {
-        line.text = _txt.slice(1, -1).trim();
-        if (el) el.textContent = line.text;
-      }
+      let _raw = (el ? el.textContent : line.text).trim();
+      if (_raw.startsWith('(')) _raw = _raw.slice(1);
+      if (_raw.endsWith(')'))   _raw = _raw.slice(0, -1);
+      _raw = _raw.trim();
+      line.text = _raw;
+      if (el) el.textContent = _raw;
     } else if (line.type === 'parenthetical' && _prevType !== 'parenthetical') {
-      const _txt = (line.text || '').trim();
-      if (_txt && !_txt.startsWith('(')) {
-        line.text = '(' + (_txt.endsWith(')') ? _txt : _txt + ')');
-        if (el) el.textContent = line.text;
-      } else if (!_txt) {
-        line.text = '()'; if (el) el.textContent = '()';
-      }
+      const _raw = (el ? el.textContent : line.text).trim();
+      const _wrapped = _raw ? '(' + _raw.replace(/^\(/, '').replace(/\)$/, '') + ')' : '()';
+      line.text = _wrapped;
+      if (el) el.textContent = _wrapped;
     }
     save(true);
     toast(_typeLabels[line.type] || line.type, 800);
