@@ -6830,13 +6830,18 @@ function buildSceneBlock(sc, i) {
         menu.appendChild(div);
         mkHdrBtn('↩ 서브씬 합치기', 'var(--text2)', () => mergeSubScenes(sc.id));
       }
-      // 서브씬: 내용을 서브씬으로 나누기 + 여기서부터 새 씬으로 분리 (연극/뮤지컬 전용)
+      // 서브씬: 나누기·승격·인접 이동 (연극/뮤지컬 전용)
       if (sc.parentId && !sc.draft && isTheatricalProject()) {
         const div2 = document.createElement('div');
         div2.style.cssText = 'height:1px;background:var(--border);margin:2px 0;';
         menu.appendChild(div2);
         mkHdrBtn('✦ 서브씬으로 나누기', 'var(--accent)', () => splitSubSceneContent(sc.id));
-        mkHdrBtn('↗ 여기서부터 새 씬으로 분리', 'var(--blue)', () => splitSubScenesFrom(sc.id));
+        mkHdrBtn('⬆ 독립 씬으로 승격 (이후 서브씬 함께)', 'var(--green)', () => promoteSubToScene(sc.id));
+        const _tops = (S.cur.scenes || []).filter(s => !s.parentId && !s.draft);
+        const _curP = (S.cur.scenes || []).find(s => s.id === sc.parentId);
+        const _pi = _tops.indexOf(_curP);
+        if (_pi > 0)               mkHdrBtn('↑ 이전 씬의 서브씬으로', 'var(--text2)', () => moveSubToAdjacentParent(sc.id, -1));
+        if (_pi < _tops.length - 1) mkHdrBtn('↓ 다음 씬의 서브씬으로', 'var(--text2)', () => moveSubToAdjacentParent(sc.id, 1));
       }
       if (!menu.querySelector('button')) { menu.remove(); return; }
       document.body.appendChild(menu);
@@ -8450,6 +8455,100 @@ function splitSubScenesFrom(scId) {
   setTimeout(() => scrollToScene(newParent.id), 100);
   const movedLabels = toMove.map(s => getSceneLabel(s, scenes)).join(', ');
   toast(`✓ ${movedLabels} → 새 씬으로 분리됨`);
+}
+
+// 서브씬 승격 — 승격 지점부터 같은 부모의 이후 형제들을 함께 새 씬 그룹으로 분리
+// 예) 1-1, 1-2, 1-3, 2, 3 에서 1-2 승격 → 1-1, 2-1, 2-2, 3, 4
+function promoteSubToScene(scId) {
+  const scenes = S.cur?.scenes;
+  if (!scenes) return;
+  const sc = scenes.find(s => s.id === scId);
+  if (!sc || !sc.parentId || sc.draft) return;
+  const parentId = sc.parentId;
+
+  const siblings = scenes
+    .filter(s => s.parentId === parentId && !s.draft)
+    .sort((a, b) => a.subOrder - b.subOrder);
+  const toMove = siblings.filter(s => s.subOrder >= sc.subOrder);
+  if (!toMove.length) return;
+
+  const newParent = {
+    id: Date.now() + Math.floor(Math.random() * 100000),
+    title: toMove[0].title || '새 장면',
+    locked: false, draft: false, collapsed: false,
+    parentId: null, subOrder: 0, subSceneType: null,
+    lines: [{ type: 'slug', text: '1막 1장', locked: false }],
+    storyboard: [], diff: null,
+  };
+
+  const allSiblingIds = new Set(siblings.map(s => s.id));
+  let lastSiblingIdx = -1;
+  scenes.forEach((s, i) => { if (allSiblingIds.has(s.id)) lastSiblingIdx = i; });
+  scenes.splice(lastSiblingIdx + 1, 0, newParent);
+
+  toMove.forEach((s, i) => { s.parentId = newParent.id; s.subOrder = i; });
+
+  scenes
+    .filter(s => s.parentId === parentId && !s.draft)
+    .sort((a, b) => a.subOrder - b.subOrder)
+    .forEach((s, i) => { s.subOrder = i; });
+
+  S.selectedIds.clear(); renderChips(); updateToolbarInfo(); updateDelBtn();
+  save(); renderScriptBody(); renderNavSceneList();
+  setTimeout(() => scrollToScene(newParent.id), 100);
+  const movedLabels = toMove.map(s => getSceneLabel(s, scenes)).join(', ');
+  toast(`✓ ${movedLabels} → 새 씬으로 승격됨`);
+}
+
+// 서브씬을 인접한 다른 부모 씬으로 이동. dir=+1(다음 씬 첫 서브씬) / dir=-1(이전 씬 마지막 서브씬)
+function moveSubToAdjacentParent(scId, dir) {
+  const scenes = S.cur?.scenes;
+  if (!scenes) return;
+  const sc = scenes.find(s => s.id === scId);
+  if (!sc || !sc.parentId || sc.draft) return;
+
+  const topLevels = scenes.filter(s => !s.parentId && !s.draft);
+  const curParent = scenes.find(s => s.id === sc.parentId);
+  const pIdx = topLevels.indexOf(curParent);
+  const targetParent = topLevels[pIdx + dir];
+  if (!targetParent) { toast(dir > 0 ? '다음 씬이 없어요' : '이전 씬이 없어요', 2000); return; }
+
+  const oldParentId = sc.parentId;
+
+  // sc + 딸린 대안을 배열에서 제거
+  const ownDrafts = scenes.filter(s => s.draft && s.draftOf === sc.id);
+  const moveIds = new Set([sc.id, ...ownDrafts.map(d => d.id)]);
+  for (let i = scenes.length - 1; i >= 0; i--) {
+    if (moveIds.has(scenes[i].id)) scenes.splice(i, 1);
+  }
+
+  sc.parentId = targetParent.id;
+
+  if (dir > 0) {
+    sc.subOrder = -1;
+    const tIdx = scenes.indexOf(targetParent);
+    scenes.splice(tIdx + 1, 0, sc, ...ownDrafts);
+  } else {
+    const tSubs = scenes.filter(s => s.parentId === targetParent.id && !s.draft);
+    sc.subOrder = tSubs.length ? Math.max(...tSubs.map(s => s.subOrder)) + 1 : 0;
+    const blockIds = new Set([targetParent.id]);
+    scenes.forEach(s => { if (s.parentId === targetParent.id) blockIds.add(s.id); });
+    scenes.forEach(s => { if (s.draft && s.draftOf && blockIds.has(s.draftOf)) blockIds.add(s.id); });
+    let lastIdx = scenes.indexOf(targetParent);
+    scenes.forEach((s, i) => { if (blockIds.has(s.id)) lastIdx = i; });
+    scenes.splice(lastIdx + 1, 0, sc, ...ownDrafts);
+  }
+
+  [oldParentId, targetParent.id].forEach(pid => {
+    scenes.filter(s => s.parentId === pid && !s.draft)
+      .sort((a, b) => a.subOrder - b.subOrder)
+      .forEach((s, i) => { s.subOrder = i; });
+  });
+
+  S.selectedIds.clear(); renderChips(); updateToolbarInfo(); updateDelBtn();
+  save(); renderScriptBody(); renderNavSceneList();
+  setTimeout(() => scrollToScene(sc.id), 100);
+  toast(`✓ ${getSceneLabel(sc, scenes)}(으)로 이동됨`);
 }
 
 // 서브씬 내용을 더 작은 형제 서브씬들로 분할 (AI)
