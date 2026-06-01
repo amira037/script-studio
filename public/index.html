@@ -818,6 +818,10 @@ textarea, input { font-family:var(--fb); }
 .line-slug { color:var(--accent); font-weight:600; letter-spacing:.08em; font-size:var(--fs-13); text-transform:uppercase; border-bottom:1px solid rgba(200,169,110,.2); padding-bottom:6px; margin-bottom:4px; display:block; }
 .line-lyric { max-width:min(560px, 92%); margin:0 auto; padding-left:14px; border-left:2px solid var(--purple); color:var(--purple); word-break:keep-all; overflow-wrap:break-word; font-style:italic; font-size:0.97em; line-height:1.9; }
 .line-slug:empty:before { content:attr(data-placeholder); color:var(--text3); font-weight:400; letter-spacing:0; text-transform:none; font-style:italic; pointer-events:none; }
+/* §3d 장르별 정렬 — 연극/뮤지컬: 좌측 정렬, 가사만 가운데 */
+.genre-stage .line-character    { text-align:left; }
+.genre-stage .line-parenthetical{ text-align:left; }
+.genre-stage .line-dialogue     { text-align:left; margin:0; max-width:100%; }
 
 /* Ghost suggestion */
 .ghost-suggestion {
@@ -1929,8 +1933,6 @@ const SW_VERSION = 'v43.6';
       <div id="nav-analysis-btns" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:5px 6px 4px;border-bottom:1px solid var(--border);">
         <button class="nav-analysis-btn" id="nav-btn-conflict" onclick="checkConflictWithPrompt('')" title="갈등도 분석">⚔ 갈등도</button>
         <button class="nav-analysis-btn" id="nav-btn-flow" onclick="handleFlowAnalysisInChat('', 'flow')" title="흐름 분석">🌊 흐름</button>
-        <button class="nav-analysis-btn" id="nav-btn-emotion" onclick="handleFlowAnalysisInChat('', 'emotion')" title="감정 분석">💭 감정</button>
-        <button class="nav-analysis-btn" id="nav-btn-setting" onclick="handleFlowAnalysisInChat('', 'setting')" title="설정 일관성">🔍 일관성</button>
         <button class="nav-analysis-btn" id="nav-btn-stats" onclick="showScriptStats()" title="전체 분량 통계" style="grid-column:span 2;">📊 분량 통계</button>
       </div>
       <div class="nav-scene-sec">
@@ -1950,9 +1952,8 @@ const SW_VERSION = 'v43.6';
           <input class="nav-search-inp" id="nav-search-inp" placeholder="🔍 씬 검색..." oninput="filterNavScenes(this.value)">
         </div>
         <div class="nav-scene-list" id="nav-scene-list"></div>
-        <div style="display:flex;gap:4px;margin:5px 6px 5px;">
-          <button class="nav-add-scene" id="nav-add-scene-anchor" onclick="addSceneAtEnd()" style="margin:0;flex:1;">+ 씬 추가</button>
-          <button class="nav-add-scene" onclick="handleAiBtn()" style="margin:0;width:auto;padding:7px 10px;" title="AI 장면 작업">✨ AI</button>
+        <div style="padding:5px 6px 5px;">
+          <button class="nav-add-scene" id="nav-add-scene-anchor" onclick="addSceneAtEnd()" style="margin:0;width:100%;">+ 씬 추가</button>
         </div>
       </div>
       <div class="nav-btm">
@@ -1984,7 +1985,6 @@ const SW_VERSION = 'v43.6';
           <span class="toolbar-info" id="toolbar-info" style="flex:1;"></span>
           <button class="toolbar-btn" id="fill-btn" onclick="handleFillPlaceholders()" style="display:none;background:var(--accent3);color:var(--accent);border-color:var(--accent2);" title="??? 표시된 부분을 AI가 채워드립니다">✨ ??? 채우기</button>
           <button class="prompter-del-btn" id="del-btn" onclick="confirmDeleteSelected()">✕ 씬 삭제</button>
-          <button class="toolbar-btn" id="ai-write-btn" onclick="handleAiBtn()" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);font-size:var(--fs-16);padding:4px 10px;height:28px;" title="AI 작성/재구성/씬 추가">✨</button>
         </div>
         <div class="del-confirm-bar" id="del-confirm-bar">
           <span id="del-confirm-txt"></span>
@@ -5427,7 +5427,7 @@ function moveSceneWithChildren(arr, fromId, toId, insertAfter) {
 function updateNavAnalysisBtns() {
   const sceneCount = (S.cur?.scenes||[]).filter(s=>!s.draft).length;
   const enabled = sceneCount >= 2;
-  ['nav-btn-conflict','nav-btn-flow','nav-btn-emotion','nav-btn-setting'].forEach(id => {
+  ['nav-btn-conflict','nav-btn-flow'].forEach(id => {
     const btn = document.getElementById(id);
     if (btn) btn.disabled = !enabled;
   });
@@ -5983,6 +5983,13 @@ function sendFloChat() {
   if (!inp) return;
   const text = inp.value.trim();
   if (!text) return;
+  // E-1: 미처리 제안 리마인더 체크
+  const rem = document.getElementById('pending-reminder');
+  if (rem && rem.classList.contains('show')) {
+    rem.classList.add('flash');
+    setTimeout(() => rem.classList.remove('flash'), 800);
+    return;
+  }
   inp.value = ''; inp.style.height = '';
   S.activeTab = 'chat';
   handleChatPrompt(text);
@@ -6744,7 +6751,7 @@ function buildSceneBlock(sc, i) {
   }
 
   // Lines
-  const linesWrap = document.createElement('div'); linesWrap.className = 'scene-lines';
+  const linesWrap = document.createElement('div'); linesWrap.className = 'scene-lines' + (isTheatricalProject() ? ' genre-stage' : '');
   const renderAllLines = () => {
     linesWrap.innerHTML = '';
     // sc.lines 인덱스 → DOM 인덱스 변환 (연극/뮤지컬에서 slug 줄이 렌더 제외되므로 보정 필요)
@@ -9999,26 +10006,22 @@ async function sendPrompt() {
   const inp = document.getElementById('prompter-inp');
   const text = inp.value.trim();
   if (!text) return;
-  // AI 작성 모드면 handleAiWriteSelected로
-  if (_aiWriteMode && S.activeTab === 'script') {
+  // AI 줄 선택 모드면 handleAiWriteSelected로
+  if (_aiWriteMode) {
     await handleAiWriteSelected();
     return;
   }
-  // E-1: 미처리 제안 리마인더 — 플로 탭에서만 체크
-  if (S.activeTab === 'chat') {
-    const rem = document.getElementById('pending-reminder');
-    if (rem && rem.classList.contains('show')) {
-      rem.classList.add('flash');
-      setTimeout(() => rem.classList.remove('flash'), 800);
-      return; // 리마인더 해제 전 전송 막음
-    }
+  // 편집 대상 필수 — 씬 미선택 시 차단
+  if (S.selectedIds.size === 0) {
+    toast('편집할 씬을 선택하세요', 2000);
+    return;
   }
   inp.value = ''; inp.style.height = 'auto';
-  S.autoSelectedIds.clear(); // 전송 후 자동선택 초기화
+  S.autoSelectedIds.clear();
   setWaiting(true);
   try {
-    if (S.activeTab === 'chat') {
-      await handleChatPrompt(text);
+    if (S.selectedIds.size >= 2) {
+      await bulkEditScenes([...S.selectedIds], text);
     } else {
       await handleScriptPrompt(text);
     }
