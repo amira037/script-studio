@@ -819,10 +819,11 @@ textarea, input { font-family:var(--fb); }
 .line-slug { color:var(--accent); font-weight:600; letter-spacing:.08em; font-size:var(--fs-13); text-transform:uppercase; border-bottom:1px solid rgba(200,169,110,.2); padding-bottom:6px; margin-bottom:4px; display:block; }
 .line-lyric { max-width:min(560px, 92%); margin:0 auto; padding-left:14px; border-left:2px solid var(--purple); color:var(--purple); word-break:keep-all; overflow-wrap:break-word; font-style:italic; font-size:0.97em; line-height:1.9; }
 .line-slug:empty:before { content:attr(data-placeholder); color:var(--text3); font-weight:400; letter-spacing:0; text-transform:none; font-style:italic; pointer-events:none; }
-/* §3d 장르별 정렬 — 연극/뮤지컬: 좌측 정렬, 가사만 가운데 */
-.genre-stage .line-character    { text-align:left; }
-.genre-stage .line-parenthetical{ text-align:left; }
-.genre-stage .line-dialogue     { text-align:left; margin:0; max-width:100%; }
+/* §3d 장르별 정렬 — 연극/뮤지컬: 배역명·대사 좌측 / 지문·(지문) 가운데 */
+.genre-stage .line-character { text-align:left; }
+.genre-stage .line-dialogue  { text-align:left; margin:0; max-width:100%; }
+.genre-stage .line-action    { text-align:center; }
+/* line-parenthetical: 기본 CSS가 이미 center — 오버라이드 없음 */
 
 /* Ghost suggestion */
 .ghost-suggestion {
