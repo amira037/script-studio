@@ -6830,6 +6830,16 @@ function buildSceneBlock(sc, i) {
         menu.appendChild(div);
         mkHdrBtn('↩ 서브씬 합치기', 'var(--text2)', () => mergeSubScenes(sc.id));
       }
+      // 최상위 씬(자식 없음): 앞 씬의 서브씬으로 강등 (연극/뮤지컬 전용)
+      if (!sc.parentId && !sc.draft && !hasChildren && isTheatricalProject()) {
+        const topLevels = (S.cur.scenes || []).filter(s => !s.parentId && !s.draft);
+        if (topLevels.indexOf(sc) > 0) {
+          const div3 = document.createElement('div');
+          div3.style.cssText = 'height:1px;background:var(--border);margin:2px 0;';
+          menu.appendChild(div3);
+          mkHdrBtn('⬇ 앞 씬의 서브씬으로 편입', 'var(--text2)', () => demoteSceneToSub(sc.id));
+        }
+      }
       // 서브씬: 나누기·승격·인접 이동 (연극/뮤지컬 전용)
       if (sc.parentId && !sc.draft && isTheatricalProject()) {
         const div2 = document.createElement('div');
@@ -8549,6 +8559,55 @@ function moveSubToAdjacentParent(scId, dir) {
   save(); renderScriptBody(); renderNavSceneList();
   setTimeout(() => scrollToScene(sc.id), 100);
   toast(`✓ ${getSceneLabel(sc, scenes)}(으)로 이동됨`);
+}
+
+// 최상위 씬 → 바로 앞 씬의 맨 끝 서브씬으로 강등(편입). 예) SC3 → 2-4
+function demoteSceneToSub(scId) {
+  const scenes = S.cur?.scenes;
+  if (!scenes) return;
+  const sc = scenes.find(s => s.id === scId);
+  if (!sc || sc.parentId || sc.draft) return;
+
+  const hasChildren = scenes.some(s => s.parentId === sc.id && !s.draft);
+  if (hasChildren) {
+    toast("서브씬이 있는 씬은 강등할 수 없어요. 먼저 '서브씬 합치기'를 하세요", 2800);
+    return;
+  }
+
+  const topLevels = scenes.filter(s => !s.parentId && !s.draft);
+  const myIdx = topLevels.indexOf(sc);
+  if (myIdx <= 0) { toast('앞에 편입할 씬이 없어요', 2000); return; }
+  const target = topLevels[myIdx - 1];
+
+  const targetSubs = scenes.filter(s => s.parentId === target.id && !s.draft);
+  const nextOrder = targetSubs.length ? Math.max(...targetSubs.map(s => s.subOrder)) + 1 : 0;
+
+  const ownDrafts = scenes.filter(s => s.draft && s.draftOf === sc.id);
+  const moveIds = new Set([sc.id, ...ownDrafts.map(d => d.id)]);
+  for (let i = scenes.length - 1; i >= 0; i--) {
+    if (moveIds.has(scenes[i].id)) scenes.splice(i, 1);
+  }
+
+  sc.parentId = target.id;
+  sc.subOrder = nextOrder;
+
+  const blockIds = new Set([target.id]);
+  scenes.forEach(s => { if (s.parentId === target.id) blockIds.add(s.id); });
+  scenes.forEach(s => { if (s.draft && s.draftOf && blockIds.has(s.draftOf)) blockIds.add(s.id); });
+  let lastIdx = -1;
+  scenes.forEach((s, i) => { if (blockIds.has(s.id)) lastIdx = i; });
+  if (lastIdx < 0) lastIdx = scenes.indexOf(target);
+  scenes.splice(lastIdx + 1, 0, sc, ...ownDrafts);
+
+  scenes
+    .filter(s => s.parentId === target.id && !s.draft)
+    .sort((a, b) => a.subOrder - b.subOrder)
+    .forEach((s, i) => { s.subOrder = i; });
+
+  S.selectedIds.clear(); renderChips(); updateToolbarInfo(); updateDelBtn();
+  save(); renderScriptBody(); renderNavSceneList();
+  setTimeout(() => scrollToScene(sc.id), 100);
+  toast(`✓ ${getSceneLabel(sc, scenes)} 서브씬으로 편입됨`);
 }
 
 // 서브씬 내용을 더 작은 형제 서브씬들로 분할 (AI)
