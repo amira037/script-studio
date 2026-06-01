@@ -6023,6 +6023,12 @@ function sendFloChat() {
   }
   inp.value = ''; inp.style.height = '';
   S.activeTab = 'chat';
+  // 사용자 메시지 저장 + 버블 표시
+  const userMsgObj = { role: 'user', text };
+  if (!S.cur.messages) S.cur.messages = [];
+  S.cur.messages.push(userMsgObj);
+  save(true);
+  appendMsgEl(userMsgObj);
   handleChatPrompt(text);
 }
 
@@ -11474,9 +11480,14 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     const _floTokens = _isWriteIntent ? 10000 : (needsMore ? 4000 : 2000);
 
     // 플로: 실시간 스트리밍
+    // history 마지막이 이미 이 user 메시지면 중복 방지 (sendFloChat에서 저장한 경우)
+    const _lastH = history[history.length - 1];
+    const _apiMsgs = (_lastH?.role === 'user' && _lastH?.content === text)
+      ? history
+      : [...history, { role:'user', content:text }];
     showStreamBubble();
     const raw = await callClaudeStream(
-      [...history, { role:'user', content:text }],
+      _apiMsgs,
       sysWithTagRule,
       _floTokens,
       _floModel,
