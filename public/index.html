@@ -1943,10 +1943,6 @@ const SW_VERSION = 'v43.6';
       <span class="app-proj-medium" id="app-medium"></span>
       <span id="app-duration" style="font-size:var(--fs-11);color:var(--text2);font-family:var(--fm);background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);padding:2px 9px;border-radius:3px;display:none;cursor:pointer;"></span>
     </div>
-    <div class="tab-switcher">
-      <button class="tab-sw-btn on" id="tab-chat-btn" onclick="switchTab('chat')" title="브레인스토밍">💬</button>
-      <button class="tab-sw-btn" id="tab-script-btn" onclick="switchTab('script')" title="대본">📄</button>
-    </div>
   </div>
 
   <div class="app-layout">
@@ -5103,7 +5099,7 @@ function openProject(id) {
   S.navOpen = window.innerWidth >= 680;
   applyNavState();
 
-  switchTab('chat');
+  switchTab('script');
   renderNavSceneList();
   renderScriptBody();
   renderChatMsgs();
@@ -6005,13 +6001,7 @@ function renderChips() {
 // ═══════════════════════════════════════════
 function switchTab(tab) {
   S.activeTab = tab;
-  document.getElementById('tc-chat').classList.toggle('show', tab==='chat');
-  document.getElementById('tc-script').classList.toggle('show', tab==='script');
-  document.getElementById('tab-chat-btn').classList.toggle('on', tab==='chat');
-  document.getElementById('tab-script-btn').classList.toggle('on', tab==='script');
-  const inp = document.getElementById('prompter-inp');
-  if (inp) inp.placeholder = '라인에게 씬 수정, 추가, 분석을 지시하세요';
-  // 채팅 탭 → FLO 패널 채팅 드로어로 리다이렉트
+  // tc-script 항상 표시; 탭 버튼 제거됨 — DOM 토글 불필요
   if (tab === 'chat') openFloPanel('chat');
 }
 
