@@ -820,9 +820,10 @@ textarea, input { font-family:var(--fb); }
 .line-lyric { max-width:min(560px, 92%); margin:0 auto; padding-left:14px; border-left:2px solid var(--purple); color:var(--purple); word-break:keep-all; overflow-wrap:break-word; font-style:italic; font-size:0.97em; line-height:1.9; }
 .line-slug:empty:before { content:attr(data-placeholder); color:var(--text3); font-weight:400; letter-spacing:0; text-transform:none; font-style:italic; pointer-events:none; }
 /* §3d 장르별 정렬 — 연극/뮤지컬: 배역명·대사 좌측 / 지문·(지문) 가운데 */
-.genre-stage .line-character { text-align:left; }
-.genre-stage .line-dialogue  { text-align:left; margin:0; max-width:100%; }
-.genre-stage .line-action    { text-align:center; }
+.genre-stage .line-character    { text-align:left; }
+.genre-stage .line-dialogue     { text-align:left; margin:0; max-width:100%; padding-left:1.4em; }
+.genre-stage .line-parenthetical{ text-align:left; padding-left:1.4em; }
+.genre-stage .line-action       { text-align:center; }
 /* line-parenthetical: 기본 CSS가 이미 center — 오버라이드 없음 */
 
 /* Ghost suggestion */
@@ -6971,10 +6972,12 @@ function buildSceneBlock(sc, i) {
           // 짧은 지연 후 씬 내부로 포커스가 갔는지 확인 (컨텍스트 메뉴 열린 중엔 삭제 금지)
           setTimeout(() => {
             if (window._lineMenuOpen) return;
+            const idx = sc.lines.indexOf(line);
+            if (idx === -1) return; // 이미 다른 경로에서 삭제됨
             const activeEl = document.activeElement;
             const sameScene = block.contains(activeEl);
             if (!sameScene) {
-              sc.lines.splice(li, 1);
+              sc.lines.splice(idx, 1);
               save(true); renderAllLines();
             }
           }, 80);
@@ -7080,6 +7083,18 @@ function buildSceneBlock(sc, i) {
                          : line.type === 'parenthetical' ? 'dialogue'
                          : line.type === 'action' ? 'character'
                          : 'action';
+          // 빈 줄에서 엔터 → 타입만 전환 (새 줄 추가 안 함, 빈 줄 누적 방지)
+          if (beforeText === '' && afterText === '') {
+            line.type = nextType;
+            line.text = '';
+            save(); renderAllLines();
+            setTimeout(() => {
+              const els = linesWrap.querySelectorAll('.line-el');
+              const di = toDomIdx(li);
+              if (els[di]) { els[di].focus(); const r=document.createRange(),s=window.getSelection(); r.setStart(els[di],0); r.collapse(true); s.removeAllRanges(); s.addRange(r); }
+            }, 20);
+            return;
+          }
           line.text = beforeText;
           el.textContent = beforeText;
           const newLine = { type: nextType, text: afterText, locked: false };
@@ -7090,7 +7105,6 @@ function buildSceneBlock(sc, i) {
             const di = toDomIdx(li + 1);
             if (els[di]) {
               els[di].focus();
-              // 커서를 새 줄 맨 앞으로
               const r = document.createRange(); const s = window.getSelection();
               r.setStart(els[di], 0); r.collapse(true);
               s.removeAllRanges(); s.addRange(r);
