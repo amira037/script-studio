@@ -7481,6 +7481,17 @@ function buildSceneBlock(sc, i) {
               splitSceneAt(sc, li);
             }));
           }
+          // 연극/뮤지컬: 서브씬으로 나누기 (AI)
+          if (isTheatricalProject() && !sc.locked) {
+            if (li === 0) menu.appendChild(mkDiv());
+            const splitFn = sc.parentId
+              ? () => splitSubSceneContent(sc.id)
+              : () => splitIntoSubScenes(sc.id);
+            menu.appendChild(mkMenuBtn('✦ 서브씬으로 나누기', 'var(--accent)', () => {
+              menu.remove(); menuOpen = false; window._lineMenuOpen = false;
+              splitFn();
+            }));
+          }
 
           // 줄 선택
           menu.appendChild(mkDiv());
@@ -8242,22 +8253,31 @@ ${scText}
 ]</subscenes>`;
 
   let raw = '';
-  await callClaudeStream(
-    [{ role: 'user', content: prompt }],
-    '',
-    4000,
-    'claude-sonnet-4-20250514',
-    (chunk, done) => { raw = chunk; },
-    true
-  );
+  try {
+    await callClaudeStream(
+      [{ role: 'user', content: prompt }],
+      '반드시 <subscenes>...</subscenes> 형식으로만 응답하세요.',
+      4000,
+      'claude-sonnet-4-20250514',
+      (chunk) => { raw = chunk; },
+      true
+    );
+  } catch (err) {
+    hideAnalyzing();
+    toast('분할 요청 실패: ' + (err.message || '네트워크 오류'));
+    return;
+  }
 
   hideAnalyzing();
 
-  const subRaw = extractTag(raw, 'subscenes');
-  if (!subRaw) { toast('분할 분석에 실패했습니다.'); return; }
+  let subRaw = extractTag(raw, 'subscenes');
+  if (!subRaw) { toast('분할 분석에 실패했습니다. 다시 시도해주세요.'); return; }
+  // markdown 코드 펜스 제거
+  subRaw = subRaw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
 
   let subData;
-  try { subData = JSON.parse(subRaw); } catch { toast('결과 파싱 실패'); return; }
+  try { subData = JSON.parse(subRaw); } catch { toast('결과 파싱 실패 — 다시 시도해주세요.'); return; }
+  if (!Array.isArray(subData) || !subData.length) { toast('서브씬 데이터가 비어있습니다.'); return; }
 
   showSubSceneSplitPanel(sc, subData);
 }
@@ -8438,22 +8458,30 @@ ${scText}
 ]</subscenes>`;
 
   let raw = '';
-  await callClaudeStream(
-    [{ role: 'user', content: prompt }],
-    '',
-    4000,
-    'claude-sonnet-4-20250514',
-    (chunk, done) => { raw = chunk; },
-    true
-  );
+  try {
+    await callClaudeStream(
+      [{ role: 'user', content: prompt }],
+      '반드시 <subscenes>...</subscenes> 형식으로만 응답하세요.',
+      4000,
+      'claude-sonnet-4-20250514',
+      (chunk) => { raw = chunk; },
+      true
+    );
+  } catch (err) {
+    hideAnalyzing();
+    toast('분할 요청 실패: ' + (err.message || '네트워크 오류'));
+    return;
+  }
 
   hideAnalyzing();
 
-  const subRaw = extractTag(raw, 'subscenes');
-  if (!subRaw) { toast('분할 분석에 실패했습니다.'); return; }
+  let subRaw = extractTag(raw, 'subscenes');
+  if (!subRaw) { toast('분할 분석에 실패했습니다. 다시 시도해주세요.'); return; }
+  subRaw = subRaw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
 
   let subData;
-  try { subData = JSON.parse(subRaw); } catch { toast('결과 파싱 실패'); return; }
+  try { subData = JSON.parse(subRaw); } catch { toast('결과 파싱 실패 — 다시 시도해주세요.'); return; }
+  if (!Array.isArray(subData) || !subData.length) { toast('서브씬 데이터가 비어있습니다.'); return; }
 
   showSubSceneSiblingPanel(sc, subData);
 }
