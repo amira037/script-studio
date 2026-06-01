@@ -3969,7 +3969,7 @@ function floDetectContent(raw, displayText) {
               else existing.traits.push(c.new);
             });
             existing.aliases = buildCharAliases(existing);
-            save(); renderCharList?.();
+            save(); window.renderCharList?.();
             toast('✓ ' + existing.name + ' 속성 변경됨');
           }, [], conflicts);
         }
@@ -3981,7 +3981,7 @@ function floDetectContent(raw, displayText) {
             if (charData.firstName && !existing.firstName) existing.firstName = charData.firstName;
             if (charData.title && !existing.title) existing.title = charData.title;
             existing.aliases = buildCharAliases(existing);
-            save(); renderCharList?.();
+            save(); window.renderCharList?.();
             toast('✓ ' + existing.name + ' 속성 추가됨');
           }, pureNew, []);
         }
@@ -9974,7 +9974,7 @@ function handleMsgAction(action) {
     if (ch) {
       if (!ch.traits) ch.traits = [];
       (traits||[]).forEach(t => { if (!ch.traits.includes(t)) ch.traits.push(t); });
-      save(); renderCharList?.();
+      save(); window.renderCharList?.();
       toast('✓ ' + charName + ' — 속성 추가됨');
     } else {
       toast('해당 인물을 찾을 수 없습니다: ' + charName);
@@ -10719,7 +10719,7 @@ function _autoRegisterCharsFromMemo() {
     existingAliases.push(...newChar.aliases);
     added++;
   }
-  if (added > 0) { save(); renderCharList?.(); }
+  if (added > 0) { save(); window.renderCharList?.(); }
 }
 
 // ── 플로 story 누적 → 시놉시스 초안 생성 ────────────────────────────
