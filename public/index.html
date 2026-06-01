@@ -6801,13 +6801,13 @@ function buildSceneBlock(sc, i) {
   acts.appendChild(titleAiBtn);
   acts.appendChild(txtEditBtn);
   acts.appendChild(cloneBtn);
-  if (isTheatricalProject() && !sc.parentId && !sc.draft) {
+  if (isTheatricalProject() && !sc.draft) {
     const splitBtn = document.createElement('button');
     splitBtn.className = 'sc-hdr-btn';
     splitBtn.style.cssText = 'font-size:var(--fs-10);color:var(--accent);border-color:rgba(200,169,110,.4);background:rgba(200,169,110,.08);';
     splitBtn.textContent = '✦ 나누기';
-    splitBtn.title = '서브씬으로 나누기';
-    splitBtn.onclick = () => splitIntoSubScenes(sc.id);
+    splitBtn.title = sc.parentId ? '이 서브씬 나누기 (AI)' : '서브씬으로 나누기 (AI)';
+    splitBtn.onclick = () => sc.parentId ? splitSubSceneContent(sc.id) : splitIntoSubScenes(sc.id);
     acts.appendChild(splitBtn);
   }
   acts.appendChild(lockBtn);
@@ -7477,6 +7477,25 @@ function buildSceneBlock(sc, i) {
           });
           menu.appendChild(mk2Row(selCopyBtn, selCutBtn));
 
+          // 선택 모드에서도 씬/서브씬 나누기 제공
+          if (li > 0 && !sc.locked) {
+            menu.appendChild(mkDiv());
+            menu.appendChild(mkMenuBtn('✂ 여기서 씬 나누기', 'var(--accent)', () => {
+              sc.lines.forEach(l => { l.aiSelected = false; });
+              exitAiWriteMode();
+              splitSceneAt(sc, li);
+            }));
+          }
+          if (isTheatricalProject() && !sc.locked) {
+            if (li === 0) menu.appendChild(mkDiv());
+            menu.appendChild(mkMenuBtn('✦ 서브씬으로 나누기', 'var(--accent)', () => {
+              sc.lines.forEach(l => { l.aiSelected = false; });
+              exitAiWriteMode();
+              menu.remove(); menuOpen = false; window._lineMenuOpen = false;
+              sc.parentId ? splitSubSceneAt(sc, li) : splitIntoSubScenesAt(sc, li);
+            }));
+          }
+
         } else {
           // ── 일반 모드 ──────────────────────────────────────────────
         const typeRow = document.createElement('div');
@@ -7572,12 +7591,12 @@ function buildSceneBlock(sc, i) {
               splitSceneAt(sc, li);
             }));
           }
-          // 연극/뮤지컬: 서브씬으로 나누기 (AI)
+          // 연극/뮤지컬: 서브씬으로 나누기 (기계적 분할)
           if (isTheatricalProject() && !sc.locked) {
             if (li === 0) menu.appendChild(mkDiv());
             const splitFn = sc.parentId
-              ? () => splitSubSceneContent(sc.id)
-              : () => splitIntoSubScenes(sc.id);
+              ? () => splitSubSceneAt(sc, li)
+              : () => splitIntoSubScenesAt(sc, li);
             menu.appendChild(mkMenuBtn('✦ 서브씬으로 나누기', 'var(--accent)', () => {
               menu.remove(); menuOpen = false; window._lineMenuOpen = false;
               splitFn();
@@ -8425,6 +8444,48 @@ function showSubSceneSplitPanel(parentSc, subData) {
   panel.appendChild(actRow);
 
   document.body.appendChild(panel);
+}
+
+function splitIntoSubScenesAt(sc, li) {
+  if (!sc || sc.parentId) return;
+
+  const contentLines = sc.lines.filter(l => l.type !== 'slug');
+  const slugsBefore = sc.lines.slice(0, li).filter(l => l.type === 'slug').length;
+  const splitAt = Math.max(0, li - slugsBefore);
+
+  // aiSelected 상태 제거하여 새 서브씬에 오염 방지
+  const clean = l => ({ type: l.type, text: l.text, locked: l.locked || false, keyline: l.keyline || false });
+  const part1 = contentLines.slice(0, splitAt).map(clean);
+  const part2 = contentLines.slice(splitAt).map(clean);
+
+  const subData = [];
+  if (part1.length) subData.push({ label: '서브씬 1', type: null, lines: part1 });
+  if (part2.length) subData.push({ label: `서브씬 ${subData.length + 1}`, type: null, lines: part2 });
+
+  if (!subData.length) { toast('나눌 내용이 없습니다.'); return; }
+  if (subData.length === 1) { toast('이 위치는 이미 첫 줄입니다 — 더 아래 줄에서 시도해주세요.'); return; }
+
+  applySubSceneSplit(sc, subData);
+}
+
+// 서브씬을 특정 줄 위치에서 기계적으로 2개 형제 서브씬으로 분리
+function splitSubSceneAt(sc, li) {
+  if (!sc || !sc.parentId) return;
+
+  if (li <= 0) { toast('이 위치는 이미 첫 줄입니다 — 더 아래 줄에서 시도해주세요.'); return; }
+
+  const clean = l => ({ type: l.type, text: l.text, locked: l.locked || false, keyline: l.keyline || false });
+  const part1 = sc.lines.slice(0, li).map(clean);
+  const part2 = sc.lines.slice(li).map(clean);
+
+  if (!part2.length) { toast('이미 마지막 줄입니다.'); return; }
+
+  const subData = [
+    { label: sc.title, type: sc.subSceneType, lines: part1 },
+    { label: sc.title + ' (계속)', type: sc.subSceneType, lines: part2 },
+  ];
+
+  applySubSceneSiblingsSplit(sc, subData);
 }
 
 function applySubSceneSplit(parentSc, subData) {
