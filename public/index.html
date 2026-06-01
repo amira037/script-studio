@@ -7072,9 +7072,13 @@ function buildSceneBlock(sc, i) {
             beforeText = preRange.toString();
             afterText = el.textContent.slice(beforeText.length);
           }
-          // 대사 끝에서 엔터 → 배역명 삽입, 대사 중간 엔터 → 대사 분리, 배역명 → 대사, 그 외 → 지문
+          // 엔터 시 다음 줄 타입 결정
+          // 대사 끝 → 배역명 / 대사 중간·배역명 → 대사
+          // (지문) → 대사 / 지문 → 배역명 / 그 외 → 지문
           const nextType = (line.type === 'dialogue' && afterText === '') ? 'character'
                          : (line.type === 'character' || line.type === 'dialogue') ? 'dialogue'
+                         : line.type === 'parenthetical' ? 'dialogue'
+                         : line.type === 'action' ? 'character'
                          : 'action';
           line.text = beforeText;
           el.textContent = beforeText;
@@ -7718,9 +7722,26 @@ function handleLineKeydown(e, sc, lineIdx, lw) {
       : ['action', 'character', 'dialogue', 'parenthetical'];
     const _typeLabels = { action: '지문', character: '배역명', dialogue: '대사', parenthetical: '(지문)', lyric: '가사' };
     const _curIdx = _typeCycle.indexOf(line.type);
+    const _prevType = line.type;
     line.type = _typeCycle[(_curIdx + 1) % _typeCycle.length];
     const el = lw.querySelector('.line-el');
     if (el) el.className = 'line-el line-' + line.type;
+    // parenthetical ↔ 다른 타입 전환 시 ( ) 추가/제거
+    if (_prevType === 'parenthetical' && line.type !== 'parenthetical') {
+      const _txt = (line.text || '').trim();
+      if (_txt.startsWith('(') && _txt.endsWith(')')) {
+        line.text = _txt.slice(1, -1).trim();
+        if (el) el.textContent = line.text;
+      }
+    } else if (line.type === 'parenthetical' && _prevType !== 'parenthetical') {
+      const _txt = (line.text || '').trim();
+      if (_txt && !_txt.startsWith('(')) {
+        line.text = '(' + (_txt.endsWith(')') ? _txt : _txt + ')');
+        if (el) el.textContent = line.text;
+      } else if (!_txt) {
+        line.text = '()'; if (el) el.textContent = '()';
+      }
+    }
     save(true);
     toast(_typeLabels[line.type] || line.type, 800);
     return;
