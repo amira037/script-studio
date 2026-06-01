@@ -6265,20 +6265,27 @@ function buildAddBetweenBtn(afterId, idx) {
   const isMidSub = isSubScene && isTheatricalProject() && !isLastSub;
   const isTheatricalTopLevel = isTheatricalProject() && afterSc && !afterSc.parentId && !afterSc.draft;
 
+  const _sceneAddBtnPair = (addTopFn, addSubFn) => {
+    wrap.innerHTML = `<div class="scene-add-between-line"></div><div style="display:flex;gap:4px;flex-shrink:0;"><button class="scene-add-btn" data-role="top" style="font-size:var(--fs-9);padding:2px 8px;color:var(--accent);border-color:rgba(200,169,110,.4);">+ 씬 추가</button><button class="scene-add-btn" data-role="sub" style="font-size:var(--fs-9);padding:2px 8px;color:var(--blue);border-color:rgba(74,158,255,.4);">↳ + 서브씬</button></div><div class="scene-add-between-line"></div>`;
+    wrap.querySelector('[data-role="top"]').onclick = addTopFn;
+    wrap.querySelector('[data-role="sub"]').onclick = addSubFn;
+  };
   if (isLastSub) {
-    // 마지막 서브씬 뒤: 두 버튼 나란히
-    wrap.innerHTML = `<div class="scene-add-between-line"></div><div style="display:flex;gap:4px;flex-shrink:0;"><button class="scene-add-btn" data-after="${afterId}" data-toplevel="false" style="font-size:var(--fs-9);padding:2px 8px;">↳ + 서브씬</button><button class="scene-add-btn" data-after="${afterId}" data-toplevel="true" style="font-size:var(--fs-9);padding:2px 8px;color:var(--blue);border-color:var(--blue);opacity:0.7;">+ 새 씬</button></div><div class="scene-add-between-line"></div>`;
-    wrap.querySelector('[data-toplevel="false"]').onclick = (e) => showInlineSceneAdd(e.target.dataset.after, idx, wrap, false);
-    wrap.querySelector('[data-toplevel="true"]').onclick  = (e) => showInlineSceneAdd(e.target.dataset.after, idx, wrap, true);
+    // 마지막 서브씬 뒤: 씬 추가(노란) + 서브씬 추가(파란)
+    _sceneAddBtnPair(
+      () => showInlineSceneAdd(afterId, idx, wrap, true),
+      () => showInlineSceneAdd(afterId, idx, wrap, false)
+    );
   } else if (isMidSub) {
     // 서브씬 사이: 서브씬 추가만
-    wrap.innerHTML = `<div class="scene-add-between-line"></div><button class="scene-add-btn" data-after="${afterId}" data-idx="${idx}" style="font-size:var(--fs-9);">↳ + 서브씬</button><div class="scene-add-between-line"></div>`;
+    wrap.innerHTML = `<div class="scene-add-between-line"></div><button class="scene-add-btn" data-after="${afterId}" data-idx="${idx}" style="font-size:var(--fs-9);color:var(--blue);border-color:rgba(74,158,255,.4);">↳ + 서브씬</button><div class="scene-add-between-line"></div>`;
     wrap.querySelector('.scene-add-btn').onclick = (e) => showInlineSceneAdd(e.target.dataset.after, idx, wrap, false);
   } else if (isTheatricalTopLevel) {
-    // 연극/뮤지컬 최상위 씬 뒤: 씬 추가 + 서브씬 추가
-    wrap.innerHTML = `<div class="scene-add-between-line"></div><div style="display:flex;gap:4px;flex-shrink:0;"><button class="scene-add-btn" data-after="${afterId}" data-toplevel="true" style="font-size:var(--fs-9);padding:2px 8px;">+ 씬 추가</button><button class="scene-add-btn" data-after="${afterId}" data-sub="true" style="font-size:var(--fs-9);padding:2px 8px;color:var(--blue);border-color:rgba(74,158,255,.4);">↳ + 서브씬</button></div><div class="scene-add-between-line"></div>`;
-    wrap.querySelector('[data-toplevel="true"]').onclick = (e) => showInlineSceneAdd(e.target.dataset.after, idx, wrap, true);
-    wrap.querySelector('[data-sub="true"]').onclick = () => addSubSceneTo(afterSc.id);
+    // 연극/뮤지컬 최상위 씬 뒤: 씬 추가(노란) + 서브씬 추가(파란)
+    _sceneAddBtnPair(
+      () => showInlineSceneAdd(afterId, idx, wrap, true),
+      () => addSubSceneTo(afterSc.id)
+    );
   } else {
     // 일반 씬 사이: 기존 동작
     wrap.innerHTML = `<div class="scene-add-between-line"></div><button class="scene-add-btn" data-after="${afterId}" data-idx="${idx}">+ 씬 추가</button><div class="scene-add-between-line"></div>`;
