@@ -11389,24 +11389,26 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
       '- 갈등 분석 데이터가 없거나 부족할 때: <suggest>conflict</suggest>\n' +
       '- 시놉시스가 없거나 부족할 때: <suggest>synopsis</suggest>\n' +
       '- suggest 태그는 꼭 필요할 때만, 응답 맨 끝에 붙이세요.\n' +
-      '- 대본 작성 시: 씬 하나를 완전히 완성한 뒤 다음 씬으로 진행. 씬 경계는 <newscenes> 태그로 구분. 토큰이 부족할 것 같으면 현재 씬을 완성 후 중단하고 "이어서 작성할까요?"로 마무리.' +
-      (() => {
-        if (!isTheatricalProject()) return '';
-        const theatricalTypeOptions = isMusicalProject()
-          ? '"dialogue" | "number" | "transition"'
-          : '"dialogue" | "conflict" | "turn"';
-        return '\n\n[연극/뮤지컬 씬 작성 규칙]\n' +
-          '- slug 형식: "N막 N장" 또는 "장소명"\n' +
-          '- 씬은 갈등/화제 전환 기준으로 자연스러운 서브씬 단위로 나눠 생성\n' +
-          '- <subscenes> 태그로 반환 (기존 <scenes> 태그 대신)\n' +
-          '- 각 서브씬: 등장인물 구성 변화 또는 긴장 축 전환 시 새 단위\n' +
-          '- 서브씬 수: 2~4개 (억지 분할 금지)\n' +
-          '- 대사 중심, 지문은 꼭 필요한 것만\n' +
-          '- type은 반드시 다음 중 하나: ' + theatricalTypeOptions + '\n' +
-          '- 뮤지컬 "number" 서브씬의 lines는 type:"lyric" 사용\n' +
-          '서브씬 형식:\n' +
-          '<subscenes>[{"label":"레이블","type":"dialogue|conflict|turn|number|transition","lines":[...]}]</subscenes>';
-      })();
+      (isTheatricalProject()
+        ? (() => {
+            const theatricalTypeOptions = isMusicalProject()
+              ? '"dialogue" | "number" | "transition"'
+              : '"dialogue" | "conflict" | "turn"';
+            return '- 대본 작성 시: <newscenes> 대신 반드시 <subscenes> 태그 사용. ' +
+              '씬 하나를 완전히 완성한 뒤 다음 씬으로 진행.\n\n' +
+              '[연극/뮤지컬 씬 작성 규칙]\n' +
+              '- slug 형식: "N막 N장" 또는 "장소명"\n' +
+              '- 씬은 갈등/화제 전환 기준으로 자연스러운 서브씬 단위로 나눠 생성\n' +
+              '- 각 서브씬: 등장인물 구성 변화 또는 긴장 축 전환 시 새 단위\n' +
+              '- 서브씬 수: 2~4개 (억지 분할 금지)\n' +
+              '- 대사 중심, 지문은 꼭 필요한 것만\n' +
+              '- type은 반드시 다음 중 하나: ' + theatricalTypeOptions + '\n' +
+              '- 뮤지컬 "number" 서브씬의 lines는 type:"lyric" 사용\n' +
+              '반드시 이 형식만:\n' +
+              '<subscenes>[{"label":"레이블","type":"dialogue|conflict|turn|number|transition","lines":[...]}]</subscenes>';
+          })()
+        : '- 대본 작성 시: 씬 하나를 완전히 완성한 뒤 다음 씬으로 진행. 씬 경계는 <newscenes> 태그로 구분. 토큰이 부족할 것 같으면 현재 씬을 완성 후 중단하고 "이어서 작성할까요?"로 마무리.'
+      );
     // 씬 재구성 요청이면 토큰 더 많이 + 씬 수 감지
     const needsMore = /씬.*다시|재구성|전체.*씬|씬.*구성|씬.*만들/.test(text);
     if (needsMore && S.cur) {
@@ -11520,7 +11522,7 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     if (newScenesFlo) { try { newScenesDataFlo = JSON.parse(newScenesFlo); } catch {} }
     // <subscenes> → 부모씬 + 서브씬 배열로 변환 (연극/뮤지컬 모드)
     let subSceneGroupData = null;
-    if (subScenesRaw && isTheatricalProject()) {
+    if (subScenesRaw) {
       try {
         const subs = JSON.parse(subScenesRaw);
         if (Array.isArray(subs) && subs.length > 0) {
@@ -12614,16 +12616,41 @@ async function showSmartSceneAddPanel(scenesData) {
 
 function addScenesFromAI(scenesData) {
   if (!S.cur) return;
-  const newScenes = scenesData.map(s => ({
-    id: Date.now() + Math.floor(Math.random() * 100000),
-    title: s.title || '새 씬',
-    slug: s.slug || (isTheatricalProject() ? '1막 1장' : 'INT. 장소 - 시간대'),
-    locked: false,
-    parentId: null, subOrder: 0, subSceneType: null,
-    lines: (s.lines || []).map(l => ({ type: l.type||'action', text:l.text||'', locked:false })),
-    storyboard: [],
-    diff: null,
-  }));
+  const newScenes = [];
+  scenesData.forEach(s => {
+    // subscenes 프로퍼티가 있으면 부모씬 + 자식씬으로 펼치기 (연극/뮤지컬 newscenes 내 중첩 구조 대응)
+    const subList = s.subscenes || s.subScenes || s.sub_scenes;
+    if (subList && Array.isArray(subList) && subList.length > 0) {
+      const parentId = Date.now() + Math.floor(Math.random() * 100000);
+      newScenes.push({
+        id: parentId,
+        title: s.title || '새 장면',
+        slug: s.slug || '1막 1장',
+        locked: false, parentId: null, subOrder: 0, subSceneType: null,
+        lines: [{ type: 'slug', text: s.slug || '1막 1장', locked: false }],
+        storyboard: [], diff: null,
+      });
+      subList.forEach((sub, idx) => {
+        newScenes.push({
+          id: Date.now() + (idx + 1) * 1000 + Math.floor(Math.random() * 100),
+          title: sub.label || sub.title || `서브씬 ${idx + 1}`,
+          parentId: parentId, subOrder: idx, subSceneType: sub.type || null,
+          locked: false,
+          lines: (sub.lines || []).map(l => ({ type: l.type||'action', text: l.text||'', locked: false })),
+          storyboard: [], diff: null,
+        });
+      });
+    } else {
+      newScenes.push({
+        id: Date.now() + Math.floor(Math.random() * 100000),
+        title: s.title || '새 씬',
+        slug: s.slug || (isTheatricalProject() ? '1막 1장' : 'INT. 장소 - 시간대'),
+        locked: false, parentId: null, subOrder: 0, subSceneType: null,
+        lines: (s.lines || []).map(l => ({ type: l.type||'action', text: l.text||'', locked: false })),
+        storyboard: [], diff: null,
+      });
+    }
+  });
   S.cur.scenes = [...(S.cur.scenes||[]), ...newScenes];
   save(); renderScriptBody(); renderNavSceneList();
   if (isTheatricalProject()) {
