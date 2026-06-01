@@ -12348,19 +12348,31 @@ async function showSmartSceneAddPanel(scenesData) {
   const refScIdx = refSc ? scenes.indexOf(refSc) : -1;
   const refLabel = refSc ? getSceneLabel(refSc, scenes) : null;
 
+  // 최상위 씬만 Haiku에 전달 — 서브씬 번호 오인 방지
+  const topScenes = scenes.filter(s => !s.parentId && !s.draft);
+  // 최상위 씬 블록 끝 인덱스 (서브씬·대안 포함)
+  const getBlockEndIdx = (topSc) => {
+    const bIds = new Set([topSc.id]);
+    scenes.forEach(s => { if (s.parentId === topSc.id) bIds.add(s.id); });
+    scenes.forEach(s => { if (s.draft && s.draftOf && bIds.has(s.draftOf)) bIds.add(s.id); });
+    let last = scenes.indexOf(topSc);
+    scenes.forEach((s, i) => { if (bIds.has(s.id)) last = i; });
+    return last;
+  };
+
   // Haiku 삽입 위치 + 삭제 추천
-  const sceneList = scenes.map((s, i) =>
-    'SC' + (i+1) + '. ' + s.title + (s.lines?.[0] ? ' (' + s.lines[0].text + ')' : '')
+  const sceneList = topScenes.map((s) =>
+    getSceneLabel(s, scenes) + '. ' + s.title + (s.lines?.[0] ? ' (' + s.lines[0].text + ')' : '')
   ).join('\n');
   const newSceneDesc = scenesData.map(s => s.title + (s.slug ? ' — ' + s.slug : '')).join(', ');
-  let suggestion = { insertAt: scenes.length, deleteScenes: [], reason: '' };
+  let suggestion = { insertAt: topScenes.length, deleteScenes: [], reason: '' };
 
-  if (scenes.length > 0) {
+  if (topScenes.length > 0) {
     toast('✦ 삽입 위치 분석 중...', 2000);
     try {
       const raw = await callClaude(
         [{role:'user', content:'새 씬: ' + newSceneDesc + '\n\n기존 씬 목록:\n' + sceneList}],
-        '대본 편집 전문가.\n' +
+        '대본 편집 전문가. 목록은 최상위 씬만 표시됨.\n' +
         '새 씬이 기존 씬을 1:1로 대체하는 경우 replaceScenes에 교체 대상 씬 번호를 순서대로 넣으세요 (새 씬 수와 반드시 같아야 함).\n' +
         '교체가 아닌 삽입이면 replaceScenes:[].\n' +
         '반드시 <suggestion>{"insertAt":숫자(0=맨앞),"deleteScenes":[씬번호들],"replaceScenes":[씬번호들],"reason":"이유 한줄"}</suggestion> 형식으로만.',
@@ -12371,13 +12383,16 @@ async function showSmartSceneAddPanel(scenesData) {
     } catch(e) { console.warn('scene analysis failed', e); }
   }
 
-  // AI 추천 위치 레이블
-  const aiInsertIdx = suggestion.insertAt;
-  const aiInsertLabel = aiInsertIdx === 0 ? '맨 앞'
-    : aiInsertIdx >= scenes.length ? '맨 뒤'
-    : 'SC' + aiInsertIdx + ' 뒤';
-  // 교체 추천: replaceScenes 수 == 새 씬 수일 때만 유효
-  const replaceNums = (suggestion.replaceScenes||[]).filter(n => n >= 1 && n <= scenes.length);
+  // AI 추천: topScenes 인덱스 → 실제 scenes 배열 삽입 위치로 변환
+  const aiTopInsertIdx = suggestion.insertAt; // topScenes 기준 (0=맨앞, n=n번째 뒤)
+  const aiActualInsertAt = aiTopInsertIdx <= 0 ? 0
+    : aiTopInsertIdx >= topScenes.length ? scenes.length
+    : getBlockEndIdx(topScenes[aiTopInsertIdx - 1]) + 1;
+  const aiInsertLabel = aiTopInsertIdx <= 0 ? '맨 앞'
+    : aiTopInsertIdx >= topScenes.length ? '맨 뒤'
+    : getSceneLabel(topScenes[aiTopInsertIdx - 1], scenes) + ' 뒤';
+  // 교체 추천: replaceScenes 수 == 새 씬 수일 때만 유효 (topScenes 기준)
+  const replaceNums = (suggestion.replaceScenes||[]).filter(n => n >= 1 && n <= topScenes.length);
   const canReplace = replaceNums.length === scenesData.length && scenesData.length > 0;
 
   // 오버레이
@@ -12444,14 +12459,14 @@ async function showSmartSceneAddPanel(scenesData) {
   if (canReplace) {
     const optReplace = document.createElement('option');
     optReplace.value = 'replace';
-    optReplace.textContent = 'AI 추천 — SC' + replaceNums.join('/') + ' 교체';
+    optReplace.textContent = 'AI 추천 — ' + replaceNums.map(n => getSceneLabel(topScenes[n-1], scenes)).join('/') + ' 교체';
     optReplace.selected = true;
     posSel.appendChild(optReplace);
   }
 
   // AI 추천 삽입
   const optAI = document.createElement('option');
-  optAI.value = 'ai:' + aiInsertIdx;
+  optAI.value = 'ai:' + aiActualInsertAt;
   optAI.textContent = (canReplace ? '' : 'AI 추천 — ') + aiInsertLabel + '에 삽입';
   optAI.selected = !canReplace;
   posSel.appendChild(optAI);
@@ -12481,19 +12496,20 @@ async function showSmartSceneAddPanel(scenesData) {
     delLabel.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:var(--fs-10);color:var(--text3);font-family:var(--fm);letter-spacing:.06em;';
     delLabel.innerHTML = '삭제할 씬 <span style="font-size:var(--fs-9);color:var(--purple);background:var(--purple2);border-radius:3px;padding:1px 5px;">Haiku 추천</span>';
     delWrap.appendChild(delLabel);
-    scenes.forEach((s, i) => {
-      const isRecommended = (suggestion.deleteScenes||[]).includes(i+1);
+    // 최상위 씬만 표시 — 서브씬은 부모와 함께 관리
+    topScenes.forEach((s, ti) => {
+      const isRecommended = (suggestion.deleteScenes||[]).includes(ti + 1);
       const row = document.createElement('label');
       row.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer;padding:6px 8px;border-radius:var(--r);transition:background .1s;'
         + (isRecommended ? 'background:var(--red2);' : 'background:transparent;');
       const cb = document.createElement('input');
       cb.type = 'checkbox';
-      cb.dataset.idx = String(i);
+      cb.dataset.scId = String(s.id);
       cb.checked = isRecommended;
       cb.style.cssText = 'accent-color:var(--red);width:14px;height:14px;flex-shrink:0;';
       const lbl = document.createElement('span');
       lbl.style.cssText = 'font-size:var(--fs-12);line-height:1.4;color:' + (isRecommended ? 'var(--red)' : 'var(--text2)') + ';';
-      lbl.textContent = 'SC' + (i+1) + '. ' + s.title;
+      lbl.textContent = getSceneLabel(s, scenes) + '. ' + s.title;
       row.append(cb, lbl);
       delWrap.appendChild(row);
     });
@@ -12524,9 +12540,8 @@ async function showSmartSceneAddPanel(scenesData) {
 
     // 교체 모드: 기존 씬에 diff 적용
     if (val === 'replace') {
-      const nonDraftScenes = S.cur.scenes.filter(s => !s.draft);
       for (let i = 0; i < replaceNums.length; i++) {
-        const targetSc = nonDraftScenes[replaceNums[i] - 1];
+        const targetSc = topScenes[replaceNums[i] - 1];
         if (!targetSc) continue;
         const sd = scenesData[i];
         const newLines = [
@@ -12553,11 +12568,17 @@ async function showSmartSceneAddPanel(scenesData) {
 
     const insertAt = parseInt(val.split(':')[1]);
 
-    const toDelete = [];
+    // 삭제할 씬 ID 수집 (scId 기반 — 배열 인덱스 아님)
+    const toDeleteIds = new Set();
     panel.querySelectorAll('input[type=checkbox]:checked').forEach(cb => {
-      toDelete.push(parseInt(cb.dataset.idx));
+      const scId = parseInt(cb.dataset.scId);
+      if (!scId) return;
+      toDeleteIds.add(scId);
+      // 서브씬·대안도 함께 삭제
+      (S.cur.scenes||[]).forEach(s => {
+        if (s.parentId === scId || (s.draft && s.draftOf === scId)) toDeleteIds.add(s.id);
+      });
     });
-    toDelete.sort((a, b) => b - a);
 
     const newScenes = scenesData.map(s => {
       // 이미 id/parentId가 설정된 서브씬 그룹 데이터는 구조 보존
@@ -12579,8 +12600,18 @@ async function showSmartSceneAddPanel(scenesData) {
       };
     });
 
-    let realInsertAt = insertAt;
-    toDelete.forEach(idx => { if (idx < realInsertAt) realInsertAt--; S.cur.scenes.splice(idx, 1); });
+    // 삭제 전에 삽입 기준 씬 ID 기억 (삭제 후 인덱스 재계산)
+    const insertAfterScId = insertAt > 0 && insertAt <= S.cur.scenes.length
+      ? S.cur.scenes[insertAt - 1]?.id : null;
+    // 삭제 (역순으로)
+    for (let i = S.cur.scenes.length - 1; i >= 0; i--) {
+      if (toDeleteIds.has(S.cur.scenes[i].id)) S.cur.scenes.splice(i, 1);
+    }
+    // 삽입 위치 재계산
+    let realInsertAt = insertAfterScId
+      ? (S.cur.scenes.findIndex(s => s.id === insertAfterScId) + 1)
+      : (insertAt === 0 ? 0 : S.cur.scenes.length);
+    if (realInsertAt < 0) realInsertAt = S.cur.scenes.length;
     S.cur.scenes.splice(Math.max(0, Math.min(realInsertAt, S.cur.scenes.length)), 0, ...newScenes);
     save(); renderScriptBody(); renderNavSceneList();
     overlay.remove();
