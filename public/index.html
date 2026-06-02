@@ -5857,6 +5857,25 @@ function syncSelection() {
     if (bar) { bar.innerHTML = ''; bar.classList.remove('show'); }
   }
 }
+// 수동 선택(체크박스) 없이 auto만 있는지 확인
+function _hasManualSelection() {
+  for (const id of S.selectedIds) {
+    if (!S.autoSelectedIds.has(id)) return true;
+  }
+  return false;
+}
+// 뷰포트/클릭 기반 씬 자동 포커스 — 수동 선택이 없을 때만 동작
+function _viewAutoSelect(scId) {
+  if (_aiWriteMode) return;
+  if (_hasManualSelection()) return;
+  // 이미 같은 씬이면 스킵
+  if (S.selectedIds.size === 1 && S.selectedIds.has(scId)) return;
+  S.autoSelectedIds.forEach(id => S.selectedIds.delete(id));
+  S.autoSelectedIds.clear();
+  S.selectedIds.add(scId);
+  S.autoSelectedIds.add(scId);
+  syncSelection();
+}
 function toggleSelectAll() {
   const scenes = (S.cur?.scenes||[]).filter(s=>!s.locked);
   const allSel = scenes.every(s => S.selectedIds.has(s.id));
@@ -6249,6 +6268,20 @@ function renderScriptBody() {
   });
   // ??? 채우기 버튼 등 툴바 상태 업데이트
   updateAiWriteBtn();
+
+  // IntersectionObserver: 스크롤 시 가장 많이 보이는 씬 auto-select
+  if (window._sceneObserver) window._sceneObserver.disconnect();
+  const _visRatios = new Map();
+  window._sceneObserver = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      const id = parseFloat(e.target.id.replace('sb-', ''));
+      if (id) _visRatios.set(id, e.intersectionRatio);
+    });
+    let bestId = null, bestRatio = 0;
+    _visRatios.forEach((ratio, id) => { if (ratio > bestRatio) { bestRatio = ratio; bestId = id; } });
+    if (bestId && bestRatio >= 0.3) _viewAutoSelect(bestId);
+  }, { threshold: [0, 0.3, 0.5, 0.8, 1.0] });
+  document.querySelectorAll('.scene-block[id^="sb-"]').forEach(el => window._sceneObserver.observe(el));
 }
 
 function buildAddBetweenBtn(afterId, idx) {
@@ -6654,6 +6687,7 @@ function buildSceneBlock(sc, i) {
   titleInp.className = 'scene-title-inp'; titleInp.value = sc.title; titleInp.placeholder = '씬 제목';
   titleInp.oninput = () => { sc.title = titleInp.value; save(true); renderNavSceneList(); };
   titleInp.addEventListener('focus', () => {
+    _viewAutoSelect(sc.id);
     setTimeout(() => titleInp.scrollIntoView({ block:'nearest', behavior:'smooth' }), 150);
   });
   titleInp.addEventListener('blur', () => {
@@ -6892,6 +6926,7 @@ function buildSceneBlock(sc, i) {
 
   // Lines
   const linesWrap = document.createElement('div'); linesWrap.className = 'scene-lines' + (isTheatricalProject() ? ' genre-stage' : '');
+  linesWrap.addEventListener('mousedown', () => { _viewAutoSelect(sc.id); });
   const renderAllLines = () => {
     linesWrap.innerHTML = '';
     // sc.lines 인덱스 → DOM 인덱스 변환 (연극/뮤지컬에서 slug 줄이 렌더 제외되므로 보정 필요)
@@ -8592,26 +8627,43 @@ function promoteSubToScene(scId) {
   const toMove = siblings.filter(s => s.subOrder >= sc.subOrder);
   if (!toMove.length) return;
 
+  const reorderOldParentSubs = () => {
+    scenes
+      .filter(s => s.parentId === parentId && !s.draft)
+      .sort((a, b) => a.subOrder - b.subOrder)
+      .forEach((s, i) => { s.subOrder = i; });
+  };
+
+  // 단일 서브씬 승격: 빈 부모 생성 없이 직접 최상위 씬으로 변환
+  if (toMove.length === 1) {
+    sc.parentId = null;
+    sc.subOrder = 0;
+    sc.subSceneType = null;
+    reorderOldParentSubs();
+    S.selectedIds.clear(); renderChips(); updateToolbarInfo(); updateDelBtn();
+    save(); renderScriptBody(); renderNavSceneList();
+    setTimeout(() => scrollToScene(sc.id), 100);
+    toast(`✓ ${getSceneLabel(sc, scenes)} → 독립 씬으로 승격됨`);
+    return;
+  }
+
+  // 복수 서브씬 승격: 새 부모 씬을 toMove[0] 바로 앞에 삽입
+  const firstMoveIdx = scenes.indexOf(toMove[0]);
+  if (firstMoveIdx < 0) return;
+
   const newParent = {
     id: Date.now() + Math.floor(Math.random() * 100000),
-    title: toMove[0].title || '새 장면',
+    title: '새 장면',
     locked: false, draft: false, collapsed: false,
     parentId: null, subOrder: 0, subSceneType: null,
     lines: [{ type: 'slug', text: '1막 1장', locked: false }],
     storyboard: [], diff: null,
+    summary: { conflictScore: null, dialogueCount: 0, lineCount: 0 },
   };
 
-  const allSiblingIds = new Set(siblings.map(s => s.id));
-  let lastSiblingIdx = -1;
-  scenes.forEach((s, i) => { if (allSiblingIds.has(s.id)) lastSiblingIdx = i; });
-  scenes.splice(lastSiblingIdx + 1, 0, newParent);
-
+  scenes.splice(firstMoveIdx, 0, newParent);
   toMove.forEach((s, i) => { s.parentId = newParent.id; s.subOrder = i; });
-
-  scenes
-    .filter(s => s.parentId === parentId && !s.draft)
-    .sort((a, b) => a.subOrder - b.subOrder)
-    .forEach((s, i) => { s.subOrder = i; });
+  reorderOldParentSubs();
 
   S.selectedIds.clear(); renderChips(); updateToolbarInfo(); updateDelBtn();
   save(); renderScriptBody(); renderNavSceneList();
