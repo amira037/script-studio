@@ -5824,8 +5824,12 @@ function renderNavSceneList() {
 }
 
 function toggleSceneSelect(id, checked) {
-  if (checked) { S.selectedIds.add(id); S.autoSelectedIds.delete(id); }
-  else { S.selectedIds.delete(id); S.autoSelectedIds.delete(id); }
+  if (checked) {
+    // 수동 체크 시 기존 auto-selected 씬 먼저 해제
+    S.autoSelectedIds.forEach(aid => S.selectedIds.delete(aid));
+    S.autoSelectedIds.clear();
+    S.selectedIds.add(id);
+  } else { S.selectedIds.delete(id); S.autoSelectedIds.delete(id); }
   syncSelection();
   // 씬 선택 시 네비게이터 해당 항목으로 스크롤
   if (checked) {
@@ -6269,19 +6273,6 @@ function renderScriptBody() {
   // ??? 채우기 버튼 등 툴바 상태 업데이트
   updateAiWriteBtn();
 
-  // IntersectionObserver: 스크롤 시 가장 많이 보이는 씬 auto-select
-  if (window._sceneObserver) window._sceneObserver.disconnect();
-  const _visRatios = new Map();
-  window._sceneObserver = new IntersectionObserver((entries) => {
-    entries.forEach(e => {
-      const id = parseFloat(e.target.id.replace('sb-', ''));
-      if (id) _visRatios.set(id, e.intersectionRatio);
-    });
-    let bestId = null, bestRatio = 0;
-    _visRatios.forEach((ratio, id) => { if (ratio > bestRatio) { bestRatio = ratio; bestId = id; } });
-    if (bestId && bestRatio >= 0.3) _viewAutoSelect(bestId);
-  }, { threshold: [0, 0.3, 0.5, 0.8, 1.0] });
-  document.querySelectorAll('.scene-block[id^="sb-"]').forEach(el => window._sceneObserver.observe(el));
 }
 
 function buildAddBetweenBtn(afterId, idx) {
