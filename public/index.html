@@ -21266,8 +21266,8 @@ document.addEventListener('keydown', (e) => {
       // 단일 줄 — 커서 위치 기준
       const cl = window._cursorLine;
       if (!cl || !cl.sc.lines[cl.li]) return;
-      // 텍스트 선택 중이면 브라우저 기본 복사 허용 + _lineClipboard 초기화
-      if (document.activeElement?.contentEditable === 'true' || window.getSelection()?.toString()) {
+      // 텍스트가 실제로 드래그 선택된 경우에만 브라우저 기본 동작 위임
+      if (window.getSelection()?.toString()) {
         window._lineClipboard = null;
         return;
       }
