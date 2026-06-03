@@ -79,18 +79,24 @@ export default async function handler(req, res) {
     }
 
     // 대본 본문
-    // 대화 좌우 여백 — 가운데 정렬, 넓은 대사 영역
-    const DLG_LEFT  = 1080; // 0.75인치
+    const isTheatrical = ['연극', '뮤지컬'].includes(project.medium);
+    const INDENT_ONE = 360; // 한 칸 들여쓰기 (twips)
+    // 대화 좌우 여백 — 일반(영화/드라마) 가운데 정렬
+    const DLG_LEFT  = 1080;
     const DLG_RIGHT = 1080;
-    const CHAR_LEFT = 3240; // 2.25인치 (배역명 들여쓰기)
-    const PAREN_LEFT = 2520; // 1.75인치
 
-    let sceneCount = 0;
+    // 일반 씬(부모씬)만 번호 부여 — 서브씬·대안씬 제외
+    const mainScenes = (project.scenes||[]).filter(s => !s.draft && s.parentId == null);
+    const getSceneNum = sc => {
+      const idx = mainScenes.findIndex(s => s.id === sc.id);
+      return idx >= 0 ? idx + 1 : '?';
+    };
+
+    let firstMainSc = true;
     let prevType = null;
 
     (project.scenes||[]).forEach((sc) => {
       if (sc.draft) {
-        // 대안 씬: 원본이 접혀 있고 대안이 펼쳐져 있을 때만 포함
         const original = (project.scenes||[]).find(s => s.id === sc.draftOf);
         const originalCollapsed = original && original.collapsed && !includeCollapsed;
         if (!originalCollapsed) return;
@@ -98,32 +104,35 @@ export default async function handler(req, res) {
       } else {
         if (sc.collapsed && !includeCollapsed) return;
       }
-      const si = sceneCount++;
 
-      // 씬 간격 — 넓게
-      if (si > 0) {
-        children.push(emptyP(0));
-        children.push(emptyP(0));
-        children.push(emptyP(240));
+      const isSub = sc.parentId != null;
+
+      if (!isSub) {
+        // 씬 간격
+        if (!firstMainSc) {
+          children.push(emptyP(0));
+          children.push(emptyP(0));
+          children.push(emptyP(240));
+        }
+        firstMainSc = false;
+
+        const slug = isTheatrical ? null : (sc.lines||[]).find(l=>l.type==='slug');
+        children.push(new Paragraph({
+          spacing:{before:0,after:160,line:LINE_SPACING,lineRule:'auto'},
+          children:[
+            new TextRun({text:'S#'+getSceneNum(sc)+'.  ',font:FONT,size:SZ,bold:true}),
+            ...(slug ? [new TextRun({text:slug.text,font:FONT,size:SZ,bold:true})] : [])
+          ]
+        }));
+        children.push(emptyP(120));
+        prevType = 'slug';
       }
-
-      const slug = (sc.lines||[]).find(l=>l.type==='slug');
-      children.push(new Paragraph({
-        spacing:{before:0,after:160,line:LINE_SPACING,lineRule:'auto'},
-        children:[
-          new TextRun({text:'S#'+(si+1)+'.  ',font:FONT,size:SZ,bold:true}),
-          new TextRun({text:slug?.text||'INT. 장소 - 시간',font:FONT,size:SZ,bold:true})
-        ]
-      }));
-      children.push(emptyP(120));
-      prevType = 'slug';
 
       (sc.lines||[]).forEach(line => {
         if (line.type==='slug') return;
 
         if (line.type==='action') {
-          // 배역명/대사 뒤에 지문이 오면 위 간격 추가
-          const spaceBefore = (prevType==='dialogue'||prevType==='parenthetical') ? 200 : 0;
+          const spaceBefore = (prevType==='dialogue'||prevType==='parenthetical'||prevType==='lyric') ? 200 : 0;
           children.push(new Paragraph({
             spacing:{before:spaceBefore,after:80,line:LINE_SPACING,lineRule:'auto'},
             children:[t(line.text)]
@@ -131,10 +140,9 @@ export default async function handler(req, res) {
           prevType = 'action';
 
         } else if (line.type==='character') {
-          // 지문/대사 뒤에 배역명이 오면 위 간격 추가
           const spaceBefore = (prevType==='action'||prevType==='dialogue'||prevType==='slug') ? 240 : 120;
           children.push(new Paragraph({
-            alignment: AlignmentType.CENTER,
+            alignment: isTheatrical ? AlignmentType.LEFT : AlignmentType.CENTER,
             spacing:{before:spaceBefore,after:60,line:LINE_SPACING,lineRule:'auto'},
             children:[new TextRun({text:line.text,font:FONT,size:SZ,bold:true})]
           }));
@@ -143,20 +151,39 @@ export default async function handler(req, res) {
         } else if (line.type==='parenthetical') {
           const txt = line.text.startsWith('(') ? line.text : '('+line.text+')';
           children.push(new Paragraph({
-            alignment: AlignmentType.CENTER,
+            alignment: AlignmentType.LEFT,
+            indent: isTheatrical ? {left:INDENT_ONE} : {},
             spacing:{before:40,after:40,line:LINE_SPACING,lineRule:'auto'},
             children:[t(txt,{italics:true})]
           }));
           prevType = 'parenthetical';
 
         } else if (line.type==='dialogue') {
-          children.push(new Paragraph({
-            alignment: AlignmentType.CENTER,
-            indent:{left:DLG_LEFT,right:DLG_RIGHT},
-            spacing:{before:0,after:80,line:LINE_SPACING,lineRule:'auto'},
-            children:[t(line.text,{bold:!!line.keyline})]
-          }));
+          if (isTheatrical) {
+            children.push(new Paragraph({
+              alignment: AlignmentType.LEFT,
+              indent:{left:INDENT_ONE},
+              spacing:{before:0,after:80,line:LINE_SPACING,lineRule:'auto'},
+              children:[t(line.text,{bold:!!line.keyline})]
+            }));
+          } else {
+            children.push(new Paragraph({
+              alignment: AlignmentType.CENTER,
+              indent:{left:DLG_LEFT,right:DLG_RIGHT},
+              spacing:{before:0,after:80,line:LINE_SPACING,lineRule:'auto'},
+              children:[t(line.text,{bold:!!line.keyline})]
+            }));
+          }
           prevType = 'dialogue';
+
+        } else if (line.type==='lyric') {
+          children.push(new Paragraph({
+            alignment: AlignmentType.LEFT,
+            indent:{left:INDENT_ONE},
+            spacing:{before:0,after:40,line:LINE_SPACING,lineRule:'auto'},
+            children:[t(line.text,{italics:true})]
+          }));
+          prevType = 'lyric';
         }
       });
     });

@@ -20509,51 +20509,91 @@ async function exportDocxLocal(project, opts) {
   }
 
   // 대본 본문
-  (project.scenes||[]).forEach((sc,si) => {
+  const isTheatrical = ['연극', '뮤지컬'].includes(project.medium);
+  const INDENT_ONE = 360; // 한 칸 들여쓰기 (twips)
+  let _firstMainSc = true;
+  (project.scenes||[]).forEach((sc) => {
     if (sc.draft) {
-      // 대안 씬: 원본이 접혀 있고(숨김 처리) 대안이 펼쳐져 있을 때만 포함
       const original = (project.scenes||[]).find(s => s.id === sc.draftOf);
       const originalCollapsed = original && original.collapsed && !opts.includeCollapsed;
-      if (!originalCollapsed) return; // 원본이 보이면 대안은 스킵
-      if (sc.collapsed && !opts.includeCollapsed) return; // 대안도 접혀 있으면 스킵
+      if (!originalCollapsed) return;
+      if (sc.collapsed && !opts.includeCollapsed) return;
     } else {
       if (sc.collapsed && !opts.includeCollapsed) return;
     }
-    if (si>0) children.push(emptyP());
-    const slug = (sc.lines||[]).find(l=>l.type==='slug');
-    children.push(new Paragraph({
-      spacing:{before:240,after:80},
-      children:[
-        new TextRun({text:'S#'+(si+1)+'.  ',font:FONT,size:SZ,bold:true}),
-        new TextRun({text:slug?.text||'INT. 장소 - 시간',font:FONT,size:SZ,bold:true})
-      ]
-    }));
-    children.push(emptyP());
+    const isSub = sc.parentId != null;
+    if (!isSub) {
+      if (!_firstMainSc) children.push(emptyP());
+      _firstMainSc = false;
+      const slug = isTheatrical ? null : (sc.lines||[]).find(l=>l.type==='slug');
+      const scLabel = typeof getSceneLabel === 'function' ? getSceneLabel(sc, project.scenes) : 'SC';
+      children.push(new Paragraph({
+        spacing:{before:240,after:80},
+        children:[
+          new TextRun({text:scLabel+'.  ',font:FONT,size:SZ,bold:true}),
+          ...(slug ? [new TextRun({text:slug.text,font:FONT,size:SZ,bold:true})] : [])
+        ]
+      }));
+      children.push(emptyP());
+    }
     (sc.lines||[]).forEach(line => {
       if (line.type==='slug') return;
       if (line.type==='action') {
         children.push(new Paragraph({spacing:{before:0,after:80},children:[t(line.text)]}));
       } else if (line.type==='character') {
-        children.push(new Paragraph({
-          alignment: isCenter ? AlignmentType.CENTER : AlignmentType.LEFT,
-          indent: isCenter ? {} : {left:3600},
-          spacing:{before:160,after:40},
-          children:[new TextRun({text:line.text,font:FONT,size:SZ,bold:true})]
-        }));
+        if (isTheatrical) {
+          children.push(new Paragraph({
+            alignment: AlignmentType.LEFT,
+            spacing:{before:160,after:40},
+            children:[new TextRun({text:line.text,font:FONT,size:SZ,bold:true})]
+          }));
+        } else {
+          children.push(new Paragraph({
+            alignment: isCenter ? AlignmentType.CENTER : AlignmentType.LEFT,
+            indent: isCenter ? {} : {left:3600},
+            spacing:{before:160,after:40},
+            children:[new TextRun({text:line.text,font:FONT,size:SZ,bold:true})]
+          }));
+        }
       } else if (line.type==='parenthetical') {
         const txt = line.text.startsWith('(') ? line.text : '('+line.text+')';
-        children.push(new Paragraph({
-          alignment: isCenter ? AlignmentType.CENTER : AlignmentType.LEFT,
-          indent: isCenter ? {} : {left:3000},
-          spacing:{before:0,after:40},
-          children:[t(txt,{italics:true})]
-        }));
+        if (isTheatrical) {
+          children.push(new Paragraph({
+            alignment: AlignmentType.LEFT,
+            indent:{left:INDENT_ONE},
+            spacing:{before:0,after:40},
+            children:[t(txt,{italics:true})]
+          }));
+        } else {
+          children.push(new Paragraph({
+            alignment: isCenter ? AlignmentType.CENTER : AlignmentType.LEFT,
+            indent: isCenter ? {} : {left:3000},
+            spacing:{before:0,after:40},
+            children:[t(txt,{italics:true})]
+          }));
+        }
       } else if (line.type==='dialogue') {
+        if (isTheatrical) {
+          children.push(new Paragraph({
+            alignment: AlignmentType.LEFT,
+            indent:{left:INDENT_ONE},
+            spacing:{before:0,after:80},
+            children:[t(line.text,{bold:!!line.keyline})]
+          }));
+        } else {
+          children.push(new Paragraph({
+            alignment: isCenter ? AlignmentType.CENTER : AlignmentType.LEFT,
+            indent: isCenter ? {left:1440,right:1440} : {left:2160,right:720},
+            spacing:{before:0,after:80},
+            children:[t(line.text,{bold:!!line.keyline})]
+          }));
+        }
+      } else if (line.type==='lyric') {
         children.push(new Paragraph({
-          alignment: isCenter ? AlignmentType.CENTER : AlignmentType.LEFT,
-          indent: isCenter ? {left:1440,right:1440} : {left:2160,right:720},
-          spacing:{before:0,after:80},
-          children:[t(line.text,{bold:!!line.keyline})]
+          alignment: AlignmentType.LEFT,
+          indent:{left:INDENT_ONE},
+          spacing:{before:0,after:40},
+          children:[t(line.text,{italics:true})]
         }));
       }
     });
