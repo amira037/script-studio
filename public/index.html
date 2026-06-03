@@ -6030,7 +6030,11 @@ function switchTab(tab) {
 }
 
 function onFloKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendFloChat(); }
+  if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    sendFloChat();
+  }
 }
 function sendFloChat() {
   const inp = document.getElementById('flo-chat-inp');
@@ -7784,6 +7788,7 @@ function handleLineKeydown(e, sc, lineIdx, lw) {
   // Tab — ghost 수락 우선, 없으면 타입 순환 (action→character→dialogue→parenthetical→...)
   if (e.key === 'Tab') {
     e.preventDefault();
+    if (e.isComposing || e.keyCode === 229) return; // IME 조합 중이면 타입 전환 스킵
     if (lw.querySelector('.ghost-suggestion')) {
       acceptGhostSuggestion(sc, lineIdx, lw);
       return;
@@ -9619,10 +9624,10 @@ function appendMsgEl(msg, scroll = true) {
   wrap.className = 'msg ' + (msg.role === 'user' ? 'usr' : '');
   const av = document.createElement('div');
   av.className = 'msg-av ' + (msg.role === 'user' ? 'usr' : 'ai');
-  av.textContent = msg.role === 'user' ? '나' : 'AI';
+  av.textContent = msg.role === 'user' ? '나' : 'FLO';
   const body = document.createElement('div'); body.className = 'msg-body';
   const name = document.createElement('div'); name.className = 'msg-name';
-  name.textContent = msg.role === 'user' ? '나' : 'Script Studio AI';
+  name.textContent = 'FLO';
   const bubble = document.createElement('div'); bubble.className = 'msg-bubble';
   // B: 플로 패널 HTML은 그대로 렌더링, 일반 텍스트는 포맷팅
   if (msg._isFlowPanel && msg.text && msg.text.includes('flow-analysis-panel')) {
@@ -9639,7 +9644,8 @@ function appendMsgEl(msg, scroll = true) {
       .replace(/\n/g,'<br>');
     bubble.innerHTML = formatted;
   }
-  body.appendChild(name); body.appendChild(bubble);
+  if (msg.role !== 'user') body.appendChild(name);
+  body.appendChild(bubble);
   if (msg.actions && msg.actions.length) {
     const acts = document.createElement('div'); acts.className = 'msg-actions';
     msg.actions.forEach(a => {
