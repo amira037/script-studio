@@ -6827,6 +6827,7 @@ function buildSceneBlock(sc, i) {
     cloned.diff = null;
     cloned.draft = true;
     cloned.draftOf = sc.id;
+    cloned.parentId = undefined; // 서브씬 대안도 parentId 제거 → SC 3-1-A 레이블 보장
     cloned.collapsed = false;
     const idx = S.cur.scenes.indexOf(sc);
     S.cur.scenes.splice(idx + 1, 0, cloned);
@@ -13500,6 +13501,7 @@ async function handleSceneClone(text) {
   cloned.id = Date.now() + Math.floor(Math.random()*100000);
   cloned.draft = true;
   cloned.draftOf = sc.id;
+  cloned.parentId = undefined; // 서브씬 대안도 parentId 제거 → SC 3-1-A 레이블 보장
   cloned.title = sc.title + ' (복제)';
   const idx = scenes.indexOf(sc);
   scenes.splice(idx+1, 0, cloned);
