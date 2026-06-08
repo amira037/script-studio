@@ -6826,7 +6826,7 @@ function buildSceneBlock(sc, i) {
     cloned.title = sc.title + ' (복제)';
     cloned.diff = null;
     cloned.draft = true;
-    cloned.draftOf = sc.id;
+    cloned.draftOf = sc.draft ? sc.draftOf : sc.id; // 대안 씬 복제 시 원본 ID 유지 → 1-2-A 복제 → 1-2-B
     cloned.parentId = undefined; // 서브씬 대안도 parentId 제거 → SC 3-1-A 레이블 보장
     cloned.collapsed = false;
     const idx = S.cur.scenes.indexOf(sc);
@@ -9469,12 +9469,28 @@ function promoteDraftToScene(draftId) {
   const draftIdx = scenes.findIndex(s=>s.id===draftId);
   if (draftIdx === -1) return;
   const draft = scenes[draftIdx];
+  const origDraftOf = draft.draftOf; // draftOf 초기화 전에 저장
+  const originalSc = scenes.find(s => s.id === origDraftOf);
   // draft 플래그 제거 → 독립 씬으로 전환
   draft.draft = false;
   draft.draftOf = null;
+  // 원본이 서브씬인 경우 → 같은 부모의 새 서브씬으로 승격
+  if (originalSc?.parentId) {
+    draft.parentId = originalSc.parentId;
+    const siblings = scenes.filter(s => s.parentId === originalSc.parentId && !s.draft && s.id !== draft.id);
+    draft.subOrder = siblings.length > 0 ? Math.max(...siblings.map(s => s.subOrder)) + 1 : 1;
+  }
   // 원본 씬 다음 위치로 이동
-  const origIdx = scenes.findIndex(s=>s.id===draft.draftOf);
-  const targetIdx = origIdx >= 0 ? origIdx + 1 : draftIdx;
+  const origIdx = scenes.findIndex(s => s.id === origDraftOf);
+  let targetIdx;
+  if (originalSc?.parentId) {
+    // 같은 부모 마지막 서브씬 바로 다음 위치
+    const sibIdxList = scenes.map((s, i) => (s.parentId === originalSc.parentId && !s.draft && s.id !== draft.id) ? i : -1).filter(i => i >= 0);
+    const lastSibIdx = sibIdxList.length > 0 ? Math.max(...sibIdxList) : origIdx;
+    targetIdx = lastSibIdx + 1;
+  } else {
+    targetIdx = origIdx >= 0 ? origIdx + 1 : draftIdx;
+  }
   if (targetIdx !== draftIdx) {
     scenes.splice(draftIdx, 1);
     scenes.splice(targetIdx > draftIdx ? targetIdx - 1 : targetIdx, 0, draft);
@@ -13500,7 +13516,7 @@ async function handleSceneClone(text) {
   const cloned = JSON.parse(JSON.stringify(sc));
   cloned.id = Date.now() + Math.floor(Math.random()*100000);
   cloned.draft = true;
-  cloned.draftOf = sc.id;
+  cloned.draftOf = sc.draft ? sc.draftOf : sc.id; // 대안 씬 복제 시 원본 ID 유지 → 1-2-A 복제 → 1-2-B
   cloned.parentId = undefined; // 서브씬 대안도 parentId 제거 → SC 3-1-A 레이블 보장
   cloned.title = sc.title + ' (복제)';
   const idx = scenes.indexOf(sc);
