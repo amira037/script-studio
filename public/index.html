@@ -11464,24 +11464,65 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
       S.selectedIds.forEach(id => { mentionedScIds.add(id); selectedOnlyIds.add(id); });
     }
 
+    // ── FLO 자율 씬 탐색 ──────────────────────────────────────────────
+    // 명시/선택 씬이 없을 때 Haiku로 관련 씬을 자동 탐지 (씬 스니퍼)
+    const _nonDraftTopScenes = allScenes.filter(s => !s.draft && !s.parentId);
+    let _sniffedLabels = [];
+    if (explicitScIds.size === 0 && selectedOnlyIds.size === 0 && _nonDraftTopScenes.length > 0) {
+      const _tMsg = document.getElementById('typing-msg');
+      if (_tMsg) _tMsg.textContent = '✦ 관련 장면 탐색 중...';
+      try {
+        const _sceneListStr = _nonDraftTopScenes
+          .map(s => getSceneLabel(s, allScenes) + '. ' + s.title).join('\n');
+        const _sniffRaw = await callClaude(
+          [{role:'user', content:'질문: ' + text}],
+          '아래 씬 목록에서 이 질문에 답하기 위해 내용을 확인해야 할 씬을 고르세요.\n씬 목록:\n' + _sceneListStr + '\nSC번호만 쉼표 구분으로 응답 (예: SC 2, SC 4). 없으면 "없음".',
+          80, 'claude-haiku-4-5-20251001'
+        );
+        if (!/없음|없어/.test(_sniffRaw)) {
+          const _sniffMatches = [..._sniffRaw.matchAll(/SC\s*(\d+(?:-[\d]+)*)/gi)];
+          _sniffMatches.slice(0, 3).forEach(m => {
+            const lbl = 'SC ' + m[1];
+            const found = allScenes.find(s => getSceneLabel(s, allScenes) === lbl);
+            if (found) { explicitScIds.add(found.id); mentionedScIds.add(found.id); _sniffedLabels.push(lbl); }
+          });
+          if (_sniffedLabels.length > 0) {
+            const _tMsg2 = document.getElementById('typing-msg');
+            if (_tMsg2) _tMsg2.textContent = '✦ ' + _sniffedLabels.join(', ') + ' 살펴보겠습니다...';
+          }
+        }
+      } catch {}
+    }
+
+    // 서브씬의 부모씬 자동 포함 (부모 없이는 서브씬 맥락 불완전)
+    const parentAutoIds = new Set();
+    [...mentionedScIds].forEach(id => {
+      const s = allScenes.find(x => x.id === id);
+      if (s?.parentId && !mentionedScIds.has(s.parentId)) {
+        mentionedScIds.add(s.parentId);
+        parentAutoIds.add(s.parentId);
+      }
+    });
+
     if (mentionedScIds.size > 0) {
-      const makeDetail = id => {
+      const makeDetail = (id) => {
         const s = allScenes.find(x=>x.id===id);
         if (!s) return '';
         const lbl = getSceneLabel(s, allScenes);
         const draftMark = s.draft ? ' [대안]' : '';
-        const lines = (s.lines||[]).map(l=>l.type+': '+l.text).join(' | ').slice(0,600);
+        // 부모씬 자동 포함은 250자, 직접 언급/선택 씬은 600자
+        const charLimit = parentAutoIds.has(id) ? 250 : 600;
+        const lines = (s.lines||[]).map(l=>l.type+': '+l.text).join(' | ').slice(0, charLimit);
         return lbl + draftMark + '. "' + s.title + '"\n' + lines;
       };
       const explicitDetails = [...explicitScIds].map(makeDetail).filter(Boolean).join('\n\n');
+      const parentDetails = [...parentAutoIds].map(makeDetail).filter(Boolean).join('\n\n');
       const selectedDetails = [...selectedOnlyIds].map(makeDetail).filter(Boolean).join('\n\n');
-      if (explicitDetails && selectedDetails) {
-        dynamicCtx = '\n\n[현재 언급 씬 상세]\n' + explicitDetails + '\n\n[에디터 선택 씬 (참고)]\n' + selectedDetails;
-      } else if (explicitDetails) {
-        dynamicCtx = '\n\n[현재 언급 씬 상세]\n' + explicitDetails;
-      } else if (selectedDetails) {
-        dynamicCtx = '\n\n[에디터 선택 씬 (참고)]\n' + selectedDetails;
-      }
+      const parts = [];
+      if (explicitDetails) parts.push('[현재 언급 씬 상세]\n' + explicitDetails);
+      if (parentDetails) parts.push('[부모씬 맥락]\n' + parentDetails);
+      if (selectedDetails) parts.push('[에디터 선택 씬 (참고)]\n' + selectedDetails);
+      if (parts.length > 0) dynamicCtx = '\n\n' + parts.join('\n\n');
     }
 
     const sys = '당신은 창작 대본 작업을 돕는 전문 작가 AI입니다.\n' + ctx + memoCtx + dynamicCtx + '\n\n' +
