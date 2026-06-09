@@ -11422,11 +11422,12 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
 
     // 핵심 결정사항 메모 컨텍스트
     const memos = getChatMemos();
-    const memoCtx = memos.length > 0 ? '\n\n[핵심 결정사항 — 반드시 준수]\n' + memos.map(m=>'• '+m).join('\n') : '';
+    const memoCtx = memos.length > 0 ? '\n\n[프로젝트 확정 사항 — 전체 방향 참고]\n' + memos.map(m=>'• '+m).join('\n') : '';
 
     // 동적 씬 컨텍스트 — 인물 이름/SC번호 감지
     let dynamicCtx = '';
     const allScenes = S.cur.scenes || [];
+    const explicitScIds = new Set(); // 현재 메시지에서 명시된 씬 (SC번호 + 인물 감지)
     const mentionedScIds = new Set();
 
     // SC번호 감지 — 단순(SC 1), 서브씬(SC 1-4), 대안(SC 1-4-A) 모두 매칭
@@ -11435,7 +11436,7 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     while ((scM2 = scPat2.exec(text)) !== null) {
       const targetLabel = 'SC ' + scM2[1].toUpperCase();
       const found = allScenes.find(s => getSceneLabel(s, allScenes) === targetLabel);
-      if (found) mentionedScIds.add(found.id);
+      if (found) { explicitScIds.add(found.id); mentionedScIds.add(found.id); }
     }
 
     // 인물 이름 감지 → 갈등 높고 대사 많은 씬 최대 5개
@@ -11453,21 +11454,34 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
         .sort((a,b) => b.score - a.score)
         .slice(0, 5)
         .map(x => x.s);
-      charScenes.forEach(s => mentionedScIds.add(s.id));
+      charScenes.forEach(s => { explicitScIds.add(s.id); mentionedScIds.add(s.id); });
     }
 
-    // 선택된 씬은 키워드 없어도 항상 컨텍스트에 포함 (FLO 칩 기준 씬 = 분석 대상)
-    S.selectedIds.forEach(id => mentionedScIds.add(id));
+    // 선택된 씬: 현재 메시지에서 명시된 씬이 없을 때만 추가
+    // (명시된 씬이 있으면 selectedIds를 무시 — 이전 씬 컨텍스트 오염 방지)
+    const selectedOnlyIds = new Set();
+    if (explicitScIds.size === 0) {
+      S.selectedIds.forEach(id => { mentionedScIds.add(id); selectedOnlyIds.add(id); });
+    }
+
     if (mentionedScIds.size > 0) {
-      const sceneDetails = [...mentionedScIds].map(id => {
+      const makeDetail = id => {
         const s = allScenes.find(x=>x.id===id);
         if (!s) return '';
         const lbl = getSceneLabel(s, allScenes);
         const draftMark = s.draft ? ' [대안]' : '';
         const lines = (s.lines||[]).map(l=>l.type+': '+l.text).join(' | ').slice(0,600);
         return lbl + draftMark + '. "' + s.title + '"\n' + lines;
-      }).filter(Boolean).join('\n\n');
-      if (sceneDetails) dynamicCtx = '\n\n[참조 씬 상세 데이터 — 선택된 씬 포함]\n' + sceneDetails;
+      };
+      const explicitDetails = [...explicitScIds].map(makeDetail).filter(Boolean).join('\n\n');
+      const selectedDetails = [...selectedOnlyIds].map(makeDetail).filter(Boolean).join('\n\n');
+      if (explicitDetails && selectedDetails) {
+        dynamicCtx = '\n\n[현재 언급 씬 상세]\n' + explicitDetails + '\n\n[에디터 선택 씬 (참고)]\n' + selectedDetails;
+      } else if (explicitDetails) {
+        dynamicCtx = '\n\n[현재 언급 씬 상세]\n' + explicitDetails;
+      } else if (selectedDetails) {
+        dynamicCtx = '\n\n[에디터 선택 씬 (참고)]\n' + selectedDetails;
+      }
     }
 
     const sys = '당신은 창작 대본 작업을 돕는 전문 작가 AI입니다.\n' + ctx + memoCtx + dynamicCtx + '\n\n' +
