@@ -11494,33 +11494,46 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
       } catch {}
     }
 
-    // 서브씬의 부모씬 자동 포함 (부모 없이는 서브씬 맥락 불완전)
+    // 서브씬의 부모씬 + 형제 서브씬 자동 포함 (같은 장면 전체 맥락 확보)
     const parentAutoIds = new Set();
+    const siblingAutoIds = new Set();
     [...mentionedScIds].forEach(id => {
       const s = allScenes.find(x => x.id === id);
-      if (s?.parentId && !mentionedScIds.has(s.parentId)) {
-        mentionedScIds.add(s.parentId);
-        parentAutoIds.add(s.parentId);
+      if (s?.parentId) {
+        if (!mentionedScIds.has(s.parentId)) {
+          mentionedScIds.add(s.parentId);
+          parentAutoIds.add(s.parentId);
+        }
+        allScenes
+          .filter(x => x.parentId === s.parentId && x.id !== id && !x.draft)
+          .forEach(sib => {
+            if (!mentionedScIds.has(sib.id)) {
+              mentionedScIds.add(sib.id);
+              siblingAutoIds.add(sib.id);
+            }
+          });
       }
     });
 
     if (mentionedScIds.size > 0) {
+      // 트런케이션 없음 — 씬 전체를 읽어야 깊이 있는 답변 가능
+      // 줄바꿈 포맷(| 구분 제거)으로 AI 가독성 향상
       const makeDetail = (id) => {
         const s = allScenes.find(x=>x.id===id);
         if (!s) return '';
         const lbl = getSceneLabel(s, allScenes);
         const draftMark = s.draft ? ' [대안]' : '';
-        // 부모씬 자동 포함은 250자, 직접 언급/선택 씬은 600자
-        const charLimit = parentAutoIds.has(id) ? 250 : 600;
-        const lines = (s.lines||[]).map(l=>l.type+': '+l.text).join(' | ').slice(0, charLimit);
+        const lines = (s.lines||[]).map(l => l.type + ': ' + l.text).join('\n');
         return lbl + draftMark + '. "' + s.title + '"\n' + lines;
       };
       const explicitDetails = [...explicitScIds].map(makeDetail).filter(Boolean).join('\n\n');
+      const siblingDetails = [...siblingAutoIds].map(makeDetail).filter(Boolean).join('\n\n');
       const parentDetails = [...parentAutoIds].map(makeDetail).filter(Boolean).join('\n\n');
       const selectedDetails = [...selectedOnlyIds].map(makeDetail).filter(Boolean).join('\n\n');
       const parts = [];
       if (explicitDetails) parts.push('[현재 언급 씬 상세]\n' + explicitDetails);
-      if (parentDetails) parts.push('[부모씬 맥락]\n' + parentDetails);
+      if (siblingDetails) parts.push('[같은 장면 서브씬 (맥락)]\n' + siblingDetails);
+      if (parentDetails) parts.push('[부모씬 정보]\n' + parentDetails);
       if (selectedDetails) parts.push('[에디터 선택 씬 (참고)]\n' + selectedDetails);
       if (parts.length > 0) dynamicCtx = '\n\n' + parts.join('\n\n');
     }
