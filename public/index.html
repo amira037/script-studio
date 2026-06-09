@@ -11466,8 +11466,10 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
 
     // ── FLO 자율 씬 탐색 ──────────────────────────────────────────────
     // 명시/선택 씬이 없을 때 Haiku로 관련 씬을 자동 탐지 (씬 스니퍼)
+    // adjacent:true 이면 앞뒤 씬도 자동 포함
     const _nonDraftTopScenes = allScenes.filter(s => !s.draft && !s.parentId);
     let _sniffedLabels = [];
+    let _sniffAdjacent = false;
     if (explicitScIds.size === 0 && selectedOnlyIds.size === 0 && _nonDraftTopScenes.length > 0) {
       const _tMsg = document.getElementById('typing-msg');
       if (_tMsg) _tMsg.textContent = '✦ 관련 장면 탐색 중...';
@@ -11476,22 +11478,56 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
           .map(s => getSceneLabel(s, allScenes) + '. ' + s.title).join('\n');
         const _sniffRaw = await callClaude(
           [{role:'user', content:'질문: ' + text}],
-          '아래 씬 목록에서 이 질문에 답하기 위해 내용을 확인해야 할 씬을 고르세요.\n씬 목록:\n' + _sceneListStr + '\nSC번호만 쉼표 구분으로 응답 (예: SC 2, SC 4). 없으면 "없음".',
-          80, 'claude-haiku-4-5-20251001'
+          '아래 씬 목록에서 이 질문에 답하기 위해 확인해야 할 씬을 골라 JSON으로만 응답하세요.\n씬 목록:\n' + _sceneListStr + '\n\n' +
+          '응답 형식: {"scenes":["SC 2","SC 4"],"adjacent":false}\n' +
+          '- scenes: 확인이 필요한 씬 번호 배열 (없으면 빈 배열)\n' +
+          '- adjacent: 앞뒤 씬의 흐름·연결·전환·연속성이 질문 답변에 필요하면 true\n' +
+          'JSON만 출력, 다른 텍스트 없음.',
+          120, 'claude-haiku-4-5-20251001'
         );
-        if (!/없음|없어/.test(_sniffRaw)) {
-          const _sniffMatches = [..._sniffRaw.matchAll(/SC\s*(\d+(?:-[\d]+)*)/gi)];
-          _sniffMatches.slice(0, 3).forEach(m => {
-            const lbl = 'SC ' + m[1];
+        let _sniffResult = null;
+        try { _sniffResult = JSON.parse(_sniffRaw.match(/\{[\s\S]*\}/)?.[0] || ''); } catch {}
+        if (_sniffResult?.scenes?.length > 0) {
+          _sniffResult.scenes.slice(0, 3).forEach(lbl => {
             const found = allScenes.find(s => getSceneLabel(s, allScenes) === lbl);
             if (found) { explicitScIds.add(found.id); mentionedScIds.add(found.id); _sniffedLabels.push(lbl); }
           });
+          _sniffAdjacent = !!_sniffResult.adjacent;
           if (_sniffedLabels.length > 0) {
             const _tMsg2 = document.getElementById('typing-msg');
-            if (_tMsg2) _tMsg2.textContent = '✦ ' + _sniffedLabels.join(', ') + ' 살펴보겠습니다...';
+            if (_tMsg2) _tMsg2.textContent = '✦ ' + _sniffedLabels.join(', ') + (_sniffAdjacent ? ' 및 앞뒤 장면' : '') + ' 살펴보겠습니다...';
           }
         }
       } catch {}
+    }
+
+    // adjacent 확장: 명시/스니핑된 씬의 앞뒤 씬 포함
+    // 명시적으로 SC번호를 언급한 경우도 흐름 키워드가 있으면 앞뒤 포함
+    const _flowKw = /앞뒤|연결|흐름|전환|이어지|연속|자연스|이전.*다음|다음.*이전|어색/.test(text);
+    const _needAdjacent = _sniffAdjacent || (_flowKw && explicitScIds.size > 0);
+    const adjacentAutoIds = new Set();
+    if (_needAdjacent) {
+      // 일반 씬 배열 (draft·서브씬 제외) 기준으로 앞뒤 씬 탐색
+      const _topScenes = allScenes.filter(s => !s.draft && !s.parentId);
+      explicitScIds.forEach(id => {
+        const s = allScenes.find(x => x.id === id);
+        if (!s) return;
+        // 서브씬이면 부모를 기준으로 앞뒤 탐색
+        const _refId = s.parentId || s.id;
+        const _idx = _topScenes.findIndex(x => x.id === _refId);
+        const _prev = _topScenes[_idx - 1];
+        const _next = _topScenes[_idx + 1];
+        [_prev, _next].forEach(adj => {
+          if (adj && !mentionedScIds.has(adj.id)) {
+            mentionedScIds.add(adj.id);
+            adjacentAutoIds.add(adj.id);
+            // 앞뒤 씬이 부모씬이면 해당 서브씬들도 함께
+            allScenes.filter(x => x.parentId === adj.id && !x.draft).forEach(sub => {
+              if (!mentionedScIds.has(sub.id)) { mentionedScIds.add(sub.id); adjacentAutoIds.add(sub.id); }
+            });
+          }
+        });
+      });
     }
 
     // 서브씬의 부모씬 + 형제 서브씬 자동 포함 (같은 장면 전체 맥락 확보)
@@ -11530,10 +11566,12 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
       const siblingDetails = [...siblingAutoIds].map(makeDetail).filter(Boolean).join('\n\n');
       const parentDetails = [...parentAutoIds].map(makeDetail).filter(Boolean).join('\n\n');
       const selectedDetails = [...selectedOnlyIds].map(makeDetail).filter(Boolean).join('\n\n');
+      const adjacentDetails = [...adjacentAutoIds].map(makeDetail).filter(Boolean).join('\n\n');
       const parts = [];
       if (explicitDetails) parts.push('[현재 언급 씬 상세]\n' + explicitDetails);
       if (siblingDetails) parts.push('[같은 장면 서브씬 (맥락)]\n' + siblingDetails);
       if (parentDetails) parts.push('[부모씬 정보]\n' + parentDetails);
+      if (adjacentDetails) parts.push('[앞뒤 씬 흐름 (연결 맥락)]\n' + adjacentDetails);
       if (selectedDetails) parts.push('[에디터 선택 씬 (참고)]\n' + selectedDetails);
       if (parts.length > 0) dynamicCtx = '\n\n' + parts.join('\n\n');
     }
