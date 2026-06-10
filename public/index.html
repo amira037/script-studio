@@ -2351,6 +2351,17 @@ const SW_VERSION = 'v43.6';
         접힌 장면 포함
       </label>
     </div>
+    <div class="modal-field" style="margin-top:10px;">
+      <div class="modal-label">대사 구조</div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:var(--fs-12);color:var(--text2);padding:4px 0;cursor:pointer;">
+        <input type="radio" name="docx-dialogue" value="split" checked style="accent-color:var(--accent);">
+        현행 (배역명 / 대사 분리)
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:var(--fs-12);color:var(--text2);padding:4px 0;cursor:pointer;">
+        <input type="radio" name="docx-dialogue" value="inline" style="accent-color:var(--accent);">
+        한 줄 (배역명&nbsp;&nbsp;대사)
+      </label>
+    </div>
     <div style="display:flex;gap:8px;margin-top:12px;">
       <button class="proj-edit-save" onclick="runDocxExport()" style="flex:1;">⬇ 내보내기</button>
       <button class="proj-edit-cancel" onclick="closeDocxExportModal()">취소</button>
@@ -20504,9 +20515,10 @@ async function runDocxExport() {
   const includeChars = document.getElementById('docx-inc-chars').checked;
   const includeCollapsed = document.getElementById('docx-inc-collapsed').checked;
   const charAlign = document.querySelector('input[name="docx-align"]:checked')?.value || 'left';
+  const dialogueStyle = document.querySelector('input[name="docx-dialogue"]:checked')?.value || 'split';
 
   try {
-    const opts = { includeSynopsis, includeChars, includeCollapsed, charAlign };
+    const opts = { includeSynopsis, includeChars, includeCollapsed, charAlign, dialogueStyle };
     // 프로젝트 데이터를 Blob으로 API에 전달
     const res = await fetch('/api/export-docx', {
       method: 'POST',
@@ -20529,7 +20541,7 @@ async function runDocxExport() {
     // Vercel API 없는 경우 로컬에서 직접 생성 시도
     status.textContent = '⏳ 로컬 생성 중...';
     try {
-      await exportDocxLocal(S.cur, { includeSynopsis, includeChars, includeCollapsed, charAlign });
+      await exportDocxLocal(S.cur, { includeSynopsis, includeChars, includeCollapsed, charAlign, dialogueStyle });
       status.textContent = '✓ 다운로드 완료!';
       setTimeout(() => closeDocxExportModal(), 1500);
     } catch(e2) {
@@ -20567,6 +20579,7 @@ async function exportDocxLocal(project, opts) {
   const t = (text, o = {}) => new TextRun({ text: text||'', font: FONT, size: SZ, ...o });
   const emptyP = () => new Paragraph({ children: [t('')], spacing:{before:0,after:0} });
   const isCenter = opts.charAlign === 'center';
+  const isInlineDialogue = opts.dialogueStyle === 'inline';
 
   const children = [];
 
@@ -20666,67 +20679,144 @@ async function exportDocxLocal(project, opts) {
       }));
       children.push(emptyP());
     }
-    (sc.lines||[]).forEach(line => {
-      if (line.type==='slug') return;
-      if (line.type==='action') {
-        children.push(new Paragraph({spacing:{before:0,after:80},children:[t(line.text)]}));
-      } else if (line.type==='character') {
-        if (isTheatrical) {
+    const lines = sc.lines || [];
+    if (isInlineDialogue) {
+      // ── 한 줄 모드: 배역명\t대사 ─────────────────────────────────
+      // character 라인을 만나면 바로 다음 dialogue 라인들을 묶어 한 단락으로
+      let i = 0;
+      while (i < lines.length) {
+        const line = lines[i];
+        if (line.type === 'slug') { i++; continue; }
+        if (line.type === 'character') {
+          // 뒤따르는 dialogue 줄들을 수집 (parenthetical 포함)
+          const charName = line.text;
+          const dialogueParts = [];
+          let j = i + 1;
+          while (j < lines.length && (lines[j].type === 'dialogue' || lines[j].type === 'parenthetical')) {
+            dialogueParts.push(lines[j]);
+            j++;
+          }
+          if (dialogueParts.length > 0) {
+            // 배역명(Bold) + Tab + 대사
+            const runChildren = [
+              new TextRun({ text: charName, font: FONT, size: SZ, bold: true }),
+              new TextRun({ text: '\t', font: FONT, size: SZ }),
+            ];
+            dialogueParts.forEach((dl, di) => {
+              const dlText = dl.type === 'parenthetical'
+                ? (dl.text.startsWith('(') ? dl.text : '(' + dl.text + ')')
+                : dl.text;
+              if (di > 0) runChildren.push(new TextRun({ text: '\n', font: FONT, size: SZ }));
+              runChildren.push(new TextRun({
+                text: dlText,
+                font: FONT, size: SZ,
+                bold: !!dl.keyline,
+                italics: dl.type === 'parenthetical',
+              }));
+            });
+            children.push(new Paragraph({
+              alignment: AlignmentType.LEFT,
+              spacing: { before: 120, after: 80 },
+              tabStops: [{ type: 'left', position: 1440 }],
+              children: runChildren,
+            }));
+            i = j;
+          } else {
+            // 대사 없는 배역명(합창 지시 등) — Bold 단락
+            children.push(new Paragraph({
+              spacing: { before: 160, after: 40 },
+              children: [new TextRun({ text: charName, font: FONT, size: SZ, bold: true })],
+            }));
+            i++;
+          }
+        } else if (line.type === 'action') {
+          children.push(new Paragraph({ spacing:{before:0,after:80}, children:[t(line.text)] }));
+          i++;
+        } else if (line.type === 'dialogue') {
+          // character 없이 단독 대사
           children.push(new Paragraph({
             alignment: AlignmentType.LEFT,
-            spacing:{before:160,after:40},
-            children:[new TextRun({text:line.text,font:FONT,size:SZ,bold:true})]
+            indent: { left: INDENT_ONE },
+            spacing: { before: 0, after: 80 },
+            children: [t(line.text, { bold: !!line.keyline })],
           }));
-        } else {
-          children.push(new Paragraph({
-            alignment: isCenter ? AlignmentType.CENTER : AlignmentType.LEFT,
-            indent: isCenter ? {} : {left:3600},
-            spacing:{before:160,after:40},
-            children:[new TextRun({text:line.text,font:FONT,size:SZ,bold:true})]
-          }));
-        }
-      } else if (line.type==='parenthetical') {
-        const txt = line.text.startsWith('(') ? line.text : '('+line.text+')';
-        if (isTheatrical) {
+          i++;
+        } else if (line.type === 'lyric') {
           children.push(new Paragraph({
             alignment: AlignmentType.LEFT,
-            indent:{left:INDENT_ONE},
-            spacing:{before:0,after:40},
-            children:[t(txt,{italics:true})]
+            indent: { left: INDENT_ONE },
+            spacing: { before: 0, after: 40 },
+            children: [t(line.text, { bold: true, italics: true })],
           }));
+          i++;
         } else {
-          children.push(new Paragraph({
-            alignment: isCenter ? AlignmentType.CENTER : AlignmentType.LEFT,
-            indent: isCenter ? {} : {left:3000},
-            spacing:{before:0,after:40},
-            children:[t(txt,{italics:true})]
-          }));
+          i++;
         }
-      } else if (line.type==='dialogue') {
-        if (isTheatrical) {
-          children.push(new Paragraph({
-            alignment: AlignmentType.LEFT,
-            indent:{left:INDENT_ONE},
-            spacing:{before:0,after:80},
-            children:[t(line.text,{bold:!!line.keyline})]
-          }));
-        } else {
-          children.push(new Paragraph({
-            alignment: isCenter ? AlignmentType.CENTER : AlignmentType.LEFT,
-            indent: isCenter ? {left:1440,right:1440} : {left:2160,right:720},
-            spacing:{before:0,after:80},
-            children:[t(line.text,{bold:!!line.keyline})]
-          }));
-        }
-      } else if (line.type==='lyric') {
-        children.push(new Paragraph({
-          alignment: AlignmentType.LEFT,
-          indent:{left:INDENT_ONE},
-          spacing:{before:0,after:40},
-          children:[t(line.text,{italics:true})]
-        }));
       }
-    });
+    } else {
+      // ── 현행 분리 모드 ───────────────────────────────────────────
+      lines.forEach(line => {
+        if (line.type==='slug') return;
+        if (line.type==='action') {
+          children.push(new Paragraph({spacing:{before:0,after:80},children:[t(line.text)]}));
+        } else if (line.type==='character') {
+          if (isTheatrical) {
+            children.push(new Paragraph({
+              alignment: AlignmentType.LEFT,
+              spacing:{before:160,after:40},
+              children:[new TextRun({text:line.text,font:FONT,size:SZ,bold:true})]
+            }));
+          } else {
+            children.push(new Paragraph({
+              alignment: isCenter ? AlignmentType.CENTER : AlignmentType.LEFT,
+              indent: isCenter ? {} : {left:3600},
+              spacing:{before:160,after:40},
+              children:[new TextRun({text:line.text,font:FONT,size:SZ,bold:true})]
+            }));
+          }
+        } else if (line.type==='parenthetical') {
+          const txt = line.text.startsWith('(') ? line.text : '('+line.text+')';
+          if (isTheatrical) {
+            children.push(new Paragraph({
+              alignment: AlignmentType.LEFT,
+              indent:{left:INDENT_ONE},
+              spacing:{before:0,after:40},
+              children:[t(txt,{italics:true})]
+            }));
+          } else {
+            children.push(new Paragraph({
+              alignment: isCenter ? AlignmentType.CENTER : AlignmentType.LEFT,
+              indent: isCenter ? {} : {left:3000},
+              spacing:{before:0,after:40},
+              children:[t(txt,{italics:true})]
+            }));
+          }
+        } else if (line.type==='dialogue') {
+          if (isTheatrical) {
+            children.push(new Paragraph({
+              alignment: AlignmentType.LEFT,
+              indent:{left:INDENT_ONE},
+              spacing:{before:0,after:80},
+              children:[t(line.text,{bold:!!line.keyline})]
+            }));
+          } else {
+            children.push(new Paragraph({
+              alignment: isCenter ? AlignmentType.CENTER : AlignmentType.LEFT,
+              indent: isCenter ? {left:1440,right:1440} : {left:2160,right:720},
+              spacing:{before:0,after:80},
+              children:[t(line.text,{bold:!!line.keyline})]
+            }));
+          }
+        } else if (line.type==='lyric') {
+          children.push(new Paragraph({
+            alignment: AlignmentType.LEFT,
+            indent:{left:INDENT_ONE},
+            spacing:{before:0,after:40},
+            children:[t(line.text,{bold:true,italics:true})]
+          }));
+        }
+      });
+    }
   });
 
   const footer = new Footer({
