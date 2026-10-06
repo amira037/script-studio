@@ -831,6 +831,13 @@ textarea, input { font-family:var(--fb); }
 .flo-scene-preview .fsp-title { color:var(--accent); font-weight:600; margin:10px 0 4px; }
 .flo-scene-preview .fsp-line { margin:2px 0; }
 .flo-scene-preview .line-character { margin-top:6px; }
+.usage-panel { display:flex; flex-direction:column; gap:4px; padding:2px 0 4px; }
+.usage-row { display:grid; grid-template-columns:70px 1fr; align-items:baseline; column-gap:8px; font-size:var(--fs-12); color:var(--text2); }
+.usage-row b { color:var(--text); font-weight:600; text-align:right; }
+.usage-row small { grid-column:2; text-align:right; font-size:var(--fs-10); color:var(--text3); }
+.usage-sub { margin-top:8px; font-size:var(--fs-10); color:var(--text3); font-family:var(--fm); letter-spacing:.05em; }
+.usage-cat { display:flex; justify-content:space-between; font-size:var(--fs-11); color:var(--text2); }
+.usage-note { margin-top:8px; font-size:var(--fs-10); color:var(--text3); line-height:1.5; }
 .flo-mini { margin-top:6px; background:var(--bg2); border:1px solid var(--border); border-radius:var(--r); padding:8px 12px; font-size:var(--fs-12); line-height:1.6; }
 .flo-mini .fm-title { color:var(--text3); font-size:var(--fs-11); font-family:var(--fm); margin-bottom:4px; }
 .flo-mini .fm-row { color:var(--text); }
@@ -2255,6 +2262,10 @@ const SW_VERSION = 'v43.6';
       </div>
     </div>
     <div class="setting-group">
+      <div class="setting-group-title">AI 사용량</div>
+      <div id="usage-panel" class="usage-panel"></div>
+    </div>
+    <div class="setting-group">
       <div class="setting-group-title">데이터 저장</div>
       <div class="setting-row">
         <div class="setting-status on" id="sync-enabled-dot"></div>
@@ -2517,6 +2528,41 @@ function toggleSyncEnabled() {
   _updateSyncToggleUI();
   toast(next ? '☁️ 클라우드 동기화 켜짐' : '🔌 클라우드 동기화 꺼짐', 2000);
 }
+// 설정 패널 — AI 사용량 (전체 작품 합산 + 현재 작품)
+function _renderUsagePanel() {
+  const el = document.getElementById('usage-panel');
+  if (!el) return;
+  const now = new Date();
+  const today = _usageDay(now);
+  const month = today.slice(0, 7);
+  const weekStart = _usageDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6));
+  const sum = (projs, pred) => {
+    const t = { usd: 0, saved: 0, n: 0, cats: {} };
+    projs.forEach(p => Object.entries(p.usage || {}).forEach(([day, cats]) => {
+      if (!pred(day)) return;
+      Object.entries(cats).forEach(([cat, c]) => {
+        t.usd += c.usd; t.saved += c.saved; t.n += c.n;
+        t.cats[cat] = (t.cats[cat] || 0) + c.usd;
+      });
+    }));
+    return t;
+  };
+  const won = usd => '₩' + Math.round(usd * USD_KRW).toLocaleString();
+  const all = S.projects || [];
+  const tToday = sum(all, d => d === today);
+  const tWeek = sum(all, d => d >= weekStart && d <= today);
+  const tMonth = sum(all, d => d.startsWith(month));
+  const tCur = S.cur ? sum([S.cur], d => d.startsWith(month)) : null;
+  const row = (label, t) => '<div class="usage-row"><span>' + label + '</span><b>' + won(t.usd) + '</b>' +
+    '<small>' + t.n + '회 · 캐시 절감 ' + won(t.saved) + '</small></div>';
+  const cats = Object.entries(tMonth.cats).sort((a, b) => b[1] - a[1])
+    .map(([c, usd]) => '<div class="usage-cat"><span>' + escH(USAGE_CAT_LABELS[c] || c) + '</span><span>' + won(usd) + '</span></div>').join('');
+  el.innerHTML = row('오늘', tToday) + row('최근 7일', tWeek) + row('이번 달', tMonth) +
+    (cats ? '<div class="usage-sub">이번 달 기능별</div>' + cats : '') +
+    (tCur ? '<div class="usage-sub">현재 작품 (이번 달)</div><div class="usage-cat"><span>' + escH(S.cur.title || '제목 없음') + '</span><span>' + won(tCur.usd) + '</span></div>' : '') +
+    '<div class="usage-note">추정치 · 환율 ' + USD_KRW.toLocaleString() + '원/$ · 정확한 청구 금액은 Anthropic Console 기준</div>';
+}
+
 function _updateSyncToggleUI() {
   const on = isSyncEnabled();
   const dot = document.getElementById('sync-enabled-dot');
@@ -3161,10 +3207,53 @@ function _logCacheUsage(u) {
   console.log('[cache] read', u.cache_read_input_tokens || 0, '/ write', u.cache_creation_input_tokens || 0, '/ uncached', u.input_tokens || 0);
 }
 
+// ── AI 사용량 측정 ─────────────────────────────────────────────────
+// 호출마다 usage로 비용 계산 → 프로젝트 데이터 usage[날짜][분류]에 누적 → 기존 프로젝트 동기화로 Supabase까지 저장.
+// 설정 패널 "AI 사용량"에서 확인. 추정치(정확한 청구는 Anthropic Console)
+const USD_KRW = 1380;
+const USAGE_PRICES = { // $ / 100만 토큰: [입력, 출력, 캐시 읽기, 5분 캐시 저장, 1시간 캐시 저장]
+  sonnet: [2, 10, 0.2, 2.5, 4],    // claude-sonnet-5-5
+  haiku:  [1, 5, 0.1, 1.25, 2],    // claude-haiku-4-5
+};
+const USAGE_CAT_LABELS = { flo: 'FLO 대화', write: '씬 작성·창작', edit: '라인 편집', analysis: '분석', etc: '기타' };
+// 호출 스택의 함수 이름으로 분류 (구체적인 도구 → 진입 핸들러 순)
+const USAGE_CAT_RULES = [
+  ['analysis', /handleFlowAnalysisInChat|flowImprovePlan|checkEmotionFlowWithPrompt|checkSettingConflictWithPrompt|checkSceneFlowWithPrompt|handleSceneConnection|flowSettingUpdateScan|analyzeCharacter|analyzeSceneRange|analyzeSingleScene|handleSequenceSuggestFromScript|checkConsistencyWithPrompt|compareDraftScene|checkConflictWithPrompt|calcConflictScore|handleCharDialogueAnalysis/],
+  ['write', /handleSceneRewrite|handleRefSceneCreate|_execAiSceneInsert|confirmSceneInsertChoice|aiSceneFill|generateSceneFromIdea|_rewriteFromPros|bulkEditScenes|handleClearScReorder|executeSequentialMerge|executeMerge|splitIntoSubScenes|splitSubSceneContent|handleAiSceneAdd|generateScenesFromTitles|handleFloWriteMultiSeq/],
+  ['edit', /handleScriptPrompt|handleAiWriteSelected|handleFillSingleLine|handleFillPlaceholders/],
+  ['flo', /handleChatPrompt|handleChoiceResult|reDiscussMessage|handleWebSearch|buildCompressedHistory/],
+];
+function _usageCategory() {
+  const st = new Error().stack || '';
+  for (const [cat, re] of USAGE_CAT_RULES) if (re.test(st)) return cat;
+  return S._usageCtx || 'etc'; // 스택에 이름이 안 남는 브라우저 대비: 마지막 진입 핸들러
+}
+function _usageDay(d = new Date()) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function _recordUsage(model, u, proj, cat) {
+  if (!u || !proj || IS_ADMIN) return;
+  const [pIn, pOut, pRead, pW5, pW1] = USAGE_PRICES[(model || '').includes('haiku') ? 'haiku' : 'sonnet'];
+  const w1h = u.cache_creation?.ephemeral_1h_input_tokens || 0;
+  const w5m = u.cache_creation?.ephemeral_5m_input_tokens ?? Math.max(0, (u.cache_creation_input_tokens || 0) - w1h);
+  const read = u.cache_read_input_tokens || 0;
+  const usd = ((u.input_tokens || 0) * pIn + (u.output_tokens || 0) * pOut + read * pRead + w5m * pW5 + w1h * pW1) / 1e6
+    + (u.server_tool_use?.web_search_requests || 0) * 0.01; // 웹 검색 $10 / 1000회
+  const saved = read * (pIn - pRead) / 1e6;                 // 캐시 덕분에 아낀 금액
+  if (!proj.usage) proj.usage = {};
+  const day = proj.usage[_usageDay()] || (proj.usage[_usageDay()] = {});
+  const c = day[cat] || (day[cat] = { usd: 0, saved: 0, n: 0 });
+  c.usd = +(c.usd + usd).toFixed(6); c.saved = +(c.saved + saved).toFixed(6); c.n++;
+  if (proj.id) { _dirtyProjectIds.add(proj.id); _saveDirtyIds(); }
+  if (proj === S.cur) save(true); else storage.set('ss_projects', S.projects);
+  console.log('[usage]', USAGE_CAT_LABELS[cat] || cat, '₩' + Math.round(usd * USD_KRW), '(절감 ₩' + Math.round(saved * USD_KRW) + ')');
+}
+
 async function callClaude(messages, system, maxTokens = 2000, model = 'claude-sonnet-5-5', opts = null) {
   if (IS_ADMIN) { toast('ADMIN 모드에서는 AI를 사용할 수 없습니다.'); throw new Error('Admin mode'); }
   abortCurrentRequest();
   _currentAbortCtrl = new AbortController();
+  const _uProj = S.cur, _uCat = _usageCategory(); // 호출 시점의 작품·분류 (응답 전 작품 전환 대비)
   const body = _withScript(_withThinking({ model, max_tokens: maxTokens, system, messages }, opts), opts);
   const maxRetries = 2;
   let lastErr;
@@ -3184,6 +3273,7 @@ async function callClaude(messages, system, maxTokens = 2000, model = 'claude-so
       const data = await resp.json();
       _currentAbortCtrl = null;
       _logCacheUsage(data.usage);
+      _recordUsage(model, data.usage, _uProj, _uCat);
       return data.content.map(b => b.text || '').join('');
     } catch(e) {
       if (e.name === 'AbortError') { _currentAbortCtrl = null; throw e; }
@@ -3200,6 +3290,7 @@ async function callClaudeBackground(messages, system, maxTokens = 200, model = '
   if (IS_ADMIN || isWaiting) return null;
   if (_bgAbortCtrl) { _bgAbortCtrl.abort(); }
   _bgAbortCtrl = new AbortController();
+  const _uProj = S.cur, _uCat = _usageCategory();
   try {
     const resp = await fetch('/api/claude', {
       method: 'POST',
@@ -3210,6 +3301,7 @@ async function callClaudeBackground(messages, system, maxTokens = 200, model = '
     if (!resp.ok) return null;
     const data = await resp.json();
     _bgAbortCtrl = null;
+    _recordUsage(model, data.usage, _uProj, _uCat);
     return data.content.map(b => b.text || '').join('');
   } catch(e) {
     if (e.name !== 'AbortError') console.warn('bg API error', e);
@@ -3229,6 +3321,7 @@ async function callClaudeStream(messages, system, maxTokens = 4000, model = 'cla
     _currentAbortCtrl = new AbortController();
     ctrl = _currentAbortCtrl;
   }
+  const _uProj = S.cur, _uCat = _usageCategory();
   const body = _withScript(_withThinking({ model, max_tokens: maxTokens, system, messages, stream: true }, opts), opts);
   const maxRetries = 2;
   let resp;
@@ -3252,6 +3345,7 @@ async function callClaudeStream(messages, system, maxTokens = 4000, model = 'cla
     if (!ct.includes('text/event-stream')) {
       // 폴백: 일반 JSON — 청크 시뮬레이션
       const data = await resp.json();
+      _recordUsage(model, data.usage, _uProj, _uCat);
       const text = data.content.map(b => b.text || '').join('');
       if (onChunk) {
         // 청크 시뮬레이션 — 40자씩 나눠서 전달
@@ -3269,6 +3363,7 @@ async function callClaudeStream(messages, system, maxTokens = 4000, model = 'cla
     const decoder = new TextDecoder();
     let fullText = '';
     let buffer = '';
+    let _usage = null; // message_start(입력·캐시) + message_delta(최종 출력 토큰)
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -3281,7 +3376,8 @@ async function callClaudeStream(messages, system, maxTokens = 4000, model = 'cla
         if (data === '[DONE]') continue;
         try {
           const evt = JSON.parse(data);
-          if (evt.type === 'message_start') _logCacheUsage(evt.message?.usage);
+          if (evt.type === 'message_start') { _usage = { ...(evt.message?.usage || {}) }; _logCacheUsage(_usage); }
+          if (evt.type === 'message_delta' && evt.usage) _usage = { ...(_usage || {}), ...evt.usage };
           if (evt.type === 'content_block_delta' && evt.delta?.text) {
             fullText += evt.delta.text;
             if (onChunk) onChunk(fullText, false);
@@ -3289,6 +3385,7 @@ async function callClaudeStream(messages, system, maxTokens = 4000, model = 'cla
         } catch {}
       }
     }
+    _recordUsage(model, _usage, _uProj, _uCat);
     if (onChunk) onChunk(fullText, true);
     return fullText;
   } finally {
@@ -11605,6 +11702,7 @@ async function handleWebSearch(text) {
   });
   if (!resp.ok) throw new Error('검색 API 오류 (' + resp.status + ')');
   const data = await resp.json();
+  _recordUsage(body.model, data.usage, S.cur, 'flo');
   const resultText = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
   hideTyping();
   addMsg('assistant', resultText || '검색 결과를 가져오지 못했습니다.');
@@ -11731,6 +11829,7 @@ async function floRoute(text) {
 }
 
 async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent = null) {
+  S._usageCtx = 'flo';
   text = await normalizeSceneNums(text);
   switchTab('chat');
   // 긴 구상 글 안의 단어("좋아", "모르겠", "다음 장면" 등)로 엉뚱한 패널이 뜨지 않게 — 키워드 분기는 짧은 입력만
@@ -16301,6 +16400,7 @@ async function handleTitleChange(text) {
 
 // ── 빈 핸들러 제거 (위에서 중복 정의된 것) ──────────────────────────
 async function handleScriptPrompt(text) {
+  S._usageCtx = 'edit';
   // 프롬프트 없이 실행 시 갈등도 하위 씬 자동 감지
   if (!text || !text.trim()) {
     const _scenes = (S.cur?.scenes||[]).filter(s=>!s.draft);
@@ -20857,7 +20957,7 @@ function openDrawer(name) {
   currentDrawer = name;
   if (name === 'chars') renderCharsDrawer();
   if (name === 'synopsis') renderSynopsisDrawer();
-  if (name === 'settings') { renderVersionList(); _updateAccountLabel(); _updateSyncToggleUI(); }
+  if (name === 'settings') { renderVersionList(); _updateAccountLabel(); _updateSyncToggleUI(); _renderUsagePanel(); }
 }
 function closeDrawer() {
   document.querySelectorAll('.drawer').forEach(d => d.classList.remove('open'));
