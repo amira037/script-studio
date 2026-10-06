@@ -7971,6 +7971,25 @@ function buildSceneBlock(sc, i) {
   return block;
 }
 
+// contenteditable 줄 안에서 커서의 글자 위치 (없으면 null)
+function _getCaretOffset(el) {
+  const sel = window.getSelection();
+  if (!sel.rangeCount || !el.contains(sel.anchorNode)) return null;
+  const r = document.createRange();
+  r.selectNodeContents(el);
+  r.setEnd(sel.anchorNode, sel.anchorOffset);
+  return r.toString().length;
+}
+function _setCaretOffset(el, pos) {
+  const node = el.firstChild;
+  const r = document.createRange();
+  if (node && node.nodeType === Node.TEXT_NODE) r.setStart(node, Math.min(pos, node.length));
+  else { r.selectNodeContents(el); r.collapse(false); }
+  r.collapse(true);
+  const sel = window.getSelection();
+  sel.removeAllRanges(); sel.addRange(r);
+}
+
 // Ghost suggestion for auto-type detection
 let ghostTimer;
 let _lastEnterTime = 0;
@@ -7997,18 +8016,27 @@ function handleLineKeydown(e, sc, lineIdx, lw) {
     if (el) el.className = 'line-el line-' + line.type;
     // parenthetical ↔ 다른 타입 전환 시 ( ) 추가/제거
     // Tab은 e.preventDefault()로 focusout 미발생 → el.textContent가 line.text보다 정확
+    // textContent를 통째로 바꾸면 커서가 맨 앞으로 가서 Enter 시 줄 전체가 아래로 내려감 → 커서 위치 보정
+    const _caret = el ? _getCaretOffset(el) : null;
     if (_prevType === 'parenthetical' && line.type !== 'parenthetical') {
       let _raw = (el ? el.textContent : line.text).trim();
       if (_raw.startsWith('(')) _raw = _raw.slice(1);
       if (_raw.endsWith(')'))   _raw = _raw.slice(0, -1);
       _raw = _raw.trim();
       line.text = _raw;
-      if (el) el.textContent = _raw;
+      if (el) {
+        el.textContent = _raw;
+        _setCaretOffset(el, _caret == null ? _raw.length : Math.min(Math.max(_caret - 1, 0), _raw.length));
+      }
     } else if (line.type === 'parenthetical' && _prevType !== 'parenthetical') {
       const _raw = (el ? el.textContent : line.text).trim();
       const _wrapped = _raw ? '(' + _raw.replace(/^\(/, '').replace(/\)$/, '') + ')' : '()';
       line.text = _wrapped;
-      if (el) el.textContent = _wrapped;
+      if (el) {
+        el.textContent = _wrapped;
+        // 괄호 안쪽(닫는 괄호 앞)에 커서 유지
+        _setCaretOffset(el, _caret == null ? _wrapped.length - 1 : Math.min(_caret + 1, _wrapped.length - 1));
+      }
     }
     save(true);
     toast(_typeLabels[line.type] || line.type, 800);
