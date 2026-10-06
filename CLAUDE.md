@@ -165,7 +165,7 @@ const isSyncEnabled = () => localStorage.getItem('ss_sync_enabled') !== 'false';
 | `floRoute(text)` | Haiku로 플로 요청 의도 분류 → `{intent, sceneCount, isTheatrical}` |
 | `dispatchCmd(cmd, text, source)` | cmd에 따라 적절한 핸들러 실행 |
 | `normalizeSceneNums(text)` | 씬 표현 → SC번호 형식 변환 (합치기/참조 요청은 스킵) |
-| `handleWebSearch(text)` | 웹 검색 (`web_search_20250305` tool) |
+| `handleWebSearch(text)` | 웹 검색 (`web_search_20260209` tool) |
 | `buildProjectContext()` | 프로젝트 메타(제목, 장르, 인물, 씬 목록, 시놉시스) 문자열 반환 |
 | `buildCompressedHistory()` | 최근 4000자 이내 메시지 히스토리 + 초과분 Haiku 요약 |
 | `getChatMemos()` | 구조화 결정사항 플랫 배열 반환 |
@@ -343,7 +343,7 @@ callClaudeStream → 실시간 스트리밍
 
 | 조건 | 모델 | 토큰 |
 |------|------|------|
-| write_single/write_multi | claude-sonnet-4-20250514 | 10000 |
+| write_single/write_multi | claude-sonnet-5-5 | 10000 |
 | needsMore (씬 재구성) | haiku | 4000 |
 | 일반 | claude-haiku-4-5-20251001 | 2000 |
 | floRoute/haikusRoute | claude-haiku-4-5-20251001 | 60~150 |
@@ -568,13 +568,20 @@ document.addEventListener('keydown', (e) => {
 ## Claude API 호출
 
 ```js
-callClaude(messages, systemPrompt, maxTokens, model)
-callClaudeStream(messages, systemPrompt, maxTokens, model, onChunk)
+callClaude(messages, systemPrompt, maxTokens, model, opts)
+callClaudeStream(messages, systemPrompt, maxTokens, model, onChunk, noAbort, opts)
 // onChunk: (chunk, done) => void — done=true면 스트리밍 완료
+// opts: { think: true } → Sonnet 5.5 adaptive thinking(effort medium) + max_tokens에 THINK_EXTRA_TOKENS(8000) 추가
 ```
 
+**Thinking 규칙:**
+- 기본 OFF — `api/claude.js` 프록시가 `thinking` 없는 Sonnet 5.5 요청에 `{type:'between_tools'}` 주입 (`disabled`는 400)
+- ON (`{think:true}`): 씬 작성(`handleFloWriteMultiSeq`, 플로 write intent, `generateScenesFromTitles`, `aiSceneFillSilent`), `executeMerge`, `handleAiSceneAdd`, 라인 에디터 편집(청크 포함)
+- Haiku 모델이면 `_withThinking`이 무시함
+- thinking 쓰는 긴 호출은 반드시 `callClaudeStream` (edge 프록시 25초 응답 시작 제한)
+
 **모델 상수:**
-- 메인: `'claude-sonnet-4-20250514'`
+- 메인: `'claude-sonnet-5-5'`
 - 경량/라우팅: `'claude-haiku-4-5-20251001'`
 
 ---

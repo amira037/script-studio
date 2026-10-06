@@ -22,6 +22,13 @@ export default async function handler(req) {
     const body = await req.json();
     const isStream = !!body.stream;
 
+    // Sonnet 5.5는 thinking이 기본 ON → 기존(Sonnet 4) 동작 유지를 위해 끔.
+    // 작은 max_tokens가 thinking에 소모되거나 content[0]이 thinking 블록이 되는 문제 방지.
+    // ({type:'disabled'}는 Sonnet 5.5에서 400 → 'between_tools' 사용)
+    if (body.model === 'claude-sonnet-5-5' && !body.thinking) {
+      body.thinking = { type: 'between_tools' };
+    }
+
     const upstream = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
