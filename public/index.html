@@ -825,6 +825,26 @@ textarea, input { font-family:var(--fb); }
 .genre-stage .line-parenthetical{ text-align:left; padding-left:1.4em; }
 .genre-stage .line-action       { text-align:center; }
 /* line-parenthetical: 기본 CSS가 이미 center — 오버라이드 없음 */
+/* 플로 채팅 — 작성된 장면 미리보기 */
+.flo-scene-preview { margin-top:6px; background:var(--bg2); border:1px solid var(--border); border-radius:var(--r); padding:8px 12px; font-size:var(--fs-12); line-height:1.7; max-height:420px; overflow-y:auto; }
+.flo-scene-preview summary { cursor:pointer; color:var(--text3); font-size:var(--fs-11); font-family:var(--fm); }
+.flo-scene-preview .fsp-title { color:var(--accent); font-weight:600; margin:10px 0 4px; }
+.flo-scene-preview .fsp-line { margin:2px 0; }
+.flo-scene-preview .line-character { margin-top:6px; }
+.flo-mini { margin-top:6px; background:var(--bg2); border:1px solid var(--border); border-radius:var(--r); padding:8px 12px; font-size:var(--fs-12); line-height:1.6; }
+.flo-mini .fm-title { color:var(--text3); font-size:var(--fs-11); font-family:var(--fm); margin-bottom:4px; }
+.flo-mini .fm-row { color:var(--text); }
+.flo-mini .fm-sub { color:var(--text2); font-size:var(--fs-11); margin:0 0 4px 14px; }
+.flo-mini.fm-text .fm-row { white-space:pre-wrap; color:var(--text2); }
+.flo-mini.fm-raw { border-color:rgba(224,85,85,.35); }
+.flo-mini.fm-raw summary { cursor:pointer; color:var(--red); font-size:var(--fs-11); }
+.flo-mini.fm-raw pre { white-space:pre-wrap; word-break:break-all; font-family:var(--fm); font-size:var(--fs-11); color:var(--text2); max-height:360px; overflow-y:auto; margin:8px 0 0; }
+.flo-char-preview { margin-top:6px; display:flex; flex-direction:column; gap:6px; }
+.flo-char-preview .fcp-card { background:var(--bg2); border:1px solid var(--border); border-left:2px solid var(--accent2); border-radius:var(--r); padding:8px 12px; }
+.flo-char-preview .fcp-name { color:var(--accent); font-weight:600; font-size:var(--fs-13); }
+.flo-char-preview .fcp-desc { color:var(--text2); font-size:var(--fs-12); line-height:1.6; margin-top:3px; }
+.flo-char-preview .fcp-traits { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+.flo-char-preview .fcp-traits span { background:var(--bg4); border:1px solid var(--border2); border-radius:12px; padding:1px 8px; font-size:var(--fs-11); color:var(--text2); }
 
 /* Ghost suggestion */
 .ghost-suggestion {
@@ -2994,8 +3014,28 @@ function updateUndoUI() {
 // 로컬이 비어있을 때 pull 완료 전까지 save 차단
 let _syncReady = false;
 
+// 씬별 마지막 수정 시각(editedAt) — save() 때 내용 서명 비교로 기록 (수동/AI 수정 모두)
+const _sceneSigs = new Map();          // `${projId}:${scId}` → 서명
+const _sigInitProjects = new Set();    // 첫 save는 기준선만 잡고 기록 안 함
+function _stampSceneEdits() {
+  const p = S.cur;
+  if (!p?.scenes) return;
+  const init = _sigInitProjects.has(p.id);
+  const now = Date.now();
+  p.scenes.forEach((sc, idx) => {
+    const key = p.id + ':' + sc.id;
+    // idx 포함 → 앞에 씬이 삽입/삭제되면 뒤 씬들도 수정으로 간주 (대본 텍스트 위치가 바뀌므로)
+    const sig = JSON.stringify([idx, sc.parentId || null, sc.title || '', sc.slug || '',
+      (sc.lines || []).map(l => [l.type, l.text])]);
+    if (init && _sceneSigs.get(key) !== sig) sc.editedAt = now;
+    _sceneSigs.set(key, sig);
+  });
+  _sigInitProjects.add(p.id);
+}
+
 function save(skipUndo = false) {
   if (!_syncReady) return;
+  _stampSceneEdits();
   if (!skipUndo && S.cur) pushUndo();
   // 하루 1회 자동 버전 저장 (skipUndo=false인 의미있는 변경 시)
   if (!skipUndo && S.cur) {
@@ -3053,11 +3093,79 @@ function _withThinking(body, opts) {
   };
 }
 
+// ── 대본 전체 컨텍스트 + 프롬프트 캐싱 (opts={script:true}) ─────────────
+// 시스템 프롬프트 맨 앞에 대본 전체를 고정 형식으로 넣어 FLO·라인 에디터가 캐시를 공유.
+// 앞쪽 안정 구간 = 1시간 캐시, 최근 수정 구간부터 끝 = 5분 캐시 (1h 블록이 5m보다 앞에 와야 함)
+const SCRIPT_CACHE_RECENT_MS = 30 * 60 * 1000; // 이 시간 안에 수정된 씬이 있는 묶음부터 5분 캐시
+const SCRIPT_GROUP_SIZE = 5;                    // 영화/드라마: 최상위 씬 N개씩 묶음 (연극/뮤지컬은 막 단위)
+
+// 대본 텍스트 변환 — 캐시 적중을 위해 항상 이 함수 하나로만 생성 (형식이 바뀌면 캐시 깨짐)
+function _sceneToScriptText(sc, allScenes) {
+  const out = ['[' + getSceneLabel(sc, allScenes) + '] ' + (sc.title || '') + (sc.slug ? ' — ' + sc.slug : '')];
+  (sc.lines || []).forEach(l => {
+    const t = (l.text || '').trim();
+    if (!t) return;
+    if (l.type === 'character') out.push(t + ':');
+    else if (l.type === 'dialogue') out.push('  ' + t);
+    else if (l.type === 'parenthetical') out.push('  (' + t.replace(/^\(|\)$/g, '') + ')');
+    else if (l.type === 'lyric') out.push('  ♪ ' + t);
+    else if (l.type === 'slug') out.push('# ' + t);
+    else out.push('[지문] ' + t);
+  });
+  return out.join('\n');
+}
+
+// 묶음 단위로 대본 분할 (대안 씬 제외, 서브씬은 부모와 같은 묶음)
+function _buildScriptGroups() {
+  const all = S.cur?.scenes || [];
+  const scenes = all.filter(s => !s.draft);
+  const tops = scenes.filter(s => !s.parentId);
+  const groups = [];
+  let cur = null, lastAct = null;
+  tops.forEach((top, i) => {
+    const act = isTheatricalProject() ? ((top.slug || '') + ' ' + (top.title || '')).match(/(\d+)\s*막/)?.[1] : null;
+    const newGroup = act != null ? (!cur || act !== lastAct) : (i % SCRIPT_GROUP_SIZE === 0 || !cur);
+    if (act != null) lastAct = act;
+    if (newGroup) { cur = []; groups.push(cur); }
+    const kids = scenes.filter(s => s.parentId === top.id).sort((a, b) => (a.subOrder || 0) - (b.subOrder || 0));
+    cur.push(top, ...kids);
+  });
+  return groups.map(g => ({
+    text: g.map(sc => _sceneToScriptText(sc, all)).join('\n\n'),
+    editedAt: Math.max(0, ...g.map(sc => sc.editedAt || 0)),
+  }));
+}
+
+function _buildScriptSystem(system) {
+  const groups = _buildScriptGroups();
+  if (!groups.length || typeof system !== 'string') return system;
+  const cutoff = Date.now() - SCRIPT_CACHE_RECENT_MS;
+  let b = groups.findIndex(g => g.editedAt > cutoff);
+  if (b < 0) b = groups.length;
+  const stable = groups.slice(0, b).map(g => g.text).join('\n\n');
+  const recent = groups.slice(b).map(g => g.text).join('\n\n');
+  const blocks = [{ type: 'text', text: '[대본 전체 — 참고용. 작품 전체 흐름·복선·인물 말투 일관성 확인에 사용. 편집 대상은 아래 지시를 따를 것]' }];
+  if (stable) blocks.push({ type: 'text', text: stable, cache_control: { type: 'ephemeral', ttl: '1h' } });
+  if (recent) blocks.push({ type: 'text', text: recent, cache_control: { type: 'ephemeral' } });
+  if (system) blocks.push({ type: 'text', text: system });
+  return blocks;
+}
+
+function _withScript(body, opts) {
+  if (!opts?.script || body.model !== 'claude-sonnet-5-5') return body;
+  return { ...body, system: _buildScriptSystem(body.system) };
+}
+
+function _logCacheUsage(u) {
+  if (!u || !(u.cache_read_input_tokens || u.cache_creation_input_tokens)) return;
+  console.log('[cache] read', u.cache_read_input_tokens || 0, '/ write', u.cache_creation_input_tokens || 0, '/ uncached', u.input_tokens || 0);
+}
+
 async function callClaude(messages, system, maxTokens = 2000, model = 'claude-sonnet-5-5', opts = null) {
   if (IS_ADMIN) { toast('ADMIN 모드에서는 AI를 사용할 수 없습니다.'); throw new Error('Admin mode'); }
   abortCurrentRequest();
   _currentAbortCtrl = new AbortController();
-  const body = _withThinking({ model, max_tokens: maxTokens, system, messages }, opts);
+  const body = _withScript(_withThinking({ model, max_tokens: maxTokens, system, messages }, opts), opts);
   const maxRetries = 2;
   let lastErr;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -3075,6 +3183,7 @@ async function callClaude(messages, system, maxTokens = 2000, model = 'claude-so
       if (!resp.ok) throw new Error(`API ${resp.status}: ${await resp.text()}`);
       const data = await resp.json();
       _currentAbortCtrl = null;
+      _logCacheUsage(data.usage);
       return data.content.map(b => b.text || '').join('');
     } catch(e) {
       if (e.name === 'AbortError') { _currentAbortCtrl = null; throw e; }
@@ -3120,7 +3229,7 @@ async function callClaudeStream(messages, system, maxTokens = 4000, model = 'cla
     _currentAbortCtrl = new AbortController();
     ctrl = _currentAbortCtrl;
   }
-  const body = _withThinking({ model, max_tokens: maxTokens, system, messages, stream: true }, opts);
+  const body = _withScript(_withThinking({ model, max_tokens: maxTokens, system, messages, stream: true }, opts), opts);
   const maxRetries = 2;
   let resp;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -3172,6 +3281,7 @@ async function callClaudeStream(messages, system, maxTokens = 4000, model = 'cla
         if (data === '[DONE]') continue;
         try {
           const evt = JSON.parse(data);
+          if (evt.type === 'message_start') _logCacheUsage(evt.message?.usage);
           if (evt.type === 'content_block_delta' && evt.delta?.text) {
             fullText += evt.delta.text;
             if (onChunk) onChunk(fullText, false);
@@ -3951,6 +4061,60 @@ async function regenSynopsisInPanel() {
     if (newSyn) openSynopsisPreviewPanel(newSyn);
     else toast('재생성 실패, 다시 시도해주세요.');
   } catch(e) { hideTyping(); toast('오류: ' + e.message); }
+}
+
+// FLO 응답에서 형식이 깨진 구조화 태그 감지 — 닫는 태그 없음(응답 잘림) 또는 JSON 파싱 실패
+// → 말풍선에서는 지워지고 버튼도 안 생기므로, 원문을 채팅에 접어서 남기는 데 사용
+const _FLO_JSON_TAGS = ['scenes','newscenes','subscenes','characters','sequence_titles','scene_ideas',
+  'reorderscenes','survey','choices','multichoices'];
+function _findBrokenFloTags(raw) {
+  const broken = [];
+  _FLO_JSON_TAGS.forEach(t => {
+    if (!new RegExp('<' + t + '[\\s>]', 'i').test(raw)) return;
+    if (!new RegExp('</' + t + '>', 'i').test(raw)) { broken.push(t + ' (응답 잘림)'); return; }
+    const inner = extractTag(raw, t);
+    try { JSON.parse(inner); } catch { broken.push(t); }
+  });
+  const charOpens = (raw.match(/<character(?!s)[\s>]/gi) || []).length;
+  if (charOpens > _parseCharacterTags(raw).length) broken.push('character');
+  return broken;
+}
+
+// 말풍선용: 200자 이상이고 실제로 JSON으로 파싱되는 [..]/{..} 덩어리만 제거 (일반 괄호 문장은 유지)
+function _stripLooseJson(text) {
+  let out = '', i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if ((ch === '[' || ch === '{') && /^[\[{]\s*[\[{"]/.test(text.slice(i, i + 20))) {
+      let depth = 0, inStr = false, j = i;
+      for (; j < text.length; j++) {
+        const c = text[j];
+        if (inStr) { if (c === '\\') j++; else if (c === '"') inStr = false; continue; }
+        if (c === '"') inStr = true;
+        else if (c === '[' || c === '{') depth++;
+        else if (c === ']' || c === '}') { depth--; if (depth === 0) break; }
+      }
+      const seg = text.slice(i, j + 1);
+      if (depth === 0 && seg.length >= 200) {
+        try { JSON.parse(seg); i = j + 1; continue; } catch {}
+      }
+    }
+    out += ch; i++;
+  }
+  return out;
+}
+
+// <character> 태그 전부 → 인물 목록 (채팅 미리보기 + 인물 추가 패널 재오픈용)
+function _parseCharacterTags(raw) {
+  return [...((raw || '').matchAll(/<character[^>]*>([\s\S]*?)<\/character>/gi))].map(m => {
+    let c = null;
+    try { c = JSON.parse(m[1].trim()); } catch {}
+    if (!c?.name) return null;
+    const traits = [...(c.traits || [])];
+    if (c.gender && !traits.includes(c.gender)) traits.unshift(c.gender);
+    return { name: c.name, lastName: c.lastName || '', firstName: c.firstName || c.name, title: c.title || '',
+      role: c.role || '', description: c.description || '', traits };
+  }).filter(Boolean);
 }
 
 function floDetectContent(raw, displayText) {
@@ -9659,6 +9823,55 @@ function renderChatMsgs() {
   renderChatMemoWrap();
 }
 
+// 플로 액션 데이터 미리보기 — 태그로 온 내용(시놉시스·설정·구조·아이디어·선택지·질문·재배치·깨진 원문)을
+// 버튼을 누르지 않아도 채팅에서 읽을 수 있게 표시. 모두 textContent로만 렌더링
+function _appendFloActionPreviews(body, actions) {
+  const box = (cls, title) => {
+    const d = document.createElement('div');
+    d.className = 'flo-mini ' + (cls || '');
+    if (title) { const h = document.createElement('div'); h.className = 'fm-title'; h.textContent = title; d.appendChild(h); }
+    body.appendChild(d);
+    return d;
+  };
+  const row = (parent, text, sub) => {
+    const r = document.createElement('div'); r.className = 'fm-row'; r.textContent = text; parent.appendChild(r);
+    if (sub) { const sb = document.createElement('div'); sb.className = 'fm-sub'; sb.textContent = sub; parent.appendChild(sb); }
+  };
+  const label = c => typeof c === 'string' ? c : (c?.label || c?.text || c?.title || JSON.stringify(c));
+  actions.forEach(a => {
+    const d = a.data;
+    if (a.type === 'reviewSynopsis' && typeof d === 'string') {
+      const b = box('fm-text', '📋 시놉시스'); row(b, d);
+    } else if (a.type === 'settingUpdateScan' && d?.settingText) {
+      const b = box('fm-text', '⚙️ 설정 변경'); row(b, d.settingText);
+    } else if (a.type === 'approveSequence' && Array.isArray(d)) {
+      const b = box('', '✨ 제안 구조');
+      d.forEach((s, i) => row(b, (i + 1) + '. ' + (s.title || '') + (s.slug ? ' — ' + s.slug : ''), s.hint || ''));
+    } else if (a.type === 'pickSceneIdea' && Array.isArray(d)) {
+      const b = box('', '💡 씬 아이디어');
+      d.forEach((s, i) => row(b, (i + 1) + '. ' + (s.title || '') + (s.mood ? ' · ' + s.mood : ''), s.idea || ''));
+    } else if ((a.type === 'showChoices' || a.type === 'showMultiChoices') && Array.isArray(d?.choices)) {
+      const b = box('', a.type === 'showMultiChoices' ? '☑ 선택지 (복수 선택)' : '◉ 선택지');
+      d.choices.forEach(c => row(b, '· ' + label(c)));
+    } else if (a.type === 'openSurvey' && Array.isArray(d)) {
+      const b = box('', '💬 질문 ' + d.length + '개');
+      d.forEach((q, i) => row(b, (i + 1) + '. ' + (q.q || label(q)), (q.options || []).map(label).join(' / ')));
+    } else if (a.type === 'reorderScenes' && Array.isArray(d)) {
+      const b = box('', '↕ 제안 순서');
+      [...d].sort((x, y) => (x.newIndex ?? 0) - (y.newIndex ?? 0)).forEach((s, i) => row(b, (i + 1) + '. ' + (s.id ?? '')));
+    } else if (a.type === 'rawFallback' && d?.raw) {
+      const det = document.createElement('details');
+      det.className = 'flo-mini fm-raw';
+      const sum = document.createElement('summary');
+      sum.textContent = '⚠️ 형식 오류(' + d.tags.join(', ') + ') — 원문 보기';
+      const pre = document.createElement('pre');
+      pre.textContent = d.raw;
+      det.append(sum, pre);
+      body.appendChild(det);
+    }
+  });
+}
+
 function appendMsgEl(msg, scroll = true) {
   const container = document.getElementById('chat-msgs');
   if (!container) return;
@@ -9688,9 +9901,66 @@ function appendMsgEl(msg, scroll = true) {
   }
   if (msg.role !== 'user') body.appendChild(name);
   body.appendChild(bubble);
+  // 플로가 쓴 씬 본문 미리보기 — <newscenes>/<scenes>/<subscenes>는 말풍선에서 제거되므로 여기서 펼쳐 보여줌
+  const _sceneActs = (msg.actions || []).filter(a => a.type === 'addScenes' && Array.isArray(a.data));
+  _sceneActs.forEach(a => {
+    const scs = a.data.filter(s => (s.lines || []).length > 0);
+    if (!scs.length) return;
+    const det = document.createElement('details');
+    det.className = 'flo-scene-preview';
+    det.open = true;
+    const sum = document.createElement('summary');
+    sum.textContent = '📄 작성된 장면 보기 (' + scs.length + ')';
+    det.appendChild(sum);
+    scs.forEach(s => {
+      const hd = document.createElement('div');
+      hd.className = 'fsp-title';
+      hd.textContent = (s.title || '') + (s.slug ? ' — ' + s.slug : '');
+      det.appendChild(hd);
+      s.lines.forEach(l => {
+        const ln = document.createElement('div');
+        const t = typeof l === 'string' ? 'dialogue' : (l.type || 'action');
+        ln.className = 'fsp-line line-' + t;
+        ln.textContent = typeof l === 'string' ? l : (l.text || l.content || '');
+        det.appendChild(ln);
+      });
+    });
+    body.appendChild(det);
+  });
+  // 플로가 정리한 인물 카드 — <character>/<characters>도 말풍선에서 제거되므로 여기서 표시
+  (msg.actions || []).filter(a => (a.type === 'reviewCharacters' || a.type === 'addCharacters') && Array.isArray(a.data)).forEach(a => {
+    const chs = a.data.filter(c => c?.name);
+    if (!chs.length) return;
+    const box = document.createElement('div');
+    box.className = 'flo-char-preview';
+    chs.forEach(c => {
+      const card = document.createElement('div');
+      card.className = 'fcp-card';
+      const nm = document.createElement('div');
+      nm.className = 'fcp-name';
+      nm.textContent = c.name + (c.role ? ' · ' + c.role : '');
+      card.appendChild(nm);
+      if (c.description) {
+        const ds = document.createElement('div');
+        ds.className = 'fcp-desc';
+        ds.textContent = c.description;
+        card.appendChild(ds);
+      }
+      if ((c.traits || []).length) {
+        const tr = document.createElement('div');
+        tr.className = 'fcp-traits';
+        c.traits.forEach(t => { const sp = document.createElement('span'); sp.textContent = t; tr.appendChild(sp); });
+        card.appendChild(tr);
+      }
+      box.appendChild(card);
+    });
+    body.appendChild(box);
+  });
+  _appendFloActionPreviews(body, msg.actions || []);
   if (msg.actions && msg.actions.length) {
     const acts = document.createElement('div'); acts.className = 'msg-actions';
     msg.actions.forEach(a => {
+      if (a.type === 'rawFallback') return; // 미리보기 영역에서만 표시
       const btn = document.createElement('button');
       btn.className = 'msg-action-btn ' + (a.style||'');
       btn.textContent = a.label;
@@ -10113,6 +10383,12 @@ function handleMsgAction(action) {
     showSceneIdeaCards(action.data);
   } else if (action.type === 'addCharacters') {
     addCharsFromAI(action.data);
+  } else if (action.type === 'reviewSynopsis') {
+    openSynopsisPreviewPanel(action.data);
+  } else if (action.type === 'reviewCharacters') {
+    const _names = new Set((S.cur?.characters || []).map(c => c.name));
+    if (action.data.every(c => _names.has(c.name))) toast('모두 이미 등록된 인물입니다.');
+    else showCharacterAddPanel(action.data);
   } else if (action.type === 'gotoScriptEdit') {
     // I1: 씬 체크박스 + 2버튼 분기 패널
     showSceneEditBranchPanel(action.data);
@@ -11324,7 +11600,7 @@ async function handleFloWriteMultiSeq(text, sceneCount, scRefs, history, sysBase
     try {
       let raw = '';
       await callClaudeStream(seqHistory, seqSys, 10000, 'claude-sonnet-5-5',
-        (chunk, done) => { raw = chunk; }, true, { think: true });
+        (chunk, done) => { raw = chunk; }, true, { think: true, script: true });
 
       // 대화 히스토리 누적 → 다음 씬이 이전 씬 내용을 알도록
       seqHistory = [...seqHistory,
@@ -11767,7 +12043,7 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
         else hideStreamBubble();
       },
       false,
-      { think: _isWriteIntent }
+      { think: _isWriteIntent, script: _isWriteIntent }
     );
     hideTyping();
 
@@ -11829,10 +12105,18 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     if (charsRaw) { try { charsData = JSON.parse(charsRaw); } catch {} }
 
     // Clean text
-    let displayText = cleanDisplayText(raw);
+    let displayText = cleanDisplayText(raw, { keepMd: true });
     if (!displayText) displayText = '생성이 완료됐습니다.';
 
     const actions = [];
+    // 시놉시스 / 설정 변경 — 토스트만으로는 사라지므로 채팅에 본문 카드 + 버튼으로 남김
+    if (synopsisData && synopsisData.length > 20) {
+      actions.push({ type:'reviewSynopsis', data:synopsisData, label:'📋 시놉시스 저장하기', style:'green' });
+    }
+    const _settingRaw = extractTag(raw, 'setting_update');
+    if (_settingRaw) {
+      actions.push({ type:'settingUpdateScan', data:{ settingText:_settingRaw, affectedChars:[] }, label:'⚙️ 설정 변경 전체 씬에 반영', style:'amber' });
+    }
     if (seqTitlesData && Array.isArray(seqTitlesData) && seqTitlesData.length > 0) {
       actions.push({ type:'approveSequence', data:seqTitlesData, label:'✨ 이 구조로 씬 만들기 (' + seqTitlesData.length + '개)', style:'purple' });
     }
@@ -11909,10 +12193,17 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     // 서베이 파싱 — seqTitlesData가 있으면 버튼으로, 없으면 자동 오픈
     let _surveyDataParsed = null;
     if (surveyRaw) { try { _surveyDataParsed = JSON.parse(surveyRaw); } catch {} }
-    if (_surveyDataParsed?.length && seqTitlesData?.length) {
-      // 시퀀스 + 서베이 동시 → 버튼으로 제공
-      actions.push({ type:'openSurvey', data:_surveyDataParsed, intent:_floIntent, label:'💬 서베이로 더 의논하기', style:'' });
+    if (_surveyDataParsed?.length) {
+      // 시퀀스와 동시면 버튼으로만, 아니면 자동 오픈 + 닫은 뒤 다시 열 수 있게 버튼 유지
+      actions.push({ type:'openSurvey', data:_surveyDataParsed, intent:_floIntent,
+        label: seqTitlesData?.length ? '💬 서베이로 더 의논하기' : '💬 질문 다시 열기', style:'' });
     }
+    // <character> 태그는 말풍선에서 제거되므로 채팅에 인물 카드 + 패널 재오픈 버튼으로 남김
+    const _floChars = _parseCharacterTags(raw);
+    if (_floChars.length) actions.push({ type:'reviewCharacters', data:_floChars, label:'👥 인물 '+_floChars.length+'명 보기·추가', style:'purple' });
+    // 형식이 깨진 태그 → 원문을 접어서 보존 (버튼 없이 미리보기 영역에만 표시)
+    const _brokenTags = _findBrokenFloTags(raw);
+    if (_brokenTags.length) actions.push({ type:'rawFallback', data:{ tags:_brokenTags, raw }, label:'' });
     const _mergedActions = [...actions, ..._floExtraActions];
     addMsg('assistant', displayText, _mergedActions.length ? _mergedActions : null);
 
@@ -12463,7 +12754,7 @@ async function generateScenesFromTitles(seqTitlesData) {
       'claude-sonnet-5-5',
       null,
       false,
-      { think: true }
+      { think: true, script: true }
     );
     hideAnalyzing();
     const sr = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
@@ -14357,7 +14648,7 @@ async function aiSceneFillSilent(sc, scenes) {
     'claude-sonnet-5-5',
     null,
     false,
-    { think: true }
+    { think: true, script: true }
   );
   const sr = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
   if (!sr) return;
@@ -14949,7 +15240,7 @@ async function executeMerge(targetScenes) {
       'claude-sonnet-5-5',
       (chunk, done) => { raw = chunk; },
       true,
-      { think: true }
+      { think: true, script: true }
     );
     hideAnalyzing();
 
@@ -15218,7 +15509,7 @@ async function handleAiSceneAdd(hint, forcedRefSc, forcedRefLabel, isInsertOnly)
       '<reason>추가 이유 한 줄 — 반드시 긍정적 표현으로 (예: ~을 더 풍성하게, ~을 자연스럽게 연결, ~의 매력을 살려서)</reason>\n' +
       '<scenes>[{"title":"씬 제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용"}]}]</scenes>\n' +
       '씬 lines는 충분히 작성하세요. 대사와 지문을 압축하거나 생략하지 마세요.',
-      _addTokens, _addModel, null, false, { think: true }
+      _addTokens, _addModel, null, false, { think: true, script: true }
     );
     _removePlaceholder();
     hideAnalyzing();
@@ -16575,7 +16866,7 @@ async function handleScriptPrompt(text) {
           chunkSys, 15000, 'claude-sonnet-5-5',
           (chunk, done) => { chunkRaw = chunk; },
           true,
-          { think: true }
+          { think: true, script: true }
         );
         const chunkResult = extractTag(chunkRaw, 'r');
         if (chunkResult) {
@@ -16732,7 +17023,7 @@ async function handleScriptPrompt(text) {
         if (done && _streamScId) hideStreamPreview(_streamScId);
       },
       false,
-      { think: true }
+      { think: true, script: true }
     );
     const resultRaw = extractTag(raw, 'r') || extractTag(raw, 'result');
     const choicesRaw = extractTag(raw, 'choices');
@@ -20970,8 +21261,8 @@ function importProject(e) {
 // ═══════════════════════════════════════════
 
 // 태그와 JSON을 제거해서 자연어만 추출하는 헬퍼
-function cleanDisplayText(raw) {
-  return (raw || '')
+function cleanDisplayText(raw, opts = {}) {
+  const t = (raw || '')
     .replace(/<synopsis[\s\S]*?<\/synopsis>/gi, '')
     .replace(/<scenes[\s\S]*?<\/scenes>/gi, '')
     .replace(/<characters[\s\S]*?<\/characters>/gi, '')
@@ -21020,11 +21311,14 @@ function cleanDisplayText(raw) {
     .replace(/<setting_update>[\s\S]*/gi, '')
     .replace(/<subscenes[\s\S]*?<\/subscenes>/gi, '')
     .replace(/<subscenes>[\s\S]*/gi, '')
-    .replace(/```[\s\S]*?```/g, '')
-    .replace(/\[[\s\S]{200,}\]/g, '')
-    .replace(/\{[\s\S]{200,}\}/g, '')
-    .replace(/\*\*([^*]*)\*\*/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/```(?:json)?\s*[\[{][\s\S]*?```/gi, '')   // JSON 코드블록만 제거
+    .replace(/```\w*\n?([\s\S]*?)```/g, '$1');           // 그 외 코드블록은 내용 유지
+  let out = _stripLooseJson(t);
+  // keepMd: 플로 말풍선은 **굵게**를 appendMsgEl에서 렌더링하므로 유지
+  if (!opts.keepMd) out = out.replace(/\*\*([^*]*)\*\*/g, '$1');
+  out = out.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1$2');
+  return out
+    .replace(/\n[ \t]*(?:\n[ \t]*){2,}/g, '\n\n') // 태그 제거 후 남은 빈 줄 3개 이상 → 1개로
     .trim();
 }
 

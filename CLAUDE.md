@@ -511,6 +511,12 @@ document.addEventListener('keydown', (e) => {
 | `deleteSceneSuggest` | confirm 후 씬 삭제 | red |
 | `moveSceneSuggest` | 네비게이터 드래그 안내 toast | blue |
 | `reorderScenes` | showReorderPreviewModal | blue |
+| `reviewSynopsis` | openSynopsisPreviewPanel (채팅에 시놉시스 카드 표시) | green |
+| `settingUpdateScan` | `<setting_update>` 전체 씬 반영 (채팅에 설정 카드 표시) | amber |
+| `reviewCharacters` | showCharacterAddPanel 재오픈 (채팅에 인물 카드 표시) | purple |
+| `rawFallback` | 버튼 없음 — 깨진 태그(잘림/JSON 오류) 원문을 접어서 표시 | - |
+
+**채팅 미리보기 규칙:** 구조화 태그는 말풍선에서 제거되므로, 내용은 반드시 액션 `data`에 담아 `appendMsgEl` 미리보기(`_appendFloActionPreviews`, 씬/인물 카드)로 보여줄 것. 토스트·자동 패널만으로 노출 금지 (닫으면 사라짐). 새 JSON 태그 추가 시 `_FLO_JSON_TAGS`에도 등록.
 
 ---
 
@@ -579,6 +585,15 @@ callClaudeStream(messages, systemPrompt, maxTokens, model, onChunk, noAbort, opt
 - ON (`{think:true}`): 씬 작성(`handleFloWriteMultiSeq`, 플로 write intent, `generateScenesFromTitles`, `aiSceneFillSilent`), `executeMerge`, `handleAiSceneAdd`, 라인 에디터 편집(청크 포함)
 - Haiku 모델이면 `_withThinking`이 무시함
 - thinking 쓰는 긴 호출은 반드시 `callClaudeStream` (edge 프록시 25초 응답 시작 제한)
+
+**대본 전체 컨텍스트 + 캐싱 (`opts.script`):**
+- `{script:true}` + Sonnet 5.5 → `_buildScriptSystem`이 system을 `[헤더, 안정구간(1h 캐시), 최근구간(5m 캐시), 기존 지시]` 블록 배열로 변환
+- 현재 `{think:true}` 호출 전부에 `script:true` 함께 적용 → FLO 씬 작성과 라인 에디터 편집이 같은 캐시 공유
+- 묶음: 연극/뮤지컬 = 막(slug/title의 `N막`), 그 외 = 최상위 씬 `SCRIPT_GROUP_SIZE`(5)개. 대안 씬 제외, 서브씬은 부모와 같은 묶음
+- 경계: `SCRIPT_CACHE_RECENT_MS`(30분) 안에 수정된 씬이 있는 첫 묶음부터 5분 캐시, 그 앞은 1시간 캐시
+- `sc.editedAt`: `save()` → `_stampSceneEdits()`가 씬 내용+위치 서명 비교로 자동 기록 (수동/AI 수정 모두). Supabase에도 저장됨 — sync 정리 목록에 넣지 말 것
+- 대본 텍스트는 반드시 `_sceneToScriptText`로만 생성 (형식이 바뀌면 캐시 깨짐). 자주 바뀌는 내용(결정사항·요청)은 system 뒤쪽/메시지에
+- 캐시 확인: 브라우저 콘솔 `[cache] read N / write N / uncached N`
 
 **모델 상수:**
 - 메인: `'claude-sonnet-5-5'`
