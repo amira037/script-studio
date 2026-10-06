@@ -164,10 +164,10 @@ const isSyncEnabled = () => localStorage.getItem('ss_sync_enabled') !== 'false';
 | `haikusRoute(text)` | Haiku로 요청 분류 → cmd 반환 |
 | `floRoute(text)` | Haiku로 플로 요청 의도 분류 → `{intent, sceneCount, isTheatrical}` |
 | `dispatchCmd(cmd, text, source)` | cmd에 따라 적절한 핸들러 실행 |
-| `normalizeSceneNums(text)` | 씬 표현 → SC번호 형식 변환 (합치기/참조 요청은 스킵) |
+| `normalizeSceneNums(text)` | 씬 표현 → SC번호 형식 변환 (합치기/참조 요청은 스킵). `LONG_INPUT_CHARS`(200자) 초과 입력은 변환 안 함 (Haiku 150토큰 재작성 시 잘림) |
 | `handleWebSearch(text)` | 웹 검색 (`web_search_20260209` tool) |
 | `buildProjectContext()` | 프로젝트 메타(제목, 장르, 인물, 씬 목록, 시놉시스) 문자열 반환 |
-| `buildCompressedHistory()` | 최근 4000자 이내 메시지 히스토리 + 초과분 Haiku 요약 |
+| `buildCompressedHistory()` | 최근 `HIST_MAX_CHARS`(40000자)까지 원문, 넘치면 `HIST_KEEP_CHARS`(24000자)만 남기고 앞쪽을 Haiku 요약으로 접음. 경계 `S.cur._histCut` / 요약 `S.cur._histSummary` 저장 (캐시 유지용) |
 | `getChatMemos()` | 구조화 결정사항 플랫 배열 반환 |
 | `getRecentFloContext(maxMsgs=12)` | 최근 플로 대화 → "작가/플로: ..." 형식 |
 | `autoExtractMemoFromHistory()` | 최근 대화에서 결정사항 자동 추출 → `chatMemosStructured`에 병합 |
@@ -343,10 +343,26 @@ callClaudeStream → 실시간 스트리밍
 
 | 조건 | 모델 | 토큰 |
 |------|------|------|
-| write_single/write_multi | claude-sonnet-5-5 | 10000 |
-| needsMore (씬 재구성) | haiku | 4000 |
-| 일반 | claude-haiku-4-5-20251001 | 2000 |
+| write_single/write_multi | claude-sonnet-5-5 (thinking ON) | 10000 (+8000) |
+| needsMore (씬 재구성) | claude-sonnet-5-5 | 4000 |
+| 일반 대화/브레인스토밍/구조 | claude-sonnet-5-5 | 2000 |
 | floRoute/haikusRoute | claude-haiku-4-5-20251001 | 60~150 |
+
+**긴 입력 보호:** `handleChatPrompt`의 키워드 분기(P1 승인, 막혔어, 웹 검색, 시퀀스, needsMore 구간 선택)는 `_isShortCmd`(≤200자)일 때만 — 긴 구상 글 안의 단어로 패널이 가로채지 않게
+
+**쓰기 도구:**
+- 창작 (`think+script`, callClaudeStream): handleSceneRewrite, handleRefSceneCreate, _execAiSceneInsert, confirmSceneInsertChoice, aiSceneFill, generateSceneFromIdea, _rewriteFromPros, bulkEditScenes, handleClearScReorder
+- 선택 줄 다시 쓰기 handleAiWriteSelected: `script`만 (thinking 없음)
+- 구조 작업 (executeSequentialMerge, splitIntoSubScenes, splitSubSceneContent): 대상 씬만, script/thinking 없음
+- 한 줄 채우기 handleFillSingleLine: 속도 위해 Haiku 유지, 현재 씬은 전체(자르지 않음)
+
+**분석 도구 (`script:true`, Sonnet):** handleFlowAnalysisInChat, flowImprovePlan, checkEmotionFlowWithPrompt, checkSettingConflictWithPrompt, checkSceneFlowWithPrompt, handleSceneConnection(WithTargets), flowSettingUpdateScan, analyzeCharacter/SceneRange/SingleScene, handleSequenceSuggestFromScript, checkConsistencyWithPrompt, compareDraftScene. 갈등도(`checkConflictWithPrompt`)·대사 분석은 Haiku 유지
+
+**FLO 요청 구조 (캐시용):** 모든 FLO 대화 = Sonnet 5.5 + `script:true`
+- system = `[대본 1h][대본 5m][_floHead + _floRules(프로젝트 내내 고정)]`
+- messages = `[히스토리 … (마지막에 cache_control)] + user("[이번 요청 참고 정보] ctx·결정사항·주목 씬·_tagRule + [작가 요청] text")`
+- 매 턴 바뀌는 내용은 system에 넣지 말 것 (히스토리 캐시가 깨짐)
+- 관련 씬 스니퍼(Haiku) 생략, 언급 씬은 레이블만 (대안 씬만 본문 포함)
 
 ---
 

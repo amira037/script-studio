@@ -9216,7 +9216,7 @@ async function compareDraftScene(draftId) {
     try {
       const raw = await callClaude(
         [{role:'user', content: versionBlocks + '\n\n각 버전의 장단점을 분석해주세요.'}],
-        _analysisSysPrompt, 900
+        _analysisSysPrompt, 900, 'claude-sonnet-5-5', { script: true }
       );
       const analysisRaw = extractTag(raw, 'analysis');
       if (analysisRaw) {
@@ -9326,14 +9326,14 @@ async function _rewriteFromPros(originalId) {
   const prosText = selectedPros.join('\n');
 
   try {
-    const raw = await callClaude(
+    const raw = await callClaudeStream(
       [{role:'user', content:
         '[기존 버전들]\n' + versionBlocks + '\n\n' +
         '[작가가 선택한 장점]\n' + prosText + '\n\n' +
         '위 장점들을 모두 살린 새로운 버전을 써주세요.'
       }],
       '반드시 <scenes>[{"title":"씬 제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용"}]}]</scenes> 형식으로만 응답하세요.',
-      6000
+      6000, 'claude-sonnet-5-5', null, false, { think: true, script: true }
     );
     hideAnalyzing();
 
@@ -11457,43 +11457,51 @@ async function _autoGenerateSynopsisFromMemo() {
 // HISTORY COMPRESSION
 // ═══════════════════════════════════════════
 
+// FLO 대화 히스토리 — 최근 HIST_MAX_CHARS까지 원문 그대로, 넘치면 오래된 쪽을 요약으로 접음.
+// 접는 경계(_histCut)와 요약(_histSummary)을 저장해 두고, 넘칠 때만 HIST_KEEP_CHARS까지 한 번에 당김
+// → 매 턴 앞부분이 바뀌지 않아 대화 히스토리 프롬프트 캐시가 유지됨
+const HIST_MAX_CHARS = 40000;
+const HIST_KEEP_CHARS = 24000;
 async function buildCompressedHistory() {
   if (!S.cur) return [];
   const msgs = S.cur.messages || [];
-  // 최신 메시지부터 역순으로 글자수 누적 — 4000자 이내에서 최대한 포함
-  const TARGET_CHARS = 4000;
-  let charCount = 0;
-  let cutIndex = msgs.length;
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    const len = (msgs[i].text || '').length;
-    if (charCount + len > TARGET_CHARS) { cutIndex = i + 1; break; }
-    charCount += len;
-    cutIndex = i;
+  const toApi = m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text });
+  let cut = Math.min(S.cur._histCut || 0, msgs.length);
+  if (cut === 0) S.cur._histSummary = '';
+  const recentLen = () => msgs.slice(cut).reduce((n, m) => n + (m.text || '').length, 0);
+  if (recentLen() > HIST_MAX_CHARS) {
+    const prevCut = cut;
+    let acc = 0, keepFrom = msgs.length;
+    for (let i = msgs.length - 1; i >= cut; i--) {
+      acc += (msgs[i].text || '').length;
+      if (acc > HIST_KEEP_CHARS) break;
+      keepFrom = i;
+    }
+    cut = keepFrom;
+    const folded = msgs.slice(prevCut, cut).map(m => (m.role === 'user' ? '작가: ' : 'FLO: ') + m.text).join('\n').slice(0, 8000);
+    try {
+      const raw = await callClaude(
+        [{role:'user', content:(S.cur._histSummary ? '[기존 요약]\n' + S.cur._histSummary + '\n\n' : '') + '[이어진 대화]\n' + folded}],
+        '창작 대화 내용을 결정사항·방향·미해결 질문 위주로 10줄 이내로 요약하세요. 기존 요약이 있으면 합쳐서 하나로.',
+        600, 'claude-haiku-4-5-20251001'
+      );
+      S.cur._histSummary = raw.replace(/<[^>]+>/g, '').trim();
+    } catch(e) { if (!S.cur._histSummary) S.cur._histSummary = '(이전 대화 참조)'; }
+    S.cur._histCut = cut;
+    save(true);
   }
-  const recent = msgs.slice(cutIndex);
-  const old = msgs.slice(0, cutIndex);
-  if (!old.length) {
-    return recent.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
-  }
-  // 오래된 부분 압축 요약
-  const oldText = old.map(m => (m.role === 'user' ? '사용자: ' : 'AI: ') + m.text).join('\n').slice(0, 3000);
-  let summary = '';
-  try {
-    const raw = await callClaude(
-      [{role:'user', content:'다음 대화를 3줄로 요약하세요:\n\n' + oldText}],
-      '창작 대화 내용을 핵심만 간결하게 요약하세요. 결정사항 위주로.',
-      300, 'claude-haiku-4-5-20251001'
-    );
-    summary = raw.replace(/<[^>]+>/g, '').trim();
-  } catch(e) { summary = '(이전 대화 참조)'; }
-  return [
-    { role: 'assistant', content: '[이전 대화 요약] ' + summary },
-    ...recent.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }))
-  ];
+  const recent = msgs.slice(cut).map(toApi);
+  return cut > 0 && S.cur._histSummary
+    ? [{ role: 'assistant', content: '[이전 대화 요약] ' + S.cur._histSummary }, ...recent]
+    : recent;
 }
 
 // ── 씬 번호 정규화 ────────────────────────────────────────────────────
+// 이 길이를 넘는 입력은 '짧은 명령'이 아니라 구상·설명 글로 보고 키워드 분기/씬번호 변환을 하지 않음
+const LONG_INPUT_CHARS = 200;
 async function normalizeSceneNums(text) {
+  // 긴 글은 Haiku가 '전체 문장'을 150토큰 안에 다시 쓰다가 잘려버림 → 원문 유지
+  if ((text || '').length > LONG_INPUT_CHARS) return text;
   // SC 1-1 패턴은 기존 /SC\s*\d+/i 조건에도 걸리지만,
   // 서브씬 레이블임을 명시적으로 스킵하기 위해 별도 조건으로 유지
   const hasSubSceneRef = /SC\s*\d+-\d+/.test(text);
@@ -11538,7 +11546,9 @@ async function normalizeSceneNums(text) {
       + '설명 없이 결과 문장만.',
       150, 'claude-haiku-4-5-20251001'
     );
-    return raw.trim() || text;
+    const out = raw.trim();
+    // 변환 결과가 원문보다 크게 짧으면(잘림) 원문 사용
+    return out && out.length >= text.length * 0.8 ? out : text;
   } catch(e) { return text; }
 }
 
@@ -11695,11 +11705,13 @@ async function floRoute(text) {
 async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent = null) {
   text = await normalizeSceneNums(text);
   switchTab('chat');
+  // 긴 구상 글 안의 단어("좋아", "모르겠", "다음 장면" 등)로 엉뚱한 패널이 뜨지 않게 — 키워드 분기는 짧은 입력만
+  const _isShortCmd = text.length <= LONG_INPUT_CHARS;
   // P1: pending approveSequence → 자연어로 버튼 실행
   {
     const _lastActMsg = (S.cur?.messages||[]).filter(m => m.role === 'assistant' && m.actions?.length).at(-1);
     const _pendingApprove = _lastActMsg?.actions?.find(a => a.type === 'approveSequence');
-    if (_pendingApprove && /써\s*줘|만들어|진행해|시작해|해\s*줘|생성해|추가해|등록해|그렇게|좋아|ㅇㅇ|만들어\s*줘|작성해|부탁해/.test(text)) {
+    if (_isShortCmd && _pendingApprove && /써\s*줘|만들어|진행해|시작해|해\s*줘|생성해|추가해|등록해|그렇게|좋아|ㅇㅇ|만들어\s*줘|작성해|부탁해/.test(text)) {
       handleMsgAction(_pendingApprove);
       return;
     }
@@ -11711,13 +11723,14 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     const _stuckKw = /막혔|모르겠|아이디어.*없|어떡하|새로.*시작|다시.*시작|영감.*없|떠오르지/.test(text);
 
     // 막혔어 → 즉시 분기 패널
-    if (_stuckKw) { hideTyping(); showStuckPanel(); return; }
+    if (_isShortCmd && _stuckKw) { hideTyping(); showStuckPanel(); return; }
     // v42: 웹 검색 키워드
-    if (/검색해\s*줘|찾아봐\s*줘|알아봐\s*줘|검색해\s*봐|찾아봐|알아봐/.test(text)) {
+    if (_isShortCmd && /검색해\s*줘|찾아봐\s*줘|알아봐\s*줘|검색해\s*봐|찾아봐|알아봐/.test(text)) {
       await handleWebSearch(text); return;
     }
     // 시퀀스 제안 키워드
-    if (_seqKw && (S.cur?.scenes||[]).length > 0) { hideTyping(); showSequenceSuggestPanel(); return; }
+    if (_isShortCmd && _seqKw && (S.cur?.scenes||[]).length > 0) { hideTyping(); showSequenceSuggestPanel(); return; }
+    const FLO_FULL_SCRIPT = true; // FLO 대화 = Sonnet 5.5 + 대본 전체 캐시
     const ctx = buildProjectContext();
     const history = await buildCompressedHistory();
 
@@ -11771,7 +11784,8 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     const _nonDraftTopScenes = allScenes.filter(s => !s.draft && !s.parentId);
     let _sniffedLabels = [];
     let _sniffAdjacent = false;
-    if (explicitScIds.size === 0 && selectedOnlyIds.size === 0 && _nonDraftTopScenes.length > 0) {
+    // FLO는 대본 전체를 system에 받으므로(opts.script) 관련 씬 탐색 Haiku 호출은 생략
+    if (!FLO_FULL_SCRIPT && explicitScIds.size === 0 && selectedOnlyIds.size === 0 && _nonDraftTopScenes.length > 0) {
       const _tMsg = document.getElementById('typing-msg');
       if (_tMsg) _tMsg.textContent = '✦ 관련 장면 탐색 중...';
       try {
@@ -11853,12 +11867,13 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     });
 
     if (mentionedScIds.size > 0) {
-      // 트런케이션 없음 — 씬 전체를 읽어야 깊이 있는 답변 가능
-      // 줄바꿈 포맷(| 구분 제거)으로 AI 가독성 향상
+      // 일반 씬 본문은 system의 대본 전체에 있으므로 레이블만(주목할 씬 표시) — 중복 입력 방지
+      // 대안 씬은 대본 전체에서 제외되므로 본문 포함
       const makeDetail = (id) => {
         const s = allScenes.find(x=>x.id===id);
         if (!s) return '';
         const lbl = getSceneLabel(s, allScenes);
+        if (FLO_FULL_SCRIPT && !s.draft) return lbl + '. "' + s.title + '" (본문은 대본 전체 참고)';
         const draftMark = s.draft ? ' [대안]' : '';
         const lines = (s.lines||[]).map(l => l.type + ': ' + l.text).join('\n');
         return lbl + draftMark + '. "' + s.title + '"\n' + lines;
@@ -11877,7 +11892,10 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
       if (parts.length > 0) dynamicCtx = '\n\n' + parts.join('\n\n');
     }
 
-    const sys = '당신은 창작 대본 작업을 돕는 전문 작가 AI입니다.\n' + ctx + memoCtx + dynamicCtx + '\n\n' +
+    // 캐시: system에는 프로젝트 내내 고정인 규칙만, 매 턴 바뀌는 컨텍스트(_floVarCtx)는 이번 user 메시지에
+    const _floHead = '당신은 창작 대본 작업을 돕는 전문 작가 AI입니다.\n';
+    const _floVarCtx = ctx + memoCtx + dynamicCtx;
+    const _floRules =
       '응답 규칙:\n' +
       '- 자연스러운 한국어 대화체로 답변하세요.\n' +
       '- 응답 길이: 200~500자 이내를 기본으로 유지하세요.\n' +
@@ -11952,9 +11970,10 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
           })()
         : '- 대본 작성 시: 씬 하나를 완전히 완성한 뒤 다음 씬으로 진행. 씬 경계는 <newscenes> 태그로 구분. 토큰이 부족할 것 같으면 현재 씬을 완성 후 중단하고 "이어서 작성할까요?"로 마무리.'
       );
+    const sys = _floHead + _floVarCtx + '\n\n' + _floRules;
     // 씬 재구성 요청이면 토큰 더 많이 + 씬 수 감지
     const needsMore = /씬.*다시|재구성|전체.*씬|씬.*구성|씬.*만들/.test(text);
-    if (needsMore && S.cur) {
+    if (_isShortCmd && needsMore && S.cur) {
       // 언급된 씬 수 또는 전체 씬 수 파악
       const totalScenes = (S.cur.scenes||[]).filter(s=>!s.draft).length;
       const scMentions = (text.match(/SC\s*\d+/gi)||[]).length;
@@ -12009,7 +12028,6 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
         _tagRule = '\n★ <sequence_titles>, <newscenes> 태그 사용 자제. 꼭 필요할 때만.';
       }
     }
-    const sysWithTagRule = sys + _tagRule;
 
     // 씬 작성 의도면 토큰/모델 상향 (full JSON 출력 보장)
     const _isWriteIntent = ['write_single', 'write_multi'].includes(_floIntent);
@@ -12023,19 +12041,24 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
       await handleFloWriteMultiSeq(text, _seqCount, _seqScRefs, history, sys + _tagRule);
       return;
     }
-    const _floModel = _isWriteIntent ? 'claude-sonnet-5-5' : 'claude-haiku-4-5-20251001';
+    const _floModel = 'claude-sonnet-5-5';
     const _floTokens = _isWriteIntent ? 10000 : (needsMore ? 4000 : 2000);
 
     // 플로: 실시간 스트리밍
     // history 마지막이 이미 이 user 메시지면 중복 방지 (sendFloChat에서 저장한 경우)
     const _lastH = history[history.length - 1];
-    const _apiMsgs = (_lastH?.role === 'user' && _lastH?.content === text)
-      ? history
-      : [...history, { role:'user', content:text }];
+    const _histBase = (_lastH?.role === 'user' && _lastH?.content === text) ? history.slice(0, -1) : history;
+    // 히스토리 마지막에 캐시 지점 → 다음 턴에 이전 대화 전체를 캐시로 읽음 (대본 1h/5m 뒤라 TTL 순서 OK)
+    const _apiMsgs = [
+      ..._histBase.map((m, i, arr) => (i === arr.length - 1 && typeof m.content === 'string' && m.content)
+        ? { role: m.role, content: [{ type: 'text', text: m.content, cache_control: { type: 'ephemeral' } }] }
+        : m),
+      { role:'user', content: '[이번 요청 참고 정보]\n' + _floVarCtx + _tagRule + '\n\n[작가 요청]\n' + text },
+    ];
     showStreamBubble();
     const raw = await callClaudeStream(
       _apiMsgs,
-      sysWithTagRule,
+      _floHead + '\n' + _floRules,
       _floTokens,
       _floModel,
       (chunk, done) => {
@@ -12043,7 +12066,7 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
         else hideStreamBubble();
       },
       false,
-      { think: _isWriteIntent, script: _isWriteIntent }
+      { think: _isWriteIntent, script: true }
     );
     hideTyping();
 
@@ -12301,7 +12324,7 @@ async function handleSequenceSuggestFromScript() {
       + '현재 대본의 흐름을 분석해서 이후 시퀀스를 제안하세요.\n'
       + '반드시 <sequence_titles>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","hint":"한줄설명"}]</sequence_titles> 형식으로 제안하고, 앞에 자연스러운 설명을 붙이세요.\n'
       + '씬은 3~5개.',
-      1000
+      1000, 'claude-sonnet-5-5', { script: true }
     );
     hideTyping();
     const seqRaw = extractTag(raw, 'sequence_titles');
@@ -12883,7 +12906,7 @@ async function generateSceneFromIdea(idea) {
   const chars = (S.cur.characters||[]).map(c=>c.name+'('+c.role+')').join(', ');
   showAnalyzing('"' + idea.title + '" 장면을 쓰고 있습니다... ✍️');
   try {
-    const raw = await callClaude(
+    const raw = await callClaudeStream(
       [{role:'user', content:
         '작품: ' + S.cur.title + (synopsis ? '\n시놉시스: '+synopsis.slice(0,200) : '') + '\n'
         + '등장인물: ' + chars + '\n\n'
@@ -12892,7 +12915,7 @@ async function generateSceneFromIdea(idea) {
         + (idea.mood ? '분위기: ' + idea.mood : '')
       }],
       '반드시 <scenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만. 최소 5줄. 설명 없이.',
-      3000
+      3000, 'claude-sonnet-5-5', null, false, { think: true, script: true }
     );
     hideAnalyzing();
     const sr = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
@@ -13558,14 +13581,14 @@ async function handleClearScReorder(text) {
         (nextSc ? '\n→ ' + getSceneLabel(nextSc,scenes) + ' 시작: ' + nextFirstLines : '');
     }).join('\n\n');
 
-    const raw = await callClaude(
+    const raw = await callClaudeStream(
       [{role:'user', content:
         '씬 순서를 ' + scNums.map(n=>'SC'+n).join('→') + ' 으로 재배치했습니다.\n\n' +
         '각 씬의 경계 부분이 자연스럽게 이어지도록 필요한 경우 씬 시작/끝 부분을 수정해주세요.\n\n' +
         '경계 내용:\n' + borderContent}],
       '수정이 필요한 씬만 <fix sc="씬번호" pos="start|end">수정할 내용</fix> 형식으로 응답하세요.\n' +
       '수정 불필요하면 <fix></fix>만 응답하세요. 마크다운 없이.',
-      2000
+      2000, 'claude-sonnet-5-5', null, false, { think: true, script: true }
     );
     hideAnalyzing();
 
@@ -14275,7 +14298,8 @@ async function handleFillSingleLine(sc, li) {
   const nextSc = scenes.slice(scIdx + 1).find(s => !s.draft);
   const prevCtx = prevSc ? getSceneLabel(prevSc,scenes)+' "'+prevSc.title+'": '+(prevSc.lines||[]).map(l=>l.text).join(' ').slice(0,150) : '';
   const nextCtx = nextSc ? getSceneLabel(nextSc,scenes)+' "'+nextSc.title+'": '+(nextSc.lines||[]).map(l=>l.text).join(' ').slice(0,150) : '';
-  const curSceneFull = (sc.lines||[]).map(l=>l.type+': '+l.text).join('\n').slice(0,400);
+  // 속도 위해 Haiku 유지, 대신 현재 씬은 자르지 않고 전체 (말투·흐름 파악)
+  const curSceneFull = (sc.lines||[]).map(l=>l.type+': '+l.text).join('\n');
 
   showAnalyzing('??? 채우는 중...');
   try {
@@ -14538,7 +14562,7 @@ async function aiSceneFill(scId) {
 
   showAnalyzing(scLabel + ' 장면을 쓰고 있습니다... ✍️');
   try {
-    const raw = await callClaude(
+    const raw = await callClaudeStream(
       [{role:'user', content:
         '작품: ' + S.cur.title + (synopsis ? '\n시놉시스: ' + synopsis.slice(0,200) : '') + '\n'
         + '등장인물: ' + chars + '\n'
@@ -14548,7 +14572,7 @@ async function aiSceneFill(scId) {
         + '앞뒤 흐름에 자연스럽게 맞는 장면을 써주세요.'
       }],
       '반드시 <scenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만. 설명 없이.',
-      4000
+      4000, 'claude-sonnet-5-5', null, false, { think: true, script: true }
     );
     hideAnalyzing();
     const sr = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
@@ -14779,7 +14803,7 @@ async function _execAiSceneInsert(hintVal, hintLabel) {
   showAnalyzing(scLabel + ' ' + dirLabel + '에 들어갈 장면을 쓰고 있습니다... ✍️');
 
   try {
-    const raw = await callClaude(
+    const raw = await callClaudeStream(
       [{role:'user', content:
         '작품: ' + S.cur.title + (synopsis ? '\n시놉시스: ' + synopsis.slice(0,200) : '') + '\n'
         + '등장인물: ' + chars + '\n\n'
@@ -14791,7 +14815,7 @@ async function _execAiSceneInsert(hintVal, hintLabel) {
         + (hintVal ? ' ' + hintVal + '.': '')
       }],
       '반드시 <scenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만. 설명 없이.',
-      4000
+      4000, 'claude-sonnet-5-5', null, false, { think: true, script: true }
     );
     hideAnalyzing();
     const sr = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
@@ -14828,12 +14852,12 @@ async function handleSceneRewrite() {
     for (const sc of selected) {
       const scLabel = getSceneLabel(sc, scenes);
       const content = (sc.lines||[]).map(l=>l.type+': '+l.text).join('\n');
-      const raw = await callClaude(
+      const raw = await callClaudeStream(
         [{role:'user', content:
           scLabel + ' 재구성\n등장인물: ' + chars + '\n\n' +
           '현재 내용:\n' + content + '\n\n지시: ' + instruction}],
         '반드시 <scenes>[{"title":"제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만 응답하세요.',
-        6000
+        6000, 'claude-sonnet-5-5', null, false, { think: true, script: true }
       );
       const sr = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
       if (!sr) continue;
@@ -14949,7 +14973,7 @@ async function handleAiWriteSelected() {
         '지시에 따라 수정된 줄들만 반환하세요. 줄 수는 지시에 맞게 자유롭게 늘리거나 줄여도 됩니다.\n' +
         '타입도 지시에 맞게 자유롭게 바꿀 수 있습니다. 사용 가능한 타입: action, character, dialogue, parenthetical, slug\n' +
         '형식: type: 내용 (한 줄씩, 예: dialogue: 이제 돌아가야 해.)\n설명 없이 수정된 줄들만.',
-        1500
+        1500, 'claude-sonnet-5-5', { script: true }
       );
 
       const newLines = raw.trim().split('\n').map(row => {
@@ -15337,7 +15361,7 @@ async function handleRefSceneCreate(text) {
   }).filter(Boolean).join('\n\n');
 
   try {
-    const raw = await callClaude(
+    const raw = await callClaudeStream(
       [{role: 'user', content:
         '작품: ' + (S.cur.title || '') + '\n' +
         (synopsis ? '시놉시스: ' + synopsis + '\n' : '') +
@@ -15351,7 +15375,7 @@ async function handleRefSceneCreate(text) {
       '<insert_after>SC번호</insert_after> 또는 <insert_at>end</insert_at>\n' +
       '<reason>추가 이유 한 줄 — 긍정적 표현으로</reason>\n' +
       '<scenes>[{"title":"씬 제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용"}]}]</scenes>',
-      6000
+      6000, 'claude-sonnet-5-5', null, false, { think: true, script: true }
     );
     hideAnalyzing();
 
@@ -15671,13 +15695,13 @@ async function confirmSceneInsertChoice() {
       '반드시 <scenes>[{"title":"씬 제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만 응답하세요.\n' +
       '태그 외 설명 텍스트 없이 씬 JSON만 출력하세요.';
 
-    const raw = await callClaude(
+    const raw = await callClaudeStream(
       [{role:'user', content:
         '작품: ' + S.cur.title + ' / 등장인물: ' + charCtx +
         '\n\n앞뒤 씬 컨텍스트:\n' + ctxLines +
         '\n\n요청: ' + text
       }],
-      sys, 4000
+      sys, 4000, 'claude-sonnet-5-5', null, false, { think: true, script: true }
     );
     hideAnalyzing();
 
@@ -16017,7 +16041,7 @@ async function handleSceneConnection(text, options = {}) {
 
   const raw = await callClaude(
     [{role:'user', content:'씬 연결 분석 (중심: '+focusLabel+'):\n\n'+combined+'\n\n질문: '+text}],
-    sysPrompt, 800
+    sysPrompt, 800, 'claude-sonnet-5-5', { script: true }
   );
   hideAnalyzing();
   const scLbl = focusLabel;
@@ -16073,7 +16097,7 @@ async function handleSceneConnectionWithTargets(text, targetIds) {
   const sysPrompt = '씬들의 연결이 자연스러운지 분석하세요.\n연결 평가, 문제점, 개선 제안을 구체적으로 작성하세요.' + _planFmt;
   const raw = await callClaude(
     [{role:'user', content:'씬 연결 분석 (중심: '+focusLabel+'):\n\n'+combined+'\n\n질문: '+text}],
-    sysPrompt, 800
+    sysPrompt, 800, 'claude-sonnet-5-5', { script: true }
   );
   hideAnalyzing();
   const result = cleanDisplayText(raw) || raw;
@@ -17147,7 +17171,7 @@ async function flowImprovePlan(data) {
 씬 제목 목록이 필요하면 <sequence_titles>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","hint":"한줄설명"}]</sequence_titles> 형식으로 제안하세요.`;
 
     const prompt = `현재 씬 목록:\n${sceneList}\n\n적용할 방안:\n방안${planNum}: ${planTitle}\n${planBody}\n\n이 방안을 적용하면 어떻게 개선하는 게 좋을까요?`;
-    const raw = await callClaude([{role:'user', content: prompt}], sys, 4000);
+    const raw = await callClaude([{role:'user', content: prompt}], sys, 4000, 'claude-sonnet-5-5', { script: true });
     hideTyping();
 
     const actionTags = [];
@@ -17200,7 +17224,7 @@ async function flowSettingUpdateScan(data) {
 반드시 <affected>[씬번호 배열]</affected> 태그로 결과를 주세요.
 영향받는 씬이 없으면 <affected>[]</affected>.
 자연어로 각 씬이 왜 영향받는지 간략히 설명하세요.`;
-    const raw = await callClaude([{role:'user', content:`변경된 설정:\n${settingText}\n\n씬 목록:\n${sceneList}`}], sys, 3000);
+    const raw = await callClaude([{role:'user', content:`변경된 설정:\n${settingText}\n\n씬 목록:\n${sceneList}`}], sys, 3000, 'claude-sonnet-5-5', { script: true });
     hideTyping();
 
     const affRaw = extractTag(raw, 'affected');
@@ -17259,7 +17283,7 @@ async function handleFlowAnalysisInChat(text, mode) {
     const ctx = chars ? '등장인물:\n'+chars+'\n\n씬 목록:\n' : '씬 목록:\n';
     const raw = await callClaude(
       [{role:'user', content: ctx+sceneSummary+'\n\n요청: '+text}],
-      sys, 5000
+      sys, 5000, 'claude-sonnet-5-5', { script: true }
     );
     hideTyping();
 
@@ -17385,10 +17409,10 @@ async function checkConsistencyWithPrompt(text) {
   setWaiting(true);
   try {
     const ctx = buildProjectContext();
-    const scenes = (S.cur?.scenes||[]).map((s,i)=>`SC${i+1}. "${s.title}": ${s.lines.map(l=>l.text).join(' | ')}`).join('\n');
-    const sys = `당신은 대본 일관성 검사 전문가입니다. 캐릭터 설정과 대본을 분석해 이슈를 찾아주세요.
-반드시 <issues>[{"level":"error|warn|ok","scene":"SC번호","message":"이슈 설명"}]</issues> 형식으로 응답하세요.`;
-    const raw = await callClaude([{role:'user',content:`${ctx}\n\n대본:\n${scenes}\n\n요청: ${text}`}], sys, 2000);
+    // 대본 본문은 system의 대본 전체(캐시)로 전달 — 여기서 다시 넣지 않음. 씬 번호는 대본 전체와 같은 getSceneLabel 기준
+    const sys = `당신은 대본 일관성 검사 전문가입니다. 캐릭터 설정과 위의 대본 전체를 분석해 이슈를 찾아주세요.
+반드시 <issues>[{"level":"error|warn|ok","scene":"SC번호","message":"이슈 설명"}]</issues> 형식으로 응답하세요. scene은 대본 전체에 표기된 [SC 번호] 그대로.`;
+    const raw = await callClaude([{role:'user',content:`${ctx}\n\n요청: ${text}`}], sys, 2000, 'claude-sonnet-5-5', { script: true });
     hideTyping();
     const issuesRaw = extractTag(raw, 'issues');
     let issues = null;
@@ -17443,7 +17467,7 @@ async function analyzeSingleScene(scId, focus = 'default') {
     const raw = await callClaude(
       [{ role: 'user', content: ctx + '\n\n요청: ' + focusPrompts[focus] }],
       '대본 분석 전문가. 한국어로. 마크다운 없이.',
-      600
+      600, 'claude-sonnet-5-5', { script: true }
     );
     hideAnalyzing();
     const txt = cleanDisplayText(raw) || '';
@@ -17502,7 +17526,7 @@ async function analyzeSceneRange(scIds, focus = 'default') {
     const raw = await callClaude(
       [{ role: 'user', content: '[핵심 결정사항]\n' + (memos||'없음') + '\n\n[씬 목록]\n' + sceneText + '\n\n요청: ' + focusPrompts[focus] }],
       '대본 분석 전문가. 문제 씬은 반드시 씬 레이블(SC N)로 명시. 한국어로. 마크다운 없이.',
-      800
+      800, 'claude-sonnet-5-5', { script: true }
     );
     hideAnalyzing();
     const txt = cleanDisplayText(raw) || '';
@@ -17572,7 +17596,7 @@ async function analyzeCharacter(names, scIds = null) {
         '\n\n요청: ' + analysisPrompt
       }],
       '극작 전문가. 한국어로. 마크다운 없이.',
-      700
+      700, 'claude-sonnet-5-5', { script: true }
     );
     hideAnalyzing();
     const txt = cleanDisplayText(raw) || '';
@@ -17625,9 +17649,9 @@ async function bulkEditScenes(scIds, prompt) {
       }).join('\n');
 
       const sys = '대본 편집 전문가. 반드시 <r>[{"sceneId":숫자,"title":"제목","lines":[{"type":"...","text":"..."}],"comment":"한 줄 설명"}]</r> 형식으로만 응답. 마크다운 없이.' + flowNote;
-      const raw = await callClaude(
+      const raw = await callClaudeStream(
         [{ role:'user', content: '[핵심 결정사항]\n'+(memos||'없음')+'\n\n'+(floCtx?'[플로 대화]\n'+floCtx+'\n\n':'')+'[전체 씬 목록]\n'+scenes.filter(s=>!s.draft).map(s=>getSceneLabel(s,scenes)+' '+s.title).join('\n')+'\n\n[편집할 씬]\n'+sceneSummary+'\n\n요청: '+prompt }],
-        sys, 2500
+        sys, 2500, 'claude-sonnet-5-5', null, false, { think: true, script: true }
       );
       const parsed = (() => { try { return JSON.parse(extractTag(raw,'r')||'[]'); } catch { return []; } })();
       parsed.forEach(item => {
@@ -17746,7 +17770,7 @@ async function checkEmotionFlowWithPrompt(text) {
       '반드시 <issues>[{"level":"error|warn|ok","scene":"SC번호","char":"인물명","message":"감정 상태 및 이슈","fix":"제안"}]</issues> 형식으로 응답하세요.';
     const raw = await callClaude(
       [{role:'user', content:'등장인물:\n' + chars + '\n\n씬 내용:\n' + sceneSummary + '\n\n요청: ' + text}],
-      sys, 2000
+      sys, 2000, 'claude-sonnet-5-5', { script: true }
     );
     const issuesRaw = extractTag(raw, 'issues');
     let issues = null;
@@ -17770,7 +17794,7 @@ async function checkSettingConflictWithPrompt(text) {
       '반드시 <issues>[{"level":"error|warn|ok","scene":"SC번호","message":"충돌 내용","fix":"수정 제안"}]</issues> 형식으로 응답하세요.';
     const raw = await callClaude(
       [{role:'user', content:'등장인물 설정:\n' + chars + '\n\n대본:\n' + sceneSummary + '\n\n요청: ' + text}],
-      sys, 2500
+      sys, 2500, 'claude-sonnet-5-5', { script: true }
     );
     const issuesRaw = extractTag(raw, 'issues');
     let issues = null;
@@ -17807,7 +17831,7 @@ async function checkSceneFlowWithPrompt(text) {
 
     const raw = await callClaude(
       [{role:'user', content:'씬 흐름 분석:\n\n' + sceneSummary + '\n\n요청: ' + text}],
-      sys, 2000
+      sys, 2000, 'claude-sonnet-5-5', { script: true }
     );
     const issuesRaw = extractTag(raw, 'issues');
     let issues = null;
