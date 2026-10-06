@@ -16293,11 +16293,14 @@ async function handleScriptPrompt(text) {
     return;
   }
 
+  // 긴 지시(대사 인용 포함)는 키워드로 분석/구조 분기하지 않고 바로 편집으로 — 인용 대사 속 단어 오인 방지
+  const _isShortCmd = text.length <= LONG_INPUT_CHARS;
+
   // 인물명 감지 → analyzeCharacter 직접 라우팅 (SC번호와 함께 있어도 처리)
   const _chars = (S.cur?.characters||[]).map(c=>c.name);
   const _foundChars = _chars.filter(n => text.includes(n));
   const _isCharEditKw = /써줘|보이게|수정|고쳐|바꿔|넣어|추가|만들어|작성|채워|보강|다듬|확장/.test(text);
-  const _isCharAnalysis = _foundChars.length > 0 && !_isCharEditKw && /어때|분석|어떻(?!게)|어떤|어떠|인물.*어때|인물.*어떤|인물.*어떻|인물.*분석|캐릭터.*어때|캐릭터.*분석|매력.*분석|매력.*어때|매력.*어떻|매력.*어떤|기여|관계.*분석|관계.*어때|역학|내면/.test(text);
+  const _isCharAnalysis = _isShortCmd && _foundChars.length > 0 && !_isCharEditKw && /어때|분석|어떻(?!게)|어떤|어떠|인물.*어때|인물.*어떤|인물.*어떻|인물.*분석|캐릭터.*어때|캐릭터.*분석|매력.*분석|매력.*어때|매력.*어떻|매력.*어떤|기여|관계.*분석|관계.*어때|역학|내면/.test(text);
   if (_isCharAnalysis) {
     const _scPat2 = /SC\s*(\d+)/i;
     const _scMatch2 = text.match(_scPat2);
@@ -16315,7 +16318,7 @@ async function handleScriptPrompt(text) {
   // SC번호 있고 인물명 없으면 analyzeSingleScene 직접 라우팅
   const _scDirectPat = /SC\s*(\d+)/i;
   const _scDirectMatch = text.match(_scDirectPat);
-  const _isSceneAnalysis = _scDirectMatch && _foundChars.length === 0 &&
+  const _isSceneAnalysis = _isShortCmd && _scDirectMatch && _foundChars.length === 0 &&
     /어때|분석|어떻|어떤|어떠|진단|품질|개선|일관성|모순|충돌|점검/.test(text);
   if (_isSceneAnalysis) {
     const _n3 = parseInt(_scDirectMatch[1]);
@@ -16617,7 +16620,7 @@ async function handleScriptPrompt(text) {
   const _editKwCheck = /써줘|수정|고쳐|재구성|바꿔|채워/.test(text);
 
   // 대사/keyline 관련 — Haiku 라우터 (분석 제외, 편집 없을 때만)
-  const _analysisKw = !_editKwCheck && /대사.*분석|주요.*대사|중요.*대사|대사.*어때|대사.*뽑아|대사.*목록|대사.*조회/.test(text);
+  const _analysisKw = _isShortCmd && !_editKwCheck && /대사.*분석|주요.*대사|중요.*대사|대사.*어때|대사.*뽑아|대사.*목록|대사.*조회/.test(text);
   S._skipAnalysisRoute = false;
 
   // haikusRoute 결과를 편집 의도 판단에 재활용
@@ -16737,33 +16740,24 @@ async function handleScriptPrompt(text) {
 
     // 구조적 요청 — SC번호 불명확하거나 7개 이상이면 브레인스토밍 권유
     const structuralRequest = /씬.*전체.*삭제|순서.*재배치|구조.*변경|씬.*순서.*바꿔|전체.*구성.*바꿔/.test(text);
-    if (structuralRequest && !hasClearScNums) {
-      showBrainstormSuggestion(text, '브레인스토밍에서 함께 검토하면 더 세심하게 살펴볼 수 있어요 😊');
+    if (_isShortCmd && structuralRequest && !hasClearScNums) {
+      showBrainstormSuggestion(text, '전체 구조 변경은 FLO에서 함께 정해요 😊<br>장면 번호를 지정하면 여기서 바로 바꿀 수 있어요.', { noContinue: true });
       return;
     }
     // 7개 이상 선택 + 애매한 요청 → 브레인스토밍 권유
-    if (selCount >= 7 && !(/바꿔줘|수정해줘|고쳐줘|추가해줘|삭제해줘|써줘|넣어줘|만들어줘/.test(text))) {
-      showBrainstormSuggestion(text, '씬이 많아 브레인스토밍에서 방향을 먼저 정하는 게 좋을 것 같습니다 😊\n[여기서 계속] 버튼을 누르면 바로 진행할 수도 있어요.');
-      return;
+    // 7개 이상 → 요청 문구와 무관하게 항상 확인 (진행 / FLO에서 의논 / 취소) — 실수로 많이 선택한 경우도 방지
+    if (selCount >= 7) {
+      const _choice = await confirmManySceneEdit(selCount);
+      if (_choice === 'flo') { takeToBrainstorm('', text.replace(/[.!?]$/, '') + ' — 어떻게 하면 좋을까?'); return; }
+      if (_choice !== 'go') return;
     }
     // 4~6개 선택 → waiting 잠금 + 안내 toast
     if (selCount >= 4 && selCount <= 6) {
       setWaiting(true);
       toast('✦ ' + selCount + '개 씬 편집 중...', 60000);
     }
-    // 항상 Haiku가 판단 — edit|brainstorm|merge 외 특수 cmd도 처리
-    const _intentRaw = await callClaude(
-      [{role:'user', content:'대본 작업 요청: "'+text+'"'}],
-      '대본 편집 요청을 분류하세요.\n' +
-      '- 대사/씬/편집/분석/수정/추가/삭제/흐름/연결/통계/조회/정리/다듬기 관련 → edit\n' +
-      '- 인물의 대사/행동/말투/태도 변경 또는 제약 요청 → edit\n' +
-      '- 방향/아이디어/전략/어떻게 하면/의견/조언/논의 → brainstorm\n' +
-      '반드시 <intent>명령어</intent> 형식으로만 응답하세요.',
-      30, 'claude-haiku-4-5-20251001'
-    );
-    const _intent = extractTag(_intentRaw, 'intent');
-    if (_intent === 'brainstorm') { showBrainstormSuggestion(text); return; }
-    // edit → 아래 편집 로직으로 계속
+    // (예전: 매 요청 Haiku로 edit/brainstorm 분류 → "어떻게 하면/방향/아이디어"만 있어도 패널이 떠서 제거.
+    //  질문·제안은 아래 편집 AI가 대본 전체를 보고 자연어/<choices>로 직접 답함)
   } // end skipBrainCheck
 
   // 중요 장면 포함 시 확인
@@ -18654,7 +18648,38 @@ function confirmCommentChoices() {
   inp.focus();
 }
 
-function showBrainstormSuggestion(originalText, customMsg) {
+// 많은 씬 일괄 편집 확인 바 — 'go' | 'flo' | 'cancel'
+function confirmManySceneEdit(count) {
+  document.getElementById('many-scene-confirm')?.remove();
+  return new Promise(resolve => {
+    const bar = document.createElement('div');
+    bar.id = 'many-scene-confirm';
+    bar.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);' +
+      'background:var(--bg4);border:1.5px solid var(--accent2);border-radius:var(--r2);' +
+      'padding:12px 16px;z-index:500;display:flex;flex-direction:column;gap:8px;' +
+      'min-width:280px;max-width:90vw;box-shadow:0 8px 24px rgba(0,0,0,.5);';
+    const msg = document.createElement('div');
+    msg.style.cssText = 'font-size:var(--fs-12);color:var(--text);line-height:1.6;';
+    msg.innerHTML = '<span style="color:var(--accent);">✦ ' + count + '개 장면</span>을 모두 수정할까요?<br>' +
+      '<span style="color:var(--text3);font-size:var(--fs-11);">3개씩 나눠 처리해서 몇 분 걸릴 수 있어요.</span>';
+    const btns = document.createElement('div');
+    btns.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;';
+    const mk = (label, css, val) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.style.cssText = css;
+      b.onclick = () => { bar.remove(); resolve(val); };
+      btns.appendChild(b);
+    };
+    mk('진행', 'flex:1;background:var(--accent);color:#0e0e10;border:none;border-radius:var(--r);padding:6px 12px;font-size:var(--fs-11);font-weight:600;cursor:pointer;', 'go');
+    mk('💬 FLO에서 의논', 'background:none;color:#afa9ec;border:1px solid rgba(168,158,221,.4);border-radius:var(--r);padding:6px 12px;font-size:var(--fs-11);cursor:pointer;white-space:nowrap;', 'flo');
+    mk('취소', 'background:none;color:var(--text3);border:1px solid var(--border2);border-radius:var(--r);padding:6px 12px;font-size:var(--fs-11);cursor:pointer;', 'cancel');
+    bar.append(msg, btns);
+    document.body.appendChild(bar);
+  });
+}
+
+function showBrainstormSuggestion(originalText, customMsg, opts = {}) {
   document.getElementById('brain-suggest-bar')?.remove();
   const bar = document.createElement('div');
   bar.id = 'brain-suggest-bar';
@@ -18681,7 +18706,8 @@ function showBrainstormSuggestion(originalText, customMsg) {
     S._skipBrainCheck = true;
     handleScriptPrompt(originalText).finally(() => { S._skipBrainCheck = false; });
   };
-  btns.append(goBtn, continueBtn);
+  btns.append(goBtn);
+  if (!opts.noContinue) btns.append(continueBtn); // 구조 변경 등은 라인에서 진행 불가
 
   // 시퀀스 관련 키워드 있을 때만 다음 이야기 제안 버튼 추가
   const isSeqRelated = /다음|이후|이어|시퀀스|장면.*추가|새.*이야기|어떻게.*될|뭐가.*오면/.test(originalText);

@@ -284,6 +284,12 @@ handleScriptPrompt(text)
 7. 각 씬에 diff 적용 → renderScriptBody
 ```
 
+**라인 에디터 분기 규칙:**
+- `_isShortCmd`(≤`LONG_INPUT_CHARS` 200자)일 때만: 인물 분석, SC 분석, 대사 분석(haikusRoute), 구조 변경 차단 — 긴 지시 속 인용 대사의 단어로 오인 방지
+- 선택(또는 언급) 씬 7개 이상 → 문구와 무관하게 `confirmManySceneEdit` 확인 바 ([진행] / [FLO에서 의논] / [취소])
+- 편집 요청마다 하던 Haiku edit/brainstorm 분류는 제거 (질문·제안은 편집 AI가 자연어/<choices>로 직접 답함)
+- 장면 번호 없는 전체 구조 변경(`structuralRequest`)은 라인에서 진행 불가 → `showBrainstormSuggestion(..., {noContinue:true})`로 FLO 안내만
+
 **플로 컨텍스트 주입 트리거 키워드:**
 `플로 참고`, `플로 제안`, `플로 이야기`, `플로 대화`, `위에서 말한`, `앞에서 얘기`, `플로 선택`, `옵션 방향`
 
