@@ -1176,6 +1176,25 @@ textarea, input { font-family:var(--fb); }
 }
 .prompter-del-btn.show { display:flex; }
 .prompter-del-btn:hover { background:var(--red2); }
+/* 모바일 프롬프터 — 빈 칩 줄 숨김 + 입력줄 정돈 */
+@media (max-width:767px) {
+  .prompter { padding:8px 10px; padding-bottom:calc(8px + env(safe-area-inset-bottom)); }
+  .chip-row { min-height:0; margin-bottom:6px; }
+  .chip-row:not(:has(.chip)) { display:none; }
+  body:has(#script-body.ai-write-active) .chip-row { display:flex; }
+  body:has(#script-body.ai-write-active) .chip-none { display:none; }
+  .prompter-row { align-items:flex-end; gap:6px; }
+  .attach-btn, .prompter-mic, .prompter-send {
+    width:40px; height:40px; border-radius:50%; font-size:17px;
+  }
+  .attach-btn, .prompter-mic { border:none; background:var(--bg3); color:var(--text2); }
+  .prompter-inp {
+    min-height:40px; padding:9px 14px; border-radius:20px; font-size:15px;
+  }
+  .prompter-inp::placeholder {
+    font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+}
 
 /* ═══════════════════════════════════════════
    DRAWERS (chars, synopsis, settings)
@@ -1785,12 +1804,14 @@ textarea, input { font-family:var(--fb); }
 .flo-resize:hover { background:rgba(200,169,110,.25); }
 .flo-fab {
   position:fixed; right:20px; bottom:20px; z-index:600;
-  height:44px; padding:0 18px; border-radius:999px;
+  width:48px; height:48px; padding:0; border-radius:50%;
   background:var(--accent); color:var(--bg); border:none;
-  font-size:var(--fs-13); font-weight:600; font-family:var(--fm);
+  font-size:22px; line-height:1;
   cursor:pointer; box-shadow:0 6px 20px rgba(0,0,0,.5);
-  display:none; align-items:center; gap:6px;
+  display:none; align-items:center; justify-content:center;
 }
+/* 모바일 왼쪽 서랍(씬 네비게이터) 열려 있으면 숨김 — 설정 버튼 가림 방지 */
+body:has(.app-nav.mobile-open) .flo-fab { display:none !important; }
 .flo-backdrop { display:none; }
 .flo-panel {
   flex:1; min-height:0; overflow:hidden;
@@ -1813,6 +1834,20 @@ textarea, input { font-family:var(--fb); }
   .flo-dock.collapsed { display:flex; transform:translateY(100%); }
   /* 전체 화면이므로 시트 핸들 제거 */
   .flo-panel::before { display:none; }
+  /* 프롬프터 입력줄 위에 띄움 (--prompter-h: initFloPanel의 ResizeObserver) */
+  .flo-fab {
+    right:14px; width:52px; height:52px;
+    bottom:calc(var(--prompter-h, 0px) + 12px);
+  }
+  /* 전체 화면 패널 — 닫기 버튼 크게 */
+  .flo-hdr { padding:8px 10px 8px 14px; }
+  .flo-close-btn {
+    width:38px; height:38px; border-radius:50%;
+    border:1px solid var(--border3); background:var(--bg4);
+    color:var(--text); font-size:18px;
+    display:flex; align-items:center; justify-content:center;
+    margin-left:4px;
+  }
 }
 
 .flo-hdr {
@@ -2187,7 +2222,7 @@ const SW_VERSION = 'v43.6';
     </div>
   </div>
 </div>
-<button class="flo-fab" id="flo-fab" onclick="openFloPanel()">💬 플로</button>
+<button class="flo-fab" id="flo-fab" onclick="openFloPanel()" title="플로" aria-label="플로 채팅 열기">💬</button>
 
 <!-- ═══════════════════════════════════════════
      DRAWERS
@@ -6390,6 +6425,14 @@ function initFloPanel() {
   }
   _applyFloAnalysisDefault();
 }
+// 모바일 FAB를 프롬프터 위에 띄우기 위한 높이 변수
+(function(){
+  const pr = document.getElementById('prompter');
+  if (!pr || typeof ResizeObserver === 'undefined') return;
+  const upd = () => document.documentElement.style.setProperty('--prompter-h', pr.offsetHeight + 'px');
+  new ResizeObserver(upd).observe(pr);
+  upd();
+})();
 // 너비 드래그
 (function(){
   const handle = document.getElementById('flo-resize');
@@ -8002,11 +8045,20 @@ function buildSceneBlock(sc, i) {
           document.addEventListener('touchstart', dismiss, {once:true, passive:true});
         }, 50);
       };
-      el.addEventListener('contextmenu', (e) => showTypeMenu(e, e.clientX, e.clientY));
-      let touchStartX, touchStartY;
+      // 모바일: 편집 중인 줄을 길게 누르면 기본 텍스트 선택(복사/붙여넣기)에 양보
+      // (줄 메뉴는 편집 중이 아닌 줄을 길게 누르거나, 편집 중이면 먼저 빠져나와서 열기)
+      let touchStartX, touchStartY, touchWasEditing = false, lastTouchAt = 0;
+      el.addEventListener('contextmenu', (e) => {
+        if (touchWasEditing && Date.now() - lastTouchAt < 1500) return;
+        showTypeMenu(e, e.clientX, e.clientY);
+      });
       el.addEventListener('touchstart', (te) => {
         touchStartX = te.touches[0].clientX;
         touchStartY = te.touches[0].clientY;
+        lastTouchAt = Date.now();
+        touchWasEditing = document.activeElement === el;
+        clearTimeout(pressTimer);
+        if (touchWasEditing) return;
         pressTimer = setTimeout(() => {
           // Only show if not dragging
           showTypeMenu({preventDefault:()=>{}}, touchStartX, touchStartY + 20);
