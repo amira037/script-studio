@@ -1810,6 +1810,8 @@ textarea, input { font-family:var(--fb); }
   cursor:pointer; box-shadow:0 6px 20px rgba(0,0,0,.5);
   display:none; align-items:center; justify-content:center;
 }
+/* 모바일 플로 화면 → 라인 에디터 복귀 버튼 (데스크톱 숨김) */
+.flo-back-fab { display:none; }
 /* 모바일 왼쪽 서랍(씬 네비게이터) 열려 있으면 숨김 — 설정 버튼 가림 방지 */
 body:has(.app-nav.mobile-open) .flo-fab { display:none !important; }
 .flo-backdrop { display:none; }
@@ -1838,6 +1840,16 @@ body:has(.app-nav.mobile-open) .flo-fab { display:none !important; }
   .flo-fab {
     right:14px; width:52px; height:52px;
     bottom:calc(var(--prompter-h, 0px) + 12px);
+  }
+  /* 플로 입력줄 위에 띄움 — 닫힐 땐 도크와 함께 화면 밖으로 (--flo-inp-h: ResizeObserver) */
+  .flo-back-fab {
+    position:absolute; right:14px; z-index:20;
+    bottom:calc(var(--flo-inp-h, 0px) + 12px);
+    width:52px; height:52px; padding:0; border-radius:50%;
+    background:var(--accent); color:var(--bg); border:none;
+    font-size:22px; line-height:1;
+    cursor:pointer; box-shadow:0 6px 20px rgba(0,0,0,.5);
+    display:flex; align-items:center; justify-content:center;
   }
   /* 전체 화면 패널 — 닫기 버튼 크게 */
   .flo-hdr { padding:8px 10px 8px 14px; }
@@ -2219,6 +2231,7 @@ const SW_VERSION = 'v43.6';
           </div>
         </div>
       </div>
+      <button class="flo-back-fab" onclick="closeFloPanel()" title="라인 에디터" aria-label="라인 에디터로 돌아가기">📝</button>
     </div>
   </div>
 </div>
@@ -6431,6 +6444,14 @@ function initFloPanel() {
   if (!pr || typeof ResizeObserver === 'undefined') return;
   const upd = () => document.documentElement.style.setProperty('--prompter-h', pr.offsetHeight + 'px');
   new ResizeObserver(upd).observe(pr);
+  upd();
+})();
+// 모바일 라인 에디터 복귀 버튼을 플로 입력줄 위에 띄우기 위한 높이 변수
+(function(){
+  const row = document.querySelector('#flo-dw-chat .flo-chat-inp-row');
+  if (!row || typeof ResizeObserver === 'undefined') return;
+  const upd = () => document.documentElement.style.setProperty('--flo-inp-h', row.offsetHeight + 'px');
+  new ResizeObserver(upd).observe(row);
   upd();
 })();
 // 너비 드래그
