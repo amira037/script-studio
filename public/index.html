@@ -13,6 +13,7 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&family=Pretendard:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
 <style>
 /* ═══════════════════════════════════════════
    TOKENS
@@ -802,7 +803,7 @@ textarea, input { font-family:var(--fb); }
 
 /* Scene lines */
 .scene-lines { padding:12px 16px; background:var(--bg); }
-.line-wrap { position:relative; margin-bottom:2px; }
+.line-wrap { position:relative; margin-bottom:2px; flex-wrap:wrap; }
 .line-el {
   font-family:var(--fm); font-size:var(--fs-14); line-height:2.1;
   outline:none; border-radius:3px; min-height:1.4em;
@@ -2675,9 +2676,11 @@ const _getProjectSaveTime = id => {
 const _setProjectSaveTime   = (id, t) => localStorage.setItem(_projSaveTimeKey(id), String(t));
 const _getProjectUploadTime = id => parseInt(localStorage.getItem(_projUploadTimeKey(id)) || '0');
 const _setProjectUploadTime = (id, t) => localStorage.setItem(_projUploadTimeKey(id), String(t));
-// syncToSupabase 디바운스 — 30초. 구조 변경 시 즉시 실행
+// syncToSupabase 디바운스 — 3초. 구조 변경 시 즉시 실행
+const SYNC_DEBOUNCE_MS = 3000;
 let _syncDebounceTimer = null;
 let _syncPendingProjects = null;
+let _lastDirtyAt = 0; // 마지막 변경 시각 — 업로드 도중 생긴 변경의 dirty 표시가 지워지지 않게
 // 변경된 프로젝트 ID — localStorage에 저장해서 앱 재시작 후에도 유지
 const _dirtyKey = 'ss_dirty_ids_' + USER_ID;
 let _dirtyProjectIds = (() => {
@@ -2694,7 +2697,7 @@ function _clearDirtyIds() {
 function _scheduleSyncToSupabase(projects, immediate = false) {
   _syncPendingProjects = projects;
   // 현재 열린 프로젝트만 dirty 표시. S.cur 없으면 아무것도 추가 안 함
-  if (S.cur?.id) { _dirtyProjectIds.add(S.cur.id); _saveDirtyIds(); }
+  if (S.cur?.id) { _dirtyProjectIds.add(S.cur.id); _saveDirtyIds(); _lastDirtyAt = Date.now(); }
   if (immediate) {
     clearTimeout(_syncDebounceTimer);
     _syncDebounceTimer = null;
@@ -2704,15 +2707,24 @@ function _scheduleSyncToSupabase(projects, immediate = false) {
     _syncDebounceTimer = setTimeout(() => {
       _syncDebounceTimer = null;
       if (_syncPendingProjects) syncToSupabase(_syncPendingProjects).catch(e => console.warn('Supabase sync failed', e));
-    }, 30000);
+    }, SYNC_DEBOUNCE_MS);
   }
 }
-// 앱 종료/탭 닫기 시 즉시 sync
-window.addEventListener('beforeunload', () => {
-  if (_syncPendingProjects && isSyncEnabled() && !IS_ADMIN) {
-    clearTimeout(_syncDebounceTimer);
-    syncToSupabase(_syncPendingProjects).catch(() => {});
-  }
+// 앱 종료/탭 숨김 시 즉시 sync — keepalive로 보내야 페이지가 닫혀도 요청이 살아남음
+function _flushSyncNow() {
+  if (!isSyncEnabled() || IS_ADMIN || !_dirtyProjectIds.size) return false;
+  clearTimeout(_syncDebounceTimer);
+  _syncDebounceTimer = null;
+  syncToSupabase(_syncPendingProjects || S.projects, { keepalive: true }).catch(() => {});
+  return true;
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') _flushSyncNow();
+});
+window.addEventListener('pagehide', _flushSyncNow);
+window.addEventListener('beforeunload', (e) => {
+  // 아직 클라우드에 안 올라간 변경이 있으면 업로드 시작 + 나가기 확인창으로 시간 확보 (데스크톱)
+  if (_flushSyncNow()) { e.preventDefault(); e.returnValue = ''; }
 });
 const storage = {
   get(key) { try { return JSON.parse(localStorage.getItem(_storageKey(key))); } catch { return null; } },
@@ -2733,7 +2745,7 @@ const storage = {
 };
 
 // Supabase에 프로젝트 데이터 저장 (Vercel 프록시 경유)
-async function syncToSupabase(projects) {
+async function syncToSupabase(projects, { keepalive = false } = {}) {
   // 빈 데이터는 절대 업로드하지 않음
   if (!projects || !projects.length) return;
 
@@ -2741,6 +2753,7 @@ async function syncToSupabase(projects) {
   const toUpload = projects.filter(p => _dirtyProjectIds.has(p.id));
   if (!toUpload.length) return;
 
+  const startedAt = Date.now();
   // 프로젝트별 정리 (conflictData, diff, 재계산 가능 필드, 구채팅 제거)
   const cleanProjects = toUpload.map(p => {
     const clean = JSON.parse(JSON.stringify(p));
@@ -2763,22 +2776,48 @@ async function syncToSupabase(projects) {
     let allOk = true;
 
     // 프로젝트별 개별 행으로 업로드 (413 방지)
-    for (const proj of cleanProjects) {
+    // keepalive 본문 한도(브라우저 합산 64KB) — 넘으면 일반 요청으로 (페이지가 살아있는 동안만 전송)
+    // gzip은 동기(fflate.gzipSync)로 — 비동기 압축이면 종료 시 fetch 호출 전에 페이지가 닫힘
+    let keepaliveBudget = keepalive ? 60000 : 0;
+    const uploadOne = async (proj) => {
       const row = { id: USER_ID + '_' + String(proj.id), user_id: USER_ID, data: proj, updated_at: now };
       const payload = JSON.stringify(row);
-      console.log(`[sync] "${proj.title}" ${(payload.length / 1024).toFixed(0)} KB`);
-      const resp = await fetch('/api/supabase?path=projects', {
+      let body = payload, gz = false;
+      if (window.fflate) {
+        try { body = fflate.gzipSync(fflate.strToU8(payload)); gz = true; }
+        catch (e) { console.warn('[sync] gzip failed', e); }
+      }
+      const bytes = gz ? body.length : new Blob([payload]).size;
+      const ka = bytes <= keepaliveBudget;
+      if (ka) keepaliveBudget -= bytes;
+      console.log(`[sync] "${proj.title}" ${(bytes / 1024).toFixed(0)} KB${gz ? ` (gzip, 원본 ${(payload.length / 1024).toFixed(0)}K자)` : ''}${ka ? ' (keepalive)' : ''}`);
+      const send = (b, g, k) => fetch('/api/supabase?path=projects', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates' },
-        body: payload,
-        signal: ctrl.signal
+        headers: g
+          ? { 'Content-Type': 'application/octet-stream', 'X-Body-Encoding': 'gzip', 'Prefer': 'resolution=merge-duplicates' }
+          : { 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates' },
+        body: b,
+        keepalive: k,
+        signal: k ? undefined : ctrl.signal
       });
+      let resp = await send(body, gz, ka);
+      // 프록시가 gzip을 못 받으면(구버전 배포 등) 압축 없이 한 번 더
+      if (!resp.ok && gz) {
+        console.warn('[sync] gzip upload failed, retrying plain', resp.status);
+        resp = await send(payload, false, false);
+      }
       if (resp.ok) {
         _setProjectUploadTime(proj.id, Date.now());
       } else {
         console.warn('Supabase sync HTTP error', resp.status, proj.title);
         allOk = false;
       }
+    };
+    if (keepalive) {
+      // 종료 직전 — await 사이에 페이지가 닫히므로 전부 한 번에 보냄
+      await Promise.all(cleanProjects.map(uploadOne));
+    } else {
+      for (const proj of cleanProjects) await uploadOne(proj);
     }
 
     // 주의: 여기서 일괄 삭제하지 않음 — 다른 기기에서 추가한 프로젝트를 실수로 지울 수 있음
@@ -2786,7 +2825,8 @@ async function syncToSupabase(projects) {
 
     clearTimeout(timeoutId);
     if (allOk) {
-      _clearDirtyIds();
+      // 업로드 중에 새로 편집됐으면 dirty 유지 (예약된 다음 sync가 올림)
+      if (_lastDirtyAt <= startedAt) _clearDirtyIds();
       localStorage.setItem(_storageKey('ss_last_upload_time'), String(Date.now()));
       updateSyncStatus('✓ 저장됨');
     } else {
@@ -7000,6 +7040,18 @@ function makeScene(title, slug) {
   };
 }
 
+
+// 씬 제목 입력칸 최소 너비 = 제목 글자 폭 → 버튼과 한 줄에 다 안 들어가면 버튼이 아래로 줄바꿈 (제목이 잘리지 않게)
+let _sceneTitleCanvas = null;
+function _fitSceneTitle(inp) {
+  if (!inp?.isConnected) return;
+  const cs = getComputedStyle(inp);
+  const ctx = (_sceneTitleCanvas ||= document.createElement('canvas')).getContext('2d');
+  ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const w = Math.ceil(ctx.measureText(inp.value || inp.placeholder || '').width) + 12;
+  inp.style.minWidth = `min(100%, ${Math.max(80, w)}px)`;
+}
+
 function buildSceneBlock(sc, i) {
   const block = document.createElement('div');
   const _isSubScene = !!sc.parentId && !sc.draft;
@@ -7030,7 +7082,8 @@ function buildSceneBlock(sc, i) {
   else if (_isSubScene) num.style.cssText = 'color:var(--text2);font-size:var(--fs-10);';
   const titleInp = document.createElement('input');
   titleInp.className = 'scene-title-inp'; titleInp.value = sc.title; titleInp.placeholder = '씬 제목';
-  titleInp.oninput = () => { sc.title = titleInp.value; save(true); renderNavSceneList(); };
+  titleInp.oninput = () => { sc.title = titleInp.value; _fitSceneTitle(titleInp); save(true); renderNavSceneList(); };
+  requestAnimationFrame(() => _fitSceneTitle(titleInp));
   titleInp.addEventListener('focus', () => {
     _viewAutoSelect(sc.id);
     setTimeout(() => titleInp.scrollIntoView({ block:'nearest', behavior:'smooth' }), 150);
@@ -8326,7 +8379,8 @@ function suggestLineType(sc, lineIdx, lw) {
 
     const hintWrap = document.createElement('div');
     hintWrap.className = 'ghost-hint-wrap ghost-hint';
-    hintWrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;';
+    // 줄 아래 별도 행으로 (line-wrap이 flex 행이라 옆에 붙으면 본문이 좁아짐)
+    hintWrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;flex-basis:100%;';
 
     const label = document.createElement('span');
     label.textContent = suggestion.label + '로 변환';
@@ -8342,8 +8396,7 @@ function suggestLineType(sc, lineIdx, lw) {
     deskHint.textContent = 'Tab';
     deskHint.style.cssText = 'font-size:var(--fs-9);color:var(--text3);font-family:var(--fm);background:var(--bg4);padding:1px 5px;border-radius:3px;';
 
-    hintWrap.append(label, acceptBtn, deskHint);
-    lw.appendChild(ghost);
+    hintWrap.append(ghost, label, acceptBtn, deskHint);
     lw.appendChild(hintWrap);
   }
 }
