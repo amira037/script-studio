@@ -3348,6 +3348,34 @@ function _parseSceneEditResponse(raw) {
   return null;
 }
 
+// 출력 한도 자동 계산 — 씬 텍스트 분량 기준 (max_tokens는 상한일 뿐 과금은 실제 출력분만)
+// 한국어 ≈ 글자당 1토큰 내외로 넉넉히 잡고 × 증가 여유(factor)
+function _estimateSceneOutTokens(scenes, factor = 1.5) {
+  const chars = (scenes || []).reduce((n, s) => n + _sceneToEditText(s, S.cur?.scenes || []).length, 0);
+  return Math.min(32000, Math.max(4000, Math.round(chars * 1.2 * factor) + 1500));
+}
+
+// 줄 인덱스 기준 diff (라인 에디터 편집과 같은 방식)
+function _buildLineDiff(oldLines, newLines) {
+  const out = [];
+  const maxLen = Math.max(oldLines.length, newLines.length);
+  for (let i = 0; i < maxLen; i++) {
+    const o = oldLines[i], n = newLines[i];
+    if (o && n && o.text === n.text) out.push({ type: 'ctx', text: o.text });
+    else { if (o) out.push({ type: 'del', text: o.text }); if (n) out.push({ type: 'add', text: n.text }); }
+  }
+  return out;
+}
+
+// 편집 응답 파싱 실패 시 원인 + 받은 원문 표시 (토큰 쓴 결과를 버리지 않음)
+function _showEditParseFail(raw, what = '응답') {
+  console.warn('[edit] ' + what + ' 파싱 실패 — 원문:', raw, _lastStreamMeta);
+  const why = _lastStreamMeta?.error ? '서버 오류로 응답이 중단됐어요 (' + _lastStreamMeta.error + ')'
+    : _lastStreamMeta?.stopReason === 'max_tokens' ? '응답 길이 한도에 걸려 잘렸어요'
+    : '응답 형식을 읽지 못했어요';
+  showCommentPanel(what + ': ' + why + '. 다시 시도해주세요.' + ((raw || '').trim() ? '\n\n[받은 원문]\n' + raw.replace(/<\/?r[^>]*>/gi, '') : ''));
+}
+
 // 묶음 단위로 대본 분할 (대안 씬 제외, 서브씬은 부모와 같은 묶음)
 function _buildScriptGroups() {
   const all = S.cur?.scenes || [];
@@ -3406,7 +3434,7 @@ const USAGE_CAT_LABELS = { flo: 'FLO 대화', write: '씬 작성·창작', edit:
 // 호출 스택의 함수 이름으로 분류 (구체적인 도구 → 진입 핸들러 순)
 const USAGE_CAT_RULES = [
   ['analysis', /handleFlowAnalysisInChat|flowImprovePlan|checkEmotionFlowWithPrompt|checkSettingConflictWithPrompt|checkSceneFlowWithPrompt|handleSceneConnection|flowSettingUpdateScan|analyzeCharacter|analyzeSceneRange|analyzeSingleScene|handleSequenceSuggestFromScript|checkConsistencyWithPrompt|compareDraftScene|checkConflictWithPrompt|calcConflictScore|handleCharDialogueAnalysis/],
-  ['write', /handleSceneRewrite|handleRefSceneCreate|_execAiSceneInsert|confirmSceneInsertChoice|aiSceneFill|generateSceneFromIdea|_rewriteFromPros|bulkEditScenes|handleClearScReorder|executeSequentialMerge|executeMerge|splitIntoSubScenes|splitSubSceneContent|handleAiSceneAdd|generateScenesFromTitles|handleFloWriteMultiSeq/],
+  ['write', /handleSceneRewrite|handleRefSceneCreate|_execAiSceneInsert|confirmSceneInsertChoice|aiSceneFill|generateSceneFromIdea|_rewriteFromPros|bulkEditScenes|handleClearScReorder|executeMerge|splitIntoSubScenes|splitSubSceneContent|handleAiSceneAdd|generateScenesFromTitles|handleFloWriteMultiSeq/],
   ['edit', /handleScriptPrompt|handleAiWriteSelected|handleFillSingleLine|handleFillPlaceholders/],
   ['flo', /handleChatPrompt|handleChoiceResult|reDiscussMessage|handleWebSearch|buildCompressedHistory/],
 ];
@@ -9779,11 +9807,9 @@ async function _rewriteFromPros(originalId) {
   showAnalyzing('선택한 장점으로 새 버전을 쓰는 중... ✨');
 
   // 모든 버전 전체 내용 전달
-  const versionBlocks = allVersions.map((sc, i) => {
-    const lbl = i === 0 ? '원본' : getSceneLabel(sc, scenes);
-    const content = (sc.lines||[]).map(l => l.type + ': ' + l.text).join('\n');
-    return '[' + lbl + '] "' + sc.title + '"\n' + content;
-  }).join('\n\n---\n\n');
+  const versionBlocks = allVersions.map((sc, i) =>
+    (i === 0 ? '[원본]\n' : '') + _sceneToEditText(sc, scenes)
+  ).join('\n\n---\n\n');
 
   const prosText = selectedPros.join('\n');
 
@@ -9792,25 +9818,23 @@ async function _rewriteFromPros(originalId) {
       [{role:'user', content:
         '[기존 버전들]\n' + versionBlocks + '\n\n' +
         '[작가가 선택한 장점]\n' + prosText + '\n\n' +
-        '위 장점들을 모두 살린 새로운 버전을 써주세요.'
+        '위 장점들을 모두 살린 새로운 버전을 써주세요. 결과는 <r sceneId="' + originalId + '"> 블록 하나로, @title에 새 제목을 적어주세요.'
       }],
-      '반드시 <scenes>[{"title":"씬 제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용"}]}]</scenes> 형식으로만 응답하세요.',
-      6000, 'claude-sonnet-5-5', null, false, { think: true, script: true }
+      sceneEditFormatRule(),
+      _estimateSceneOutTokens([original], 2), 'claude-sonnet-5-5', null, false, { think: true, script: true }
     );
     hideAnalyzing();
 
-    const scenesRaw = extractTag(raw, 'scenes');
-    if (!scenesRaw) { toast('새 버전 생성 실패.'); return; }
-    let scenesData = null;
-    try { scenesData = JSON.parse(scenesRaw); } catch {}
-    if (!scenesData?.length) { toast('씬 데이터 파싱 실패.'); return; }
+    const u = _parseSceneEditResponse(raw)?.[0];
+    if (!u?.lines?.length) { _showEditParseFail(raw, '새 버전 생성'); return; }
+    if (u.truncated) toast('⚠️ 응답이 중간에 끊겨 일부만 반영됐어요', 4000);
 
     // 기존 대안들 뒤에 새 draft 삽입
     const newDraft = {
       id: Date.now() + Math.floor(Math.random() * 10000),
-      title: scenesData[0].title || original.title + ' (새 버전)',
-      slug: scenesData[0].slug || '',
-      lines: scenesData[0].lines.map(l => ({...l, locked: false})),
+      title: u.title || original.title + ' (새 버전)',
+      slug: '',
+      lines: u.lines.map(l => ({...l, locked: false})),
       draft: true, draftOf: originalId,
       parentId: undefined, subOrder: 0, subSceneType: null,
       locked: false, collapsed: false, summary: null, diff: null
@@ -15313,34 +15337,33 @@ async function handleSceneRewrite() {
   showAnalyzing('장면을 재구성하고 있습니다... ✍️');
   try {
     const chars = (S.cur?.characters||[]).map(c=>c.name+'('+c.role+')').join(', ');
+    let _lastFailRaw = null;
     for (const sc of selected) {
       const scLabel = getSceneLabel(sc, scenes);
-      const content = (sc.lines||[]).map(l=>l.type+': '+l.text).join('\n');
       const raw = await callClaudeStream(
         [{role:'user', content:
           scLabel + ' 재구성\n등장인물: ' + chars + '\n\n' +
-          '현재 내용:\n' + content + '\n\n지시: ' + instruction}],
-        '반드시 <scenes>[{"title":"제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만 응답하세요.',
-        6000, 'claude-sonnet-5-5', null, false, { think: true, script: true }
+          '현재 내용:\n' + _sceneToEditText(sc, scenes) + '\n\n지시: ' + instruction +
+          '\n\n결과는 <r sceneId="' + sc.id + '"> 블록 하나로 씬 전체를 응답하세요.'}],
+        sceneEditFormatRule(),
+        _estimateSceneOutTokens([sc], 2), 'claude-sonnet-5-5', null, false, { think: true, script: true }
       );
-      const sr = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
-      if (!sr) continue;
-      let scenesData = null;
-      try { scenesData = JSON.parse(sr); } catch {}
-      if (!scenesData?.length) continue;
-      const newLines = scenesData[0].lines.map(l=>({...l, locked:false}));
+      const u = _parseSceneEditResponse(raw)?.find(x => x.sceneId === sc.id);
+      if (!u?.lines?.length) { _lastFailRaw = raw; continue; }
+      const newLines = u.lines;
       sc.diff = {
         prompt: instruction,
         lines: [
           ...(sc.lines||[]).map(l=>({type:'del', text:l.text})),
           ...newLines.map(l=>({type:'add', text:l.text}))
         ],
-        newLines, comment: '장면 재구성'
+        newLines, comment: '장면 재구성' + (u.truncated ? ' (⚠️ 응답이 중간에 끊겨 일부만 반영됨)' : '')
       };
     }
     hideAnalyzing();
     save(true); renderScriptBody();
-    toast('✨ 장면 재구성 완료! diff를 확인해보세요 😊', 4000);
+    if (_lastFailRaw != null) _showEditParseFail(_lastFailRaw, '장면 재구성');
+    else toast('✨ 장면 재구성 완료! diff를 확인해보세요 😊', 4000);
   } catch(e) {
     hideAnalyzing();
     if (e.name !== 'AbortError') toast('오류: ' + e.message);
@@ -15593,23 +15616,7 @@ async function handleSceneMerge(text) {
     ? '<button class="rp-btn" onclick="closeResponsePanel();appendScenes([' + _appendIds.join(',') + '])">🔗 이어 붙이기 (AI 없음)</button>'
     : '';
 
-  // ── 2. 인접 5개 이상 → 순차/일괄 선택 ──────────────────────────────
-  if (count >= 5) {
-    const chunkCount = Math.floor(count / 2);
-    showResponsePanel('choice', '씬 ' + count + '개 합치기',
-      '<div class="ai-comment-txt">' +
-      formatRpText('선택: ' + labels + '\n\n' + count + '개 씬을 한 번에 합치면 중간 내용이 손실될 수 있어요.\n어떻게 진행할까요?') +
-      '</div>',
-      appendBtn +
-      '<button class="rp-btn" onclick="closeResponsePanel();executeSequentialMerge(window._mergeTargets)">✨ AI 2개씩 순차 합치기 (' + chunkCount + '쌍)</button>' +
-      '<button class="rp-btn" style="background:rgba(224,96,96,.1);color:var(--red);border-color:rgba(224,96,96,.3);" onclick="executeMerge(window._mergeTargets)">✨ AI로 하나로 합치기</button>' +
-      '<button class="rp-btn" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);" onclick="' + refOnClick + '">✨ 참조해서 새 씬 만들기</button>' +
-      '<button class="rp-btn" onclick="closeResponsePanel()">취소</button>'
-    );
-    return;
-  }
-
-  // ── 3. 인접 3~4개 → 내용 손실 경고 ────────────────────────────────
+  // ── 3. 인접 3개 이상 → 내용 손실 경고 ────────────────────────────────
   if (count >= 3) {
     showResponsePanel('choice', '씬 ' + count + '개 합치기',
       '<div class="ai-comment-txt">' +
@@ -15635,80 +15642,6 @@ async function handleSceneMerge(text) {
   );
 }
 
-// 2개씩 순차 합치기 — 각 쌍을 자동 적용 (diff 없이 직접 반영)
-async function executeSequentialMerge(targetScenes) {
-  closeResponsePanel();
-  if (!targetScenes || targetScenes.length < 2) return;
-
-  // 2개씩 청크 구성 (홀수 마지막 씬은 단독 → 스킵)
-  const chunks = [];
-  for (let i = 0; i < targetScenes.length - 1; i += 2) {
-    chunks.push(targetScenes.slice(i, i + 2));
-  }
-
-  showAnalyzing('순차 합치기 준비 중... (' + chunks.length + '쌍)');
-
-  let successCount = 0;
-  for (let ci = 0; ci < chunks.length; ci++) {
-    const chunk = chunks[ci];
-    const currentScenes = S.cur.scenes || [];
-
-    // 앞 합치기 후 씬 배열이 달라질 수 있으므로 ID로 최신 씬 재참조
-    const freshChunk = chunk.map(sc => currentScenes.find(s => s.id === sc.id)).filter(Boolean);
-    if (freshChunk.length < 2) {
-      toast((ci + 1) + '번째 묶음 씬을 찾을 수 없습니다.');
-      continue;
-    }
-
-    showAnalyzing((ci + 1) + '/' + chunks.length + ' 합치는 중... 🎬');
-
-    const scA = freshChunk[0];
-    const deleteScenes = freshChunk.slice(1);
-    const allLabels = freshChunk.map(s => getSceneLabel(s, currentScenes)).join('+');
-    const lblA = getSceneLabel(scA, currentScenes);
-
-    const combinedContent = freshChunk.map(sc =>
-      '[' + getSceneLabel(sc, currentScenes) + ' — ' + sc.title + ']\n' +
-      (sc.lines||[]).map(l => l.type + ': ' + l.text).join('\n')
-    ).join('\n\n');
-
-    try {
-      const raw = await callClaude(
-        [{role:'user', content:
-          allLabels + '을 ' + lblA + ' 기준으로 자연스럽게 합쳐주세요.\n' +
-          lblA + '의 제목과 슬러그를 유지하고, 모든 씬의 내용을 순서대로 자연스럽게 이어주세요.\n\n' +
-          combinedContent}],
-        '반드시 <scenes>[{"title":"씬 제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만 응답하세요.',
-        8000
-      );
-
-      const scenesRaw = extractTag(raw, 'scenes');
-      if (!scenesRaw) { toast(allLabels + ' 합치기 실패'); continue; }
-      let scenesData = null;
-      try { scenesData = JSON.parse(scenesRaw); } catch {}
-      if (!scenesData?.length) { toast(allLabels + ' 파싱 실패'); continue; }
-
-      // diff 없이 직접 적용
-      scA.lines = scenesData[0].lines.map(l => ({...l, locked: false}));
-      scA.summary = buildSceneSummaryBasic(scA);
-      const deleteIds = new Set(deleteScenes.map(s => s.id));
-      S.cur.scenes = S.cur.scenes.filter(s => !deleteIds.has(s.id));
-      save(true);
-      successCount++;
-
-    } catch(e) {
-      if (e.name === 'AbortError') break;
-      toast(allLabels + ' 오류: ' + e.message);
-    }
-  }
-
-  hideAnalyzing();
-  renderScriptBody(); renderNavSceneList();
-  if (successCount > 0) {
-    toast('✨ 순차 합치기 완료! ' + successCount + '쌍이 합쳐졌습니다 😊', 4000);
-  }
-}
-
 async function executeMerge(targetScenes) {
   closeResponsePanel();
   const scenes = S.cur?.scenes || [];
@@ -15720,34 +15653,27 @@ async function executeMerge(targetScenes) {
   showAnalyzing();
 
   try {
-    // 전체 내용 합치기
-    const combinedContent = targetScenes.map((sc,i) =>
-      '[' + getSceneLabel(sc,scenes) + ' — ' + sc.title + ']\n' +
-      (sc.lines||[]).map(l=>l.type+': '+l.text).join('\n')
-    ).join('\n\n');
-
-    let raw = '';
-    await callClaudeStream(
+    const combinedContent = targetScenes.map(sc => _sceneToEditText(sc, scenes)).join('\n\n');
+    const raw = await callClaudeStream(
       [{role:'user', content:
-        allLabels + '을 ' + lblA + ' 기준으로 자연스럽게 합쳐주세요.\n' +
-        lblA + '의 제목과 슬러그를 유지하고, 모든 씬의 내용을 순서대로 자연스럽게 이어주세요.\n\n' +
+        allLabels + '을 ' + lblA + ' 기준으로 한 씬으로 자연스럽게 합쳐주세요.\n' +
+        lblA + '의 제목과 슬러그를 유지하고(나머지 씬의 슬러그는 빼고), 모든 씬의 내용을 순서대로 빠짐없이 이어주세요.\n' +
+        '결과는 <r sceneId="' + scA.id + '"> 블록 하나로만 응답하세요.\n\n' +
         combinedContent}],
-      '반드시 <scenes>[{"title":"씬 제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만 응답하세요.',
-      8000,
+      sceneEditFormatRule(),
+      _estimateSceneOutTokens(targetScenes),
       'claude-sonnet-5-5',
-      (chunk, done) => { raw = chunk; },
+      null,
       true,
       { think: true, script: true }
     );
     hideAnalyzing();
 
-    const scenesRaw = extractTag(raw, 'scenes');
-    if (!scenesRaw) { toast('씬 합치기 실패'); return; }
-    let scenesData = null;
-    try { scenesData = JSON.parse(scenesRaw); } catch {}
-    if (!scenesData?.length) { toast('씬 데이터 파싱 실패'); return; }
+    const updates = _parseSceneEditResponse(raw);
+    const u = updates?.find(x => x.sceneId === scA.id) || updates?.[0];
+    if (!u?.lines?.length) { _showEditParseFail(raw, '씬 합치기'); return; }
 
-    const newLines = scenesData[0].lines.map(l=>({...l, locked:false}));
+    const newLines = u.lines;
     scA.diff = {
       prompt: allLabels + ' 합치기',
       lines: [
@@ -15755,7 +15681,7 @@ async function executeMerge(targetScenes) {
         ...newLines.map(l=>({type:'add', text:l.text}))
       ],
       newLines,
-      comment: allLabels + ' 합치기',
+      comment: allLabels + ' 합치기' + (u.truncated ? ' (⚠️ 응답이 중간에 끊겨 일부만 반영됨)' : ''),
       mergeDeleteIds: deleteScenes.map(s=>s.id)
     };
     S.selectedIds.clear(); S.selectedIds.add(scA.id);
@@ -17349,7 +17275,7 @@ async function handleScriptPrompt(text) {
         let chunkRaw = '';
         await callClaudeStream(
           [{role:'user', content:'지시: '+text+'\n\n씬 데이터:\n'+chunkSummary}],
-          chunkSys, 15000, 'claude-sonnet-5-5',
+          chunkSys, _estimateSceneOutTokens(chunk), 'claude-sonnet-5-5',
           (chunk, done) => { chunkRaw = chunk; },
           true,
           { think: true, script: true }
@@ -17480,8 +17406,7 @@ async function handleScriptPrompt(text) {
 
   try {
     // 씬 줄 수 기반 동적 max_tokens
-    const totalLines = selectedScenes.reduce((sum, s) => sum + (s.lines||[]).length, 0);
-    const scriptMaxTokens = totalLines <= 50 ? 4000 : totalLines <= 100 ? 8000 : totalLines <= 200 ? 15000 : 20000;
+    const scriptMaxTokens = _estimateSceneOutTokens(selectedScenes);
     // L2: 씬 줄 수 기반 모델 자동 선택 (≤15줄 → Haiku, >15줄 → Sonnet)
     const _totalLineCount = selectedScenes.reduce((sum, s) => sum + (s.lines||[]).length, 0);
     const _scriptModel = _totalLineCount <= 15 ? 'claude-haiku-4-5-20251001' : undefined;
@@ -17586,12 +17511,7 @@ async function handleScriptPrompt(text) {
       if (commentText) {
         showCommentPanel(commentText, choices);
       } else {
-        // 받은 원문은 버리지 않고 보여줌 (토큰을 쓴 결과)
-        console.warn('[edit] 응답 파싱 실패 — 원문:', raw, _lastStreamMeta);
-        const _why = _lastStreamMeta?.error ? '서버 오류로 응답이 중단됐어요 (' + _lastStreamMeta.error + ')'
-          : _lastStreamMeta?.stopReason === 'max_tokens' ? '응답 길이 한도에 걸려 잘렸어요'
-          : '응답 형식을 읽지 못했어요';
-        showCommentPanel(_why + '. 다시 시도해주세요.' + (raw.trim() ? '\n\n[받은 원문]\n' + raw.replace(/<\/?r[^>]*>/gi, '') : ''));
+        _showEditParseFail(raw, '편집');
       }
       S.selectedIds.clear(); if (S.autoSelectedIds) S.autoSelectedIds.clear(); syncSelection();
     }
@@ -18098,30 +18018,30 @@ async function bulkEditScenes(scIds, prompt) {
   for (let i = 0; i < targets.length; i += chunkSize) chunks.push(targets.slice(i, i + chunkSize));
 
   showAnalyzing('일괄 편집 중...');
+  let _lastFailRaw = null;
   try {
     for (const chunk of chunks) {
-      const sceneSummary = chunk.map(sc => {
-        const lbl = getSceneLabel(sc, scenes);
-        const lines = (sc.lines||[]).filter(l=>!l.locked).map((l,li) => ({...l, _idx:li}));
-        return JSON.stringify({ sceneId: sc.id, label: lbl, title: sc.title, lines: lines.map(l=>({type:l.type,text:l.text})) });
-      }).join('\n');
+      const sceneSummary = chunk.map(sc => _sceneToEditText(sc, scenes)).join('\n\n');
 
-      const sys = '대본 편집 전문가. 반드시 <r>[{"sceneId":숫자,"title":"제목","lines":[{"type":"...","text":"..."}],"comment":"한 줄 설명"}]</r> 형식으로만 응답. 마크다운 없이.' + flowNote;
+      const sys = '대본 편집 전문가. 🔒 표시된 잠금 줄은 절대 수정하지 마세요.\n' + sceneEditFormatRule() + flowNote;
       const raw = await callClaudeStream(
         [{ role:'user', content: '[핵심 결정사항]\n'+(memos||'없음')+'\n\n'+(floCtx?'[플로 대화]\n'+floCtx+'\n\n':'')+'[전체 씬 목록]\n'+scenes.filter(s=>!s.draft).map(s=>getSceneLabel(s,scenes)+' '+s.title).join('\n')+'\n\n[편집할 씬]\n'+sceneSummary+'\n\n요청: '+prompt }],
-        sys, 2500, 'claude-sonnet-5-5', null, false, { think: true, script: true }
+        sys, _estimateSceneOutTokens(chunk), 'claude-sonnet-5-5', null, false, { think: true, script: true }
       );
-      const parsed = (() => { try { return JSON.parse(extractTag(raw,'r')||'[]'); } catch { return []; } })();
+      const parsed = _parseSceneEditResponse(raw);
+      if (!parsed) { _lastFailRaw = raw; continue; }
       parsed.forEach(item => {
         const sc = scenes.find(s=>s.id===item.sceneId);
-        if (!sc || !item.lines) return;
-        const newLines = item.lines.map(l=>({type:l.type||'action',text:l.text||'',locked:false}));
-        sc.diff = { prompt, lines: [], newLines, comment: item.comment||'' };
+        if (!sc || !item.lines?.length) return;
+        if (item.title && item.title !== sc.title) sc.title = item.title;
+        const newLines = item.lines.map(l=>({type:l.type||'action',text:l.text||'',locked:!!l.locked}));
+        sc.diff = { prompt, lines: _buildLineDiff(sc.lines||[], newLines), newLines, comment: item.comment||'' };
       });
     }
     hideAnalyzing();
     save(true); renderScriptBody();
-    toast('일괄 편집 제안이 생성됐습니다. 각 씬에서 확인하세요.', 3000);
+    if (_lastFailRaw != null) _showEditParseFail(_lastFailRaw, '일괄 편집 (일부 묶음)');
+    else toast('일괄 편집 제안이 생성됐습니다. 각 씬에서 확인하세요.', 3000);
   } catch(e) { hideAnalyzing(); showCommentPanel('편집 오류: ' + e.message); }
 }
 

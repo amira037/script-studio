@@ -201,7 +201,7 @@ const isSyncEnabled = () => localStorage.getItem('ss_sync_enabled') !== 'false';
 | 함수 | 역할 |
 |------|------|
 | `handleSceneMerge(text)` | 합치기 메인 핸들러 — 대상 감지 + 검증 |
-| `executeMerge(targetScenes)` | Claude API 호출 → diff 생성 |
+| `executeMerge(targetScenes)` | Claude API 호출 → diff 생성 (대본 텍스트 형식, 잠금 줄 유지). 순차 합치기(executeSequentialMerge)는 제거 — 이어 붙이기로 대체 |
 
 | `appendScenes(ids)` | 기계적 이어 붙이기 (AI 없음) — 제목은 앞씬, 뒷씬 슬러그 삭제, undo 토스트 |
 | `_appendSceneCheck(ids)` | 이어 붙이기 규칙 검사 → `{ok, ordered}` / `{ok:false, reason, draftOf?}` |
@@ -293,6 +293,8 @@ handleScriptPrompt(text)
    - `<r sceneId="N">` 블록마다 `@title`·`@comment` + `[지문]`/`이름:`/들여쓴 대사·(괄호)·♪가사, 잠금 줄은 🔒
    - 닫히지 않은 마지막 블록(잘림)도 받은 데까지 살림, 옛 `<r>[JSON]</r>` 폴백 유지
    - 파싱 실패 시 `_lastStreamMeta`(stop_reason/error)로 원인 + 받은 원문 표시
+   - 같은 형식·파서 사용: `bulkEditScenes`, `handleSceneRewrite`, `_rewriteFromPros`, `executeMerge` (실패 시 `_showEditParseFail`)
+   - 출력 한도는 `_estimateSceneOutTokens(scenes, factor)`로 씬 분량에서 자동 계산 (4000~32000, max_tokens는 상한일 뿐 과금은 실제 출력분)
 7. 각 씬에 diff 적용 → renderScriptBody
 ```
 
@@ -371,7 +373,7 @@ callClaudeStream → 실시간 스트리밍
 **쓰기 도구:**
 - 창작 (`think+script`, callClaudeStream): handleSceneRewrite, handleRefSceneCreate, _execAiSceneInsert, confirmSceneInsertChoice, aiSceneFill, generateSceneFromIdea, _rewriteFromPros, bulkEditScenes, handleClearScReorder
 - 선택 줄 다시 쓰기 handleAiWriteSelected: `script`만 (thinking 없음)
-- 구조 작업 (executeSequentialMerge, splitIntoSubScenes, splitSubSceneContent): 대상 씬만, script/thinking 없음
+- 구조 작업 (splitIntoSubScenes, splitSubSceneContent): 대상 씬만, script/thinking 없음
 - 한 줄 채우기 handleFillSingleLine: 속도 위해 Haiku 유지, 현재 씬은 전체(자르지 않음)
 
 **분석 도구 (`script:true`, Sonnet):** handleFlowAnalysisInChat, flowImprovePlan, checkEmotionFlowWithPrompt, checkSettingConflictWithPrompt, checkSceneFlowWithPrompt, handleSceneConnection(WithTargets), flowSettingUpdateScan, analyzeCharacter/SceneRange/SingleScene, handleSequenceSuggestFromScript, checkConsistencyWithPrompt, compareDraftScene. 갈등도(`checkConflictWithPrompt`)·대사 분석은 Haiku 유지
