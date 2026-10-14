@@ -203,6 +203,14 @@ const isSyncEnabled = () => localStorage.getItem('ss_sync_enabled') !== 'false';
 | `handleSceneMerge(text)` | 합치기 메인 핸들러 — 대상 감지 + 검증 |
 | `executeMerge(targetScenes)` | Claude API 호출 → diff 생성 |
 
+| `appendScenes(ids)` | 기계적 이어 붙이기 (AI 없음) — 제목은 앞씬, 뒷씬 슬러그 삭제, undo 토스트 |
+| `_appendSceneCheck(ids)` | 이어 붙이기 규칙 검사 → `{ok, ordered}` / `{ok:false, reason, draftOf?}` |
+
+**이어 붙이기 vs AI 합치기:** "이어 붙이기" = 내용 그대로(무료·즉시), "✨ AI로 합치기" = `handleSceneMerge`(diff 검토). ✨ = 토큰 쓰는 기능
+- 진입: 선택 액션 바 `[이어 붙이기] [✨ AI로 합치기]` / 씬 헤더 우클릭 `↑ SC N에 이어 붙이기`(전 장르) / 합치기 패널 `🔗 이어 붙이기`
+- 허용: 화면 순서(`_sceneDisplayOrder`)로 붙어 있고 — 서브씬 없는 최상위끼리 / 부모 + 자기 서브씬(3+3-1) / 같은 부모 서브씬끼리
+- 차단: 서브씬 있는 최상위끼리(→서브씬 합치기 안내), 다른 부모 서브씬(3-2+4-1), 대안 씬 또는 대안 딸린 씬(→대안 비교 버튼), 잠긴 씬, diff 남은 씬
+
 **합치기 제약:**
 - 대안 씬 + 일반 씬 혼합 선택 시 차단
 - 같은 원본의 대안 씬끼리(`allSameSeries`)는 배열 위치 무관하게 연속으로 간주 → 합치기/참조 허용
@@ -280,7 +288,11 @@ handleScriptPrompt(text)
    ├── getRecentFloContext()  → [플로 대화] (키워드 감지 시)
    ├── fullSceneList          → [전체 씬 목록]
    └── sceneSummary           → [편집 가능한 씬 데이터 + sceneId]
-6. callClaude → <r>[{sceneId, title, lines, comment}]</r> 파싱
+6. callClaudeStream → `_parseSceneEditResponse(raw)` 파싱
+   - 입출력 모두 대본 텍스트 형식 (`_sceneToEditText` / `sceneEditFormatRule()` / `_parseEditTextLines`) — JSON 아님
+   - `<r sceneId="N">` 블록마다 `@title`·`@comment` + `[지문]`/`이름:`/들여쓴 대사·(괄호)·♪가사, 잠금 줄은 🔒
+   - 닫히지 않은 마지막 블록(잘림)도 받은 데까지 살림, 옛 `<r>[JSON]</r>` 폴백 유지
+   - 파싱 실패 시 `_lastStreamMeta`(stop_reason/error)로 원인 + 받은 원문 표시
 7. 각 씬에 diff 적용 → renderScriptBody
 ```
 
