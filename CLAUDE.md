@@ -94,7 +94,7 @@ const isPlayProject       = () => S.cur?.medium === '연극';
 - **서브씬 병합**: 부모씬 헤더 우클릭 → '서브씬 합치기' → `mergeSubScenes(parentId)`
 - **드래그**: 서브씬은 같은 부모 내에서만, 부모씬은 서브씬 블록 함께 → `moveSceneWithChildren`
 - **갈등도**: 부모씬 = 서브씬 최고값으로 집계 (`checkConflictWithPrompt` 후처리)
-- **`<subscenes>` 태그**: 연극/뮤지컬 모드에서 AI가 씬 생성 시 사용 (`<scenes>` 대신)
+- **서브씬 작성**: 연극/뮤지컬 모드에서 AI는 `<scene>` 블록 안에 `@sub 레이블 | 타입` 줄로 서브씬을 나눔 → 파서가 `subscenes` 속성으로 → `_scenesFromParsed`가 부모+서브씬으로 펼침
 
 ---
 
@@ -351,8 +351,8 @@ callClaudeStream → 실시간 스트리밍
 
 | intent | 조건 | 효과 |
 |--------|------|------|
-| `write_multi` | 씬 여러 개 구성/전체 구조 요청 | `<sequence_titles>` / `<newscenes>` 태그 적극 사용 |
-| `write_single` | 특정 씬 하나 작성 | `<newscenes>` 사용, 토큰 상향 |
+| `write_multi` | 씬 여러 개 구성/전체 구조 요청 | `<sequence_titles>` / `<scene>` 블록 적극 사용 |
+| `write_single` | 특정 씬 하나 작성 | `<scene>` 블록 사용, 토큰 상향 |
 | `structure` | 전체 구조/시퀀스 논의 | `<sequence_titles>` 사용 |
 | `brainstorm` | 아이디어/방향 논의 | 씬≥4개면 씬 액션 태그 금지 |
 | `chat` | 일반 대화, 피드백 | 씬≥4개면 씬 액션 태그 금지 |
@@ -558,14 +558,24 @@ document.addEventListener('keydown', (e) => {
 
 ## AI 시스템 프롬프트 태그 규칙
 
+### 새 씬 생성 형식 (JSON 아님)
+
+AI가 새 씬을 쓰는 모든 경로는 `<scene>` 텍스트 블록 → `_parseNewScenes(raw, legacyTags)` → `[{title, slug, lines, insertRef?, subscenes?, merge?, truncated}]`
+- 지시문: `newSceneFormatRule({multi, insert, sub})` / 붙여넣기·파일 변환: `_pasteParseRule(charHint)`
+- 줄 해석은 `_parseEditTextLines` 공유 (편집용 `<r sceneId>`와 같은 문법). `lines`에 slug 줄은 넣지 않고 `slug` 필드로
+- 옛 `<newscenes>`/`<scenes>`/`<subscenes>` JSON은 폴백으로만 읽음 (예전 채팅 메시지 액션 데이터도 같은 모양이라 그대로 동작)
+- 씬 객체 변환은 `_scenesFromParsed` — 받은 줄 타입을 그대로 사용 (예전엔 `parseFloTextToLines`로 타입을 재추측했음)
+- 출력 한도: 새 씬 `_newSceneOutTokens(n)`, 텍스트 변환 `_parseOutTokens(text)`
+- 실패 시 `_showNewSceneParseFail(raw)`로 원인+원문, 잘림은 `truncated` 경고 후 받은 데까지 사용
+- 서브씬 분할(`splitIntoSubScenes`/`splitSubSceneContent`)은 `_aiSplitSubScenes` 공통 — 원문 줄은 그대로, `@sub` 경계만 끼워 넣게 함
+
 ### 플로 응답 태그 전체 목록
 
 | 태그 | 용도 | 처리 |
 |------|------|------|
 | `<synopsis>` | 시놉시스 제안/수정 | saveSynopsis 액션 버튼 |
 | `<sequence_titles>[{title,slug,hint}]` | 씬 제목 구조 제안 | approveSequence 액션 버튼 |
-| `<newscenes>[{title,slug,lines}]` | 씬 내용 생성 | addScenes 액션 버튼 |
-| `<scenes>[JSON]` | 씬 배열 | addScenes 액션 버튼 |
+| `<scene>` 텍스트 블록 (`@title`/`@slug`/`@insert`/`@sub`/`@merge` + 대본 줄) | 씬 내용 생성 (씬마다 블록 하나) | addScenes 액션 버튼 |
 | `<scene_ideas>[{title,idea,mood}]` | 씬 아이디어 카드 3개 | pickSceneIdea 액션 버튼 |
 | `<characters>[JSON]` | 등장인물 배열 | addCharacters 액션 버튼 |
 | `<character>{JSON}` | 단일 인물 설정 | floDetectContent → showCharacterAddPanel |
@@ -582,7 +592,7 @@ document.addEventListener('keydown', (e) => {
 ### 태그 사용 금지/제한 조건
 
 - `<suggest>characters/conflict`: 씬 없을 때 금지
-- 씬 액션 태그(`<sequence_titles>`, `<newscenes>`, `<editscenes>`): brainstorm/chat intent + 씬≥4개면 금지
+- 씬 액션 태그(`<sequence_titles>`, `<scene>`, `<editscenes>`): brainstorm/chat intent + 씬≥4개면 금지
 - `<survey>` vs `<choices>`: 질문 2개 이상은 반드시 `<survey>` 사용
 
 ---

@@ -3310,7 +3310,7 @@ function _parseEditTextLines(body) {
     }
     if (t.startsWith('♪')) return push('lyric', t.replace(/^♪\s*/, ''));
     if (/^\(.*\)$/.test(t) && (indented || prev === 'character' || prev === 'dialogue' || prev === 'parenthetical')) {
-      return push('parenthetical', t.replace(/^\(|\)$/g, ''));
+      return push('parenthetical', '(' + t.replace(/^\(|\)$/g, '') + ')'); // 기본은 괄호 포함 저장 (에디터는 text를 그대로 표시)
     }
     if (indented) return push('dialogue', t);
     if ((m = t.match(/^(.{1,25}?):$/))) return push('character', m[1]);
@@ -3332,23 +3332,147 @@ function _parseSceneEditResponse(raw) {
     const { lines, title, comment } = _parseEditTextLines(m[2]);
     if (!lines.length) continue;
     const truncated = !/<\/r>/i.test(raw.slice(m.index, m.index + m[0].length));
-    // 괄호 지문 저장 형식(괄호 포함/미포함)은 원본 씬을 따름 — 안 바뀐 줄이 diff에 잡히지 않게
+    // 괄호 지문: 기본은 괄호 포함. 원본과 같은 줄은 원본 표기 그대로, 원본이 전부 괄호 없이 저장된 씬이면 그 방식을 따름
     const orig = (S.cur?.scenes || []).find(s => s.id === Number(m[1]));
-    if (orig) {
-      const origParen = (orig.lines || []).filter(l => l.type === 'parenthetical');
-      const withParens = origParen.some(l => /^\(/.test((l.text || '').trim()));
-      lines.forEach(l => {
-        if (l.type !== 'parenthetical') return;
-        const same = origParen.find(o => (o.text || '').trim().replace(/^\(|\)$/g, '') === l.text);
-        l.text = same ? same.text : withParens ? '(' + l.text + ')' : l.text;
-      });
-    }
+    const origParen = (orig?.lines || []).filter(l => l.type === 'parenthetical');
+    const bare = origParen.length > 0 && origParen.every(l => !/^\(/.test((l.text || '').trim()));
+    const strip = t => (t || '').trim().replace(/^\(|\)$/g, '');
+    lines.forEach(l => {
+      if (l.type !== 'parenthetical') return;
+      const same = origParen.find(o => strip(o.text) === strip(l.text));
+      l.text = same ? same.text : bare ? strip(l.text) : l.text;
+    });
     out.push({ sceneId: Number(m[1]), title: title || undefined, lines, comment: comment + (truncated ? ' (⚠️ 응답이 중간에 끊겨 일부만 반영됨)' : ''), truncated });
   }
   if (out.length) return out;
   const legacy = extractTag(raw || '', 'r') || extractTag(raw || '', 'result');
   if (legacy) { try { const u = JSON.parse(legacy); if (Array.isArray(u)) return u; } catch {} }
   return null;
+}
+
+// ── 새 씬 생성: <scene> 블록 (sceneId 없음 — 제목·슬러그를 AI가 정함) ──────────
+// opts.sub: 연극/뮤지컬 서브씬(@sub) / opts.insert: @insert 삽입 위치 / opts.multi: 여러 씬
+const newSceneFormatRule = (opts = {}) => {
+  const subTypes = isMusicalProject() ? 'dialogue | number | transition' : 'dialogue | conflict | turn';
+  return '새 씬은 JSON이 아니라 아래 대본 텍스트 형식으로, 씬마다 <scene> 블록 하나씩 응답하세요' +
+    (opts.multi ? ' (씬이 여러 개면 <scene> 블록을 여러 개)' : '') + '.\n' +
+    '<scene>\n' +
+    '@title 씬 제목\n' +
+    '@slug ' + (isTheatricalProject() ? 'N막 N장 또는 장소명' : 'INT./EXT. 장소 - 시간') + '\n' +
+    (opts.insert ? '@insert SC번호 (특정 씬 뒤에 넣을 때만, 맨 뒤면 생략)\n' : '') +
+    (opts.sub ? '@sub 서브씬 레이블 | 타입\n' : '') +
+    '[지문] 지문 내용\n' +
+    '배역명:\n' +
+    '  (괄호 지문)\n' +
+    '  대사 내용\n' +
+    '</scene>\n' +
+    '규칙: 지문은 "[지문] "으로 시작 / 배역명은 한 줄에 "이름:"만 / 대사·괄호 지문은 두 칸 들여쓰기' +
+    (isMusicalProject() ? ' / 가사는 두 칸 들여쓰고 "♪ "로 시작' : '') +
+    ' / 대사·지문을 압축하거나 생략하지 말 것 / 따옴표 이스케이프 불필요.' +
+    (opts.sub ? '\n서브씬: 각 서브씬은 "@sub 레이블 | 타입" 줄로 시작, 타입은 ' + subTypes + ' 중 하나, 서브씬 2~4개 (억지 분할 금지)' +
+      (isMusicalProject() ? ', number 서브씬의 노래는 ♪ 가사 줄로' : '') + '.' : '');
+};
+
+// 레거시 JSON 씬 객체 → 표준 형태
+function _normLegacyScene(o) {
+  if (!o || typeof o !== 'object') return null;
+  const normLines = arr => (arr || []).map(l => typeof l === 'string'
+    ? { type: 'dialogue', text: l, locked: false }
+    : { type: l.type || 'action', text: l.text || l.content || '', locked: false });
+  const sc = { title: o.title || o.label || '', slug: o.slug || '', lines: normLines(o.lines) };
+  if (o.insertRef) sc.insertRef = o.insertRef;
+  if (o.merge) sc.merge = true;
+  const subs = o.subscenes || o.subScenes || o.sub_scenes;
+  if (Array.isArray(subs) && subs.length) sc.subscenes = subs.map(s => ({ label: s.label || s.title || '', type: s.type || null, lines: normLines(s.lines) }));
+  return sc;
+}
+
+// 새 씬 응답 → [{title, slug, lines, insertRef?, subscenes?, truncated}] / 없으면 null
+// <scene> 텍스트 블록 우선, 옛 JSON 태그(legacyTags) 폴백. lines에는 slug 줄을 넣지 않음 (slug 필드로)
+function _parseNewScenes(raw, legacyTags = ['newscenes', 'scenes']) {
+  raw = raw || '';
+  const out = [];
+  const re = /<scene(?:\s[^>]*)?>([\s\S]*?)(?:<\/scene>|(?=<scene[\s>])|(?=<[a-z_]+(?:\s[^>]*)?>)|$)/gi;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    const body = m[1];
+    const truncated = !/<\/scene>\s*$/i.test(m[0]);
+    if (/^\s*[\[{]/.test(body)) { // <scene>{JSON}</scene> (옛 형식)
+      try { const j = JSON.parse(body.trim()); (Array.isArray(j) ? j : [j]).forEach(o => { const s = _normLegacyScene(o); if (s?.lines.length || s?.subscenes) out.push(s); }); } catch {}
+      continue;
+    }
+    let title = '', slug = '', insertRef = '', merge = false;
+    const segs = [{ label: null, type: null, text: [] }];
+    body.split('\n').forEach(line => {
+      const t = line.trim();
+      let mm;
+      if ((mm = t.match(/^@title\s+(.+)$/))) { title = mm[1].trim(); return; }
+      if ((mm = t.match(/^@slug\s+(.+)$/))) { slug = mm[1].trim(); return; }
+      if ((mm = t.match(/^@insert\s+(.+)$/))) { insertRef = mm[1].trim(); return; }
+      if (/^@merge\b/.test(t)) { merge = true; return; }
+      if ((mm = t.match(/^@sub\s+(.+)$/))) {
+        const [lab, typ] = mm[1].split('|').map(x => x.trim());
+        segs.push({ label: lab || '', type: (typ || '').toLowerCase() || null, text: [] });
+        return;
+      }
+      segs[segs.length - 1].text.push(line);
+    });
+    const parseSeg = seg => {
+      const lines = _parseEditTextLines(seg.text.join('\n')).lines;
+      const slugLine = lines.find(l => l.type === 'slug');
+      if (slugLine && !slug) slug = slugLine.text;
+      return lines.filter(l => l.type !== 'slug').map(l => ({ ...l, locked: !!l.locked }));
+    };
+    const mainLines = parseSeg(segs[0]);
+    const subs = segs.slice(1).map(sg => ({ label: sg.label, type: sg.type, lines: parseSeg(sg) })).filter(sg => sg.lines.length);
+    if (!mainLines.length && !subs.length) continue;
+    const sc = { title, slug, lines: mainLines, truncated };
+    if (insertRef) sc.insertRef = insertRef;
+    if (merge) sc.merge = true;
+    if (subs.length) sc.subscenes = subs;
+    out.push(sc);
+  }
+  if (out.length) return out;
+  for (const tag of legacyTags) {
+    const inner = extractTag(raw, tag);
+    if (!inner) continue;
+    try {
+      const j = JSON.parse(inner.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
+      const list = Array.isArray(j) ? j : [j];
+      if (tag === 'subscenes') {
+        const subs = list.map(o => ({ label: o?.label || o?.title || '', type: o?.type || null, lines: _normLegacyScene(o)?.lines || [] })).filter(x => x.lines.length);
+        if (subs.length) return [{ title: '', slug: '', lines: [], subscenes: subs }];
+        continue;
+      }
+      const arr = list.map(_normLegacyScene).filter(s => s && (s.lines.length || s.subscenes));
+      if (arr.length) return arr;
+    } catch {}
+  }
+  return null;
+}
+
+// 붙여넣기/파일 텍스트 → 씬 변환용 지시 (원문을 대본 텍스트 형식으로 옮기기)
+function _pasteParseRule(charHint = '') {
+  return '주어진 텍스트를 대본 씬으로 변환하세요. 내용은 원문 그대로, 줄 종류만 구분합니다.\n' +
+    newSceneFormatRule({ multi: true }) + '\n' +
+    '- 씬 제목/번호 줄 → @title, 슬러그(장소·시간) → @slug\n' +
+    '- 인물명 + 대사가 한 줄이면 "이름:" 줄과 들여쓴 대사 줄로 분리\n' +
+    '- 지문 바로 다음 줄은 대사가 아니라 배역명일 가능성이 높음\n' +
+    '- 한 줄에서 첫 단어가 4자 이하이고 등장인물 이름이거나 이름처럼 보이면 배역명으로 분리' + charHint;
+}
+// 텍스트 변환 출력 한도 — 입력 분량 기준
+function _parseOutTokens(text) {
+  return Math.min(16000, Math.max(3000, Math.round((text || '').length * 1.5) + 500));
+}
+
+// 새 씬 출력 한도 — 씬 1개 ≈ 한국어 2~3천 자 기준으로 넉넉히 (과금은 실제 출력분만)
+function _newSceneOutTokens(n = 1) {
+  return Math.min(32000, Math.max(6000, n * 6000 + 1000));
+}
+
+// 새 씬 응답 파싱 실패 시 공통 처리 (원인 + 원문)
+function _showNewSceneParseFail(raw, what = '씬 생성') {
+  _showEditParseFail((raw || '').replace(/<\/?scene[^>]*>/gi, ''), what);
 }
 
 // 출력 한도 자동 계산 — 씬 텍스트 분량 기준 (max_tokens는 상한일 뿐 과금은 실제 출력분만)
@@ -4125,10 +4249,10 @@ async function addSceneFromFloText(sceneText) {
     const charHint = chars.length ? `등장인물: ${chars.join(', ')}\n` : '';
     const parseRaw = await callClaude(
       [{role:'user', content: sceneText}],
-      `다음 텍스트에서 영화/드라마 대본 씬만 추출하세요. AI의 설명·분석 문장은 제외하고 실제 대본 내용만 포함하세요.\n${charHint}<scene>{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용"}]}</scene> 형식으로만 반환.`,
-      600, 'claude-haiku-4-5-20251001'
+      `다음 텍스트에서 대본 씬만 추출하세요. AI의 설명·분석 문장은 제외하고 실제 대본 내용만 원문 그대로 포함하세요.\n${charHint}` + newSceneFormatRule() + '\n<scene> 블록 하나만 반환.',
+      Math.min(16000, Math.max(2000, Math.round(sceneText.length * 1.5) + 500)), 'claude-haiku-4-5-20251001'
     );
-    const parsed = JSON.parse(extractTag(parseRaw, 'scene') || '{}');
+    const parsed = _parseNewScenes(parseRaw, ['scene'])?.[0] || {};
     if (parsed.title) scTitle = parsed.title;
     if (parsed.slug) slugText = parsed.slug;
     if (Array.isArray(parsed.lines) && parsed.lines.length) {
@@ -4412,6 +4536,9 @@ function _findBrokenFloTags(raw) {
     const inner = extractTag(raw, t);
     try { JSON.parse(inner); } catch { broken.push(t); }
   });
+  // <scene> 텍스트 블록은 JSON이 아니라 깨질 일이 없고, 잘려도 받은 데까지 씬으로 살림 → 잘림만 표시
+  const _scOpen = (raw.match(/<scene(?:\s[^>]*)?>/gi) || []).length, _scClose = (raw.match(/<\/scene>/gi) || []).length;
+  if (_scOpen > _scClose) broken.push('scene (응답 잘림 — 받은 데까지는 씬으로 추가 가능)');
   const charOpens = (raw.match(/<character(?!s)[\s>]/gi) || []).length;
   if (charOpens > _parseCharacterTags(raw).length) broken.push('character');
   return broken;
@@ -5270,10 +5397,10 @@ async function doPickCreateProject(synopsis) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 4000,
-        system: '이 시놉시스를 기반으로 오프닝 장면 3개를 작성하세요. '
-          + '반드시 <scenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만. '
-          + '각 씬은 최소 5줄 이상. 설명 없이.',
+        max_tokens: _newSceneOutTokens(3),
+        system: '이 시놉시스를 기반으로 오프닝 장면 3개를 작성하세요.\n'
+          + newSceneFormatRule({ multi: true })
+          + '\n<scene> 블록 3개. 각 씬은 최소 5줄 이상. 설명 없이.',
         messages: [{ role: 'user', content:
           '시놉시스: ' + synopsis + '\n장르: ' + _pickState.genre
           + '\n분량: ' + (durationLabel[_pickState.duration] || '') }]
@@ -5281,17 +5408,13 @@ async function doPickCreateProject(synopsis) {
     });
     const _pickData = await _pickResp.json();
     const raw = (_pickData.content||[]).map(b => b.text||'').join('');
-    const sr = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
-    if (sr) {
-      let scenesData = null;
-      try { scenesData = JSON.parse(sr); } catch(jsonErr) {
-        console.warn('Pick scene JSON parse failed', jsonErr);
-        sceneGenFailed = true;
-      }
-      if (Array.isArray(scenesData)) {
+    const scenesData = _parseNewScenes(raw);
+    if (scenesData?.length) {
+      {
         scenesData.slice(0,3).forEach((sd, i) => {
           const lines = [{ type:'slug', text: sd.slug || 'INT. 장소 - 낮', locked:false }];
           (sd.lines||[]).forEach(l => lines.push({ type: l.type||'action', text: l.text||'', locked:false }));
+          if (!(sd.lines||[]).length) return;
           proj.scenes.push({
             id: Date.now() + i + 1,
             title: sd.title || ('장면 ' + (i+1)),
@@ -5302,6 +5425,7 @@ async function doPickCreateProject(synopsis) {
         });
       }
     } else {
+      console.warn('Pick scene parse failed — 원문:', raw);
       sceneGenFailed = true;
     }
   } catch(e) {
@@ -6930,25 +7054,15 @@ function showInlineSceneAdd(afterId, idx, btnWrap, forceTopLevel) {
       // 등장인물 목록 수집
       const charNames = (S.cur?.characters||[]).map(c=>c.name).filter(Boolean);
       const charHint = charNames.length > 0 ? '\n등장인물 이름 목록: ' + charNames.join(', ') : '';
-      const sys = '당신은 대본 파서입니다. 주어진 텍스트를 씬 데이터로 변환하세요.\n' +
-        '반드시 <scenes>[JSON]</scenes> 형식으로만 응답하세요. 다른 텍스트 없이 태그만.\n' +
-        '씬 JSON: [{"title":"씬제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]\n' +
-        '- 씬 제목/번호 줄 → title과 slug 추출\n' +
-        '- 지문/설명 → action\n' +
-        '- 인물명만 있는 줄 → character\n' +
-        '- 대사 → dialogue\n' +
-        '- 인물명 + 대사가 한 줄이면 character 줄과 dialogue 줄로 분리\n' +
-        '- 지문(action) 바로 다음 줄은 대사가 아니라 배역명(character)일 가능성이 높음\n' +
-        '- 한 줄에서 첫 단어가 4자 이하이고 등장인물 이름이거나 이름처럼 보이면 배역명으로 분리\n' +
-        charHint;
+      const sys = '당신은 대본 파서입니다. <scene> 블록 외 다른 텍스트 없이 응답하세요.\n' + _pasteParseRule(charHint);
       const chunks = _splitParseChunks(rawText);
       const scenesData = [];
       for (let ci = 0; ci < chunks.length; ci++) {
         if (chunks.length > 1) parseBtn.textContent = `⏳ 분석 중... ${ci+1}/${chunks.length}`;
         let raw = '';
-        await callClaudeStream([{role:'user', content:chunks[ci]}], sys, 6000, 'claude-haiku-4-5-20251001', c => { raw = c; }, true);
-        const sr = extractTag(raw, 'scenes');
-        if (sr) { try { const d = JSON.parse(sr); if (Array.isArray(d)) scenesData.push(...d); } catch {} }
+        await callClaudeStream([{role:'user', content:chunks[ci]}], sys, _parseOutTokens(chunks[ci]), 'claude-haiku-4-5-20251001', c => { raw = c; }, true);
+        const d = _parseNewScenes(raw);
+        if (d) scenesData.push(...d); else console.warn('[paste parse] 구간 ' + (ci + 1) + ' 실패 — 원문:', raw);
       }
       if (!scenesData.length) { toast('파싱 실패 — 텍스트 형식을 확인해주세요.'); return; }
       wrap.remove();
@@ -8963,34 +9077,23 @@ function saveAsDraft(id) {
 // 서브씬 분할 / 병합 (연극/뮤지컬 모드)
 // ═══════════════════════════════════════════
 
-async function splitIntoSubScenes(scId) {
-  const sc = S.cur.scenes.find(s => s.id === scId);
-  if (!sc || sc.parentId) return;
-
+// AI 서브씬 분할 공통 — 원문을 대본 텍스트로 주고 @sub 경계만 끼워 넣게 함 → [{label, type, lines}] / 실패 시 null
+async function _aiSplitSubScenes(sc, isSub) {
   showAnalyzing('서브씬 분석 중...');
-
-  const scText = sc.lines.map(l => {
-    if (l.type === 'character')     return '[배역] ' + l.text;
-    if (l.type === 'action')        return '[지문] ' + l.text;
-    if (l.type === 'parenthetical') return '(' + l.text + ')';
-    if (l.type === 'lyric')         return '[가사] ' + l.text;
-    return l.text;
-  }).join('\n');
   const charList = (S.cur.characters || []).map(c => c.name).join(', ');
-
   const typeOptions = isMusicalProject()
-    ? '"dialogue"(대화장면) | "number"(넘버/가사) | "transition"(전환)'
-    : '"dialogue"(대화) | "conflict"(갈등/대립) | "turn"(전환/반전)';
-
-  const prompt = `다음은 연극/뮤지컬 대본의 한 장면입니다.
+    ? 'dialogue(대화장면) | number(넘버/가사) | transition(전환)'
+    : 'dialogue(대화) | conflict(갈등/대립) | turn(전환/반전)';
+  const body = _sceneToEditText(sc, S.cur.scenes).split('\n').slice(1).join('\n'); // 헤더 줄 제외
+  const prompt = `다음은 연극/뮤지컬 대본의 ${isSub ? '서브씬' : '한 장면'}입니다.
 
 등장인물: ${charList}
-장면 제목: ${sc.title}
+${isSub ? '서브씬' : '장면'} 제목: ${sc.title}
 
 [대본]
-${scText}
+${body}
 
-이 장면을 자연스러운 단위로 분할하세요.
+이 ${isSub ? '서브씬을 자연스러운 단위로 더 세밀하게' : '장면을 자연스러운 단위로'} 분할하세요.
 
 분할 기준 (우선순위 순):
 1. 등장인물 구성 변화 (누군가 등장하거나 퇴장)
@@ -8999,51 +9102,59 @@ ${scText}
 4. 화제가 완전히 전환되는 지점
 
 규칙:
-- 서브씬은 2~4개가 적절. 억지로 많이 나누지 말 것
-- 각 서브씬은 독립적인 극적 단위여야 함
+- ${isSub ? '분할은 2~3개' : '서브씬은 2~4개'}가 적절. 억지로 많이 나누지 말 것
+- 각 단위는 독립적인 극적 단위여야 함
 - 분할선은 반드시 대사나 지문의 자연스러운 경계에서
-- type은 반드시 다음 중 하나: ${typeOptions}
-- 뮤지컬 "number" 서브씬의 lines는 type:"lyric" 사용
-- 입력 텍스트의 [배역] 표시는 배역명 줄 → lines에서 type:"character"로 반드시 포함
-- 입력 텍스트의 [지문] 표시는 type:"action", (괄호) 표시는 type:"parenthetical", [가사] 표시는 type:"lyric"
-- 배역명(character) 줄은 절대 생략하지 말 것
+- 대본 줄은 한 글자도 바꾸거나 빼지 말고 원문 그대로 순서대로 옮길 것 — 각 단위 시작에 "@sub 레이블 | 타입" 줄만 끼워 넣기
+- 타입은 반드시 다음 중 하나: ${typeOptions}
 
-반드시 아래 형식으로만 반환:
-<subscenes>[
-  {
-    "label": "서브씬 레이블 (예: 도입, 균열, 폭발)",
-    "type": "dialogue|conflict|turn|number|transition",
-    "lines": [{"type":"action|character|dialogue|parenthetical|lyric","text":"내용"}]
-  }
-]</subscenes>`;
+반드시 아래 형식으로만 반환 (설명 없이):
+<scene>
+@sub 레이블 (예: 도입) | 타입
+(원문 줄들 그대로)
+@sub 레이블 (예: 균열) | 타입
+(원문 줄들 그대로)
+</scene>`;
 
   let raw = '';
   try {
-    await callClaudeStream(
+    raw = await callClaudeStream(
       [{ role: 'user', content: prompt }],
-      '반드시 <subscenes>...</subscenes> 형식으로만 응답하세요.',
-      4000,
+      '반드시 <scene> 블록 하나로만 응답하세요. 원문 대본 형식([지문] / 이름: / 두 칸 들여쓴 대사·괄호 지문' + (isMusicalProject() ? '·♪ 가사' : '') + ')을 그대로 유지하세요.',
+      _estimateSceneOutTokens([sc]),
       'claude-sonnet-5-5',
-      (chunk) => { raw = chunk; },
+      null,
       true
     );
   } catch (err) {
     hideAnalyzing();
-    toast('분할 요청 실패: ' + (err.message || '네트워크 오류'));
-    return;
+    if (err.name !== 'AbortError') toast('분할 요청 실패: ' + (err.message || '네트워크 오류'));
+    return null;
   }
-
   hideAnalyzing();
 
-  let subRaw = extractTag(raw, 'subscenes');
-  if (!subRaw) { toast('분할 분석에 실패했습니다. 다시 시도해주세요.'); return; }
-  // markdown 코드 펜스 제거
-  subRaw = subRaw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  const parsed = _parseNewScenes(raw, ['subscenes'])?.[0];
+  const subs = parsed?.subscenes ? parsed.subscenes.map(x => ({ ...x })) : null;
+  if (!subs?.length) { _showNewSceneParseFail(raw, '서브씬 분할'); return null; }
+  if (parsed.lines?.length) subs[0].lines = [...parsed.lines, ...subs[0].lines]; // 첫 @sub 앞 줄은 첫 서브씬에
+  // 괄호 지문 표기는 원본 씬을 따름
+  const _op = (sc.lines || []).filter(l => l.type === 'parenthetical');
+  if (_op.length && _op.every(l => !/^\(/.test((l.text || '').trim())))
+    subs.forEach(x => x.lines.forEach(l => { if (l.type === 'parenthetical') l.text = l.text.replace(/^\(|\)$/g, ''); }));
+  if (parsed.truncated) toast('⚠️ 응답이 중간에 끊겨 일부만 받았어요 — 미리보기에서 확인하세요', 5000);
+  // 원문보다 줄이 크게 줄었으면 경고 (내용 누락 방지)
+  const before = (sc.lines || []).filter(l => l.type !== 'slug' && l.text?.trim()).length;
+  const after = subs.reduce((n, x) => n + x.lines.length, 0);
+  if (after < before * 0.9) toast('⚠️ 원문 ' + before + '줄 중 ' + after + '줄만 나뉘었어요 — 적용 전에 확인하세요', 6000);
+  return subs;
+}
 
-  let subData;
-  try { subData = JSON.parse(subRaw); } catch { toast('결과 파싱 실패 — 다시 시도해주세요.'); return; }
-  if (!Array.isArray(subData) || !subData.length) { toast('서브씬 데이터가 비어있습니다.'); return; }
+async function splitIntoSubScenes(scId) {
+  const sc = S.cur.scenes.find(s => s.id === scId);
+  if (!sc || sc.parentId) return;
 
+  const subData = await _aiSplitSubScenes(sc, false);
+  if (!subData) return;
   showSubSceneSplitPanel(sc, subData);
 }
 
@@ -9374,82 +9485,8 @@ async function splitSubSceneContent(scId) {
   const sc = S.cur.scenes.find(s => s.id === scId);
   if (!sc || !sc.parentId) return;
 
-  showAnalyzing('서브씬 분석 중...');
-
-  const scText = sc.lines.map(l => {
-    if (l.type === 'character')     return '[배역] ' + l.text;
-    if (l.type === 'action')        return '[지문] ' + l.text;
-    if (l.type === 'parenthetical') return '(' + l.text + ')';
-    if (l.type === 'lyric')         return '[가사] ' + l.text;
-    return l.text;
-  }).join('\n');
-  const charList = (S.cur.characters || []).map(c => c.name).join(', ');
-
-  const typeOptions = isMusicalProject()
-    ? '"dialogue"(대화장면) | "number"(넘버/가사) | "transition"(전환)'
-    : '"dialogue"(대화) | "conflict"(갈등/대립) | "turn"(전환/반전)';
-
-  const prompt = `다음은 연극/뮤지컬 대본의 서브씬입니다.
-
-등장인물: ${charList}
-서브씬 제목: ${sc.title}
-
-[대본]
-${scText}
-
-이 서브씬을 자연스러운 단위로 더 세밀하게 분할하세요.
-
-분할 기준 (우선순위 순):
-1. 등장인물 구성 변화 (누군가 등장하거나 퇴장)
-2. 대화의 권력 관계가 역전되는 순간
-3. 새로운 정보/폭로로 긴장 축이 바뀌는 순간
-4. 화제가 완전히 전환되는 지점
-
-규칙:
-- 분할은 2~3개가 적절. 억지로 많이 나누지 말 것
-- 각 분할은 독립적인 극적 단위여야 함
-- 분할선은 반드시 대사나 지문의 자연스러운 경계에서
-- type은 반드시 다음 중 하나: ${typeOptions}
-- 뮤지컬 "number" 서브씬의 lines는 type:"lyric" 사용
-- 입력 텍스트의 [배역] 표시는 배역명 줄 → lines에서 type:"character"로 반드시 포함
-- 입력 텍스트의 [지문] 표시는 type:"action", (괄호) 표시는 type:"parenthetical", [가사] 표시는 type:"lyric"
-- 배역명(character) 줄은 절대 생략하지 말 것
-
-반드시 아래 형식으로만 반환:
-<subscenes>[
-  {
-    "label": "서브씬 레이블 (예: 도입, 균열, 폭발)",
-    "type": "dialogue|conflict|turn|number|transition",
-    "lines": [{"type":"action|character|dialogue|parenthetical|lyric","text":"내용"}]
-  }
-]</subscenes>`;
-
-  let raw = '';
-  try {
-    await callClaudeStream(
-      [{ role: 'user', content: prompt }],
-      '반드시 <subscenes>...</subscenes> 형식으로만 응답하세요.',
-      4000,
-      'claude-sonnet-5-5',
-      (chunk) => { raw = chunk; },
-      true
-    );
-  } catch (err) {
-    hideAnalyzing();
-    toast('분할 요청 실패: ' + (err.message || '네트워크 오류'));
-    return;
-  }
-
-  hideAnalyzing();
-
-  let subRaw = extractTag(raw, 'subscenes');
-  if (!subRaw) { toast('분할 분석에 실패했습니다. 다시 시도해주세요.'); return; }
-  subRaw = subRaw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-
-  let subData;
-  try { subData = JSON.parse(subRaw); } catch { toast('결과 파싱 실패 — 다시 시도해주세요.'); return; }
-  if (!Array.isArray(subData) || !subData.length) { toast('서브씬 데이터가 비어있습니다.'); return; }
-
+  const subData = await _aiSplitSubScenes(sc, true);
+  if (!subData) return;
   showSubSceneSiblingPanel(sc, subData);
 }
 
@@ -10236,23 +10273,15 @@ function openSceneTextEditor(sc, block) {
     try {
       const charNames2 = (S.cur?.characters||[]).map(c=>c.name).filter(Boolean);
       const charHint2 = charNames2.length > 0 ? '\n등장인물 이름 목록: ' + charNames2.join(', ') : '';
-      const sys = '대본 파서입니다. 주어진 텍스트를 씬 데이터로 변환하세요.\n' +
-        '반드시 <scenes>[JSON]</scenes> 형식으로만 응답하세요.\n' +
-        '씬 JSON: [{"title":"씬제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용"}]}]\n' +
-        '- 슬러그/씬 제목 → slug와 title\n' +
-        '- 지문 → action, 인물명 → character, 대사 → dialogue, 괄호지문 → parenthetical\n' +
-        '- 지문(action) 바로 다음 줄은 대사가 아니라 배역명(character)일 가능성이 높음\n' +
-        '- 한 줄에서 첫 단어가 4자 이하이고 등장인물 이름이거나 이름처럼 보이면 배역명으로 분리\n' +
-        '- 인물명 + 대사가 한 줄이면 character 줄과 dialogue 줄로 분리\n' +
-        charHint2;
+      const sys = '대본 파서입니다. <scene> 블록 외 다른 텍스트 없이 응답하세요.\n' + _pasteParseRule(charHint2);
       const chunks = _splitParseChunks(rawText);
       const parsed = [];
       for (let ci = 0; ci < chunks.length; ci++) {
         if (chunks.length > 1) parseBtn.textContent = `⏳ 분석 중... ${ci+1}/${chunks.length}`;
         let raw = '';
-        await callClaudeStream([{role:'user', content:chunks[ci]}], sys, 6000, 'claude-haiku-4-5-20251001', c => { raw = c; }, true);
-        const sr = extractTag(raw, 'scenes');
-        if (sr) { try { const d = JSON.parse(sr); if (Array.isArray(d)) parsed.push(...d); } catch {} }
+        await callClaudeStream([{role:'user', content:chunks[ci]}], sys, _parseOutTokens(chunks[ci]), 'claude-haiku-4-5-20251001', c => { raw = c; }, true);
+        const d = _parseNewScenes(raw);
+        if (d) parsed.push(...d); else console.warn('[scene text editor] 구간 ' + (ci + 1) + ' 실패 — 원문:', raw);
       }
       if (!parsed?.length) { toast('파싱 실패 — 다시 시도해주세요.'); return; }
 
@@ -10398,7 +10427,7 @@ function appendMsgEl(msg, scroll = true) {
   // 플로가 쓴 씬 본문 미리보기 — <newscenes>/<scenes>/<subscenes>는 말풍선에서 제거되므로 여기서 펼쳐 보여줌
   const _sceneActs = (msg.actions || []).filter(a => a.type === 'addScenes' && Array.isArray(a.data));
   _sceneActs.forEach(a => {
-    const scs = a.data.filter(s => (s.lines || []).length > 0);
+    const scs = a.data.filter(s => (s.lines || []).length > 0 || (s.subscenes || []).length > 0);
     if (!scs.length) return;
     const det = document.createElement('details');
     det.className = 'flo-scene-preview';
@@ -10411,12 +10440,20 @@ function appendMsgEl(msg, scroll = true) {
       hd.className = 'fsp-title';
       hd.textContent = (s.title || '') + (s.slug ? ' — ' + s.slug : '');
       det.appendChild(hd);
-      s.lines.forEach(l => {
+      const addLines = arr => (arr || []).forEach(l => {
         const ln = document.createElement('div');
         const t = typeof l === 'string' ? 'dialogue' : (l.type || 'action');
         ln.className = 'fsp-line line-' + t;
         ln.textContent = typeof l === 'string' ? l : (l.text || l.content || '');
         det.appendChild(ln);
+      });
+      addLines(s.lines);
+      (s.subscenes || []).forEach((sub, si) => {
+        const sh = document.createElement('div');
+        sh.className = 'fsp-title';
+        sh.textContent = '· ' + (sub.label || '서브씬 ' + (si + 1)) + (sub.type ? ' [' + sub.type + ']' : '');
+        det.appendChild(sh);
+        addLines(sub.lines);
       });
     });
     body.appendChild(det);
@@ -10838,8 +10875,17 @@ function showStreamBubble() {
 function updateStreamBubble(text) {
   const el = document.getElementById('stream-bubble-text');
   if (!el) return;
+  // <scene> 블록은 진행 상황 한 줄로 (본문은 완료 후 미리보기 카드로 표시)
+  const _scBlocks = text.match(/<scene(?:\s[^>]*)?>[\s\S]*?(?:<\/scene>|$)/gi) || [];
+  const _scNote = _scBlocks.length
+    ? '\n\n✍️ 씬 ' + _scBlocks.length + '개 작성 중 — ' +
+      ((_scBlocks.at(-1).match(/@title\s+(.+)/) || [])[1] || '') + ' (' +
+      _scBlocks.at(-1).split('\n').filter(l => l.trim() && !/^\s*[@<]/.test(l)).length + '줄)'
+    : '';
   // 구조화 태그(<r>, <sequence_titles> 등) 제거하고 자연어만 표시
   const display = text
+    .replace(/<scene(?:\s[^>]*)?>[\s\S]*?<\/scene>/gi, '')
+    .replace(/<scene(?:\s[^>]*)?>[\s\S]*/gi, '')
     .replace(/<r(?:\s[^>]*)?>[\s\S]*/gi, '')
     .replace(/<sequence_titles>[\s\S]*?<\/sequence_titles>/gi, '')
     .replace(/<newscenes>[\s\S]*?<\/newscenes>/gi, '')
@@ -10853,8 +10899,8 @@ function updateStreamBubble(text) {
     .replace(/<setting_update>[\s\S]*?<\/setting_update>/gi, '')
     .replace(/<subscenes>[\s\S]*?<\/subscenes>/gi, '')
     .replace(/<subscenes>[\s\S]*/gi, '')
-    .trim();
-  el.textContent = display || '...';
+    .trim() + _scNote;
+  el.textContent = display.trim() || '...';
   const container = document.getElementById('chat-msgs');
   if (container) container.scrollTop = container.scrollHeight;
 }
@@ -12082,6 +12128,7 @@ async function handleFloWriteMultiSeq(text, sceneCount, scRefs, history, sysBase
   const getScenes = () => (S.cur.scenes || []);
 
   const newSceneQueue = [];
+  const _seqFailed = [];
   let diffCount = 0;
   let seqHistory = [...history, { role:'user', content: text }];
 
@@ -12100,11 +12147,11 @@ async function handleFloWriteMultiSeq(text, sceneCount, scRefs, history, sysBase
 
     const seqSys = sysBase +
       '\n\n[순차 씬 작성 — ' + (i + 1) + '/' + sceneCount + '] ' + targetHint +
-      '\n지금 이 씬 하나만 작성하세요. 반드시 <newscenes>[{"title":"...","slug":"...","lines":[...]}]</newscenes> 태그 하나로만 응답. 태그 외 자연어 설명 불필요.';
+      '\n지금 이 씬 하나만 작성하세요. [씬 작성 형식]의 <scene> 블록 하나로만 응답. 블록 외 자연어 설명 불필요.';
 
     try {
       let raw = '';
-      await callClaudeStream(seqHistory, seqSys, 10000, 'claude-sonnet-5-5',
+      await callClaudeStream(seqHistory, seqSys, _newSceneOutTokens(1), 'claude-sonnet-5-5',
         (chunk, done) => { raw = chunk; }, true, { think: true, script: true });
 
       // 대화 히스토리 누적 → 다음 씬이 이전 씬 내용을 알도록
@@ -12113,9 +12160,8 @@ async function handleFloWriteMultiSeq(text, sceneCount, scRefs, history, sysBase
         ...(i < sceneCount - 1 ? [{ role: 'user', content: '다음 씬을 이어서 작성해주세요.' }] : [])
       ];
 
-      const nsr = extractTag(raw, 'newscenes') || extractTag(raw, 'scenes') || extractTag(raw, 'subscenes');
-      let sc = null;
-      if (nsr) { try { const arr = JSON.parse(nsr); sc = arr?.[0]; } catch {} }
+      let sc = _parseNewScenes(raw, ['newscenes', 'scenes', 'subscenes'])?.[0] || null;
+      if (sc?.truncated) toast('⚠️ 씬 ' + (i + 1) + ' 응답이 중간에 끊겨 일부만 받았어요', 4000);
       // JSON 파싱 실패 시 raw 텍스트 → parseFloTextToLines fallback
       if (!sc) {
         const cleanedRaw = cleanDisplayText(raw);
@@ -12124,14 +12170,15 @@ async function handleFloWriteMultiSeq(text, sceneCount, scRefs, history, sysBase
           sc = { title: titleMatch ? titleMatch[1].trim() : '', lines: parseFloTextToLines(cleanedRaw) };
         }
       }
-      if (!sc?.lines?.length) continue;
+      if (!sc?.lines?.length && !sc?.subscenes?.length) { _seqFailed.push(i + 1); console.warn('[handleFloWriteMultiSeq] 씬 ' + (i + 1) + ' 파싱 실패 — 원문:', raw); continue; }
 
       if (targetSc) {
-        // 기존 씬 → diff 즉시 적용
+        // 기존 씬 → diff 즉시 적용 (서브씬으로 왔으면 펼쳐서)
         const oldLines = targetSc.lines || [];
+        const bodyLines = sc.lines?.length ? sc.lines : (sc.subscenes || []).flatMap(x => x.lines);
         const newLines = [
           ...(sc.slug ? [{ type:'slug', text: sc.slug, locked:false }] : []),
-          ...(sc.lines||[]).map(l => ({ type: l.type||'action', text: l.text||'', locked:false }))
+          ...bodyLines.map(l => ({ type: l.type||'action', text: l.text||'', locked:false }))
         ];
         const dl = [];
         for (let j = 0; j < Math.max(oldLines.length, newLines.length); j++) {
@@ -12148,6 +12195,8 @@ async function handleFloWriteMultiSeq(text, sceneCount, scRefs, history, sysBase
         newSceneQueue.push(sc);
       }
     } catch(e) {
+      if (e.name === 'AbortError') break;
+      _seqFailed.push(i + 1);
       console.warn('handleFloWriteMultiSeq error at scene ' + (i + 1), e);
     }
   }
@@ -12156,6 +12205,7 @@ async function handleFloWriteMultiSeq(text, sceneCount, scRefs, history, sysBase
 
   // 결과 메시지
   const parts = [];
+  if (_seqFailed.length) parts.push('⚠️ ' + _seqFailed.map(n => n + '번째').join(', ') + ' 씬은 받지 못했어요. 다시 요청해주세요.');
   if (diffCount > 0) parts.push('✦ ' + diffCount + '개 씬 수정 제안이 대본에 준비됐습니다.');
   if (newSceneQueue.length > 0) parts.push('새 씬 ' + newSceneQueue.length + '개가 준비됐습니다.');
   const finalActions = newSceneQueue.length > 0
@@ -12419,9 +12469,8 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
       '- 씬 이동 제안: <movescene>SC번호→위치설명</movescene>\n' +
       '- 씬 순서 재배치: <reorderscenes>[{"id":"씬제목또는SC번호","newIndex":0부터시작}]</reorderscenes> — 전체 순서를 바꿀 때만\n' +
       '- 시놉시스 작성·수정·제안 시 반드시 <synopsis>내용</synopsis> 태그 사용 (태그 없이 시놉시스 본문을 출력 금지)\n' +
-      '- 씬 생성: <scenes>[JSON]</scenes>\n' +
       '- 씬 제목만 먼저 제안(내용 없이): <sequence_titles>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","hint":"한줄설명"}]</sequence_titles>\n' +
-      '- 새 씬 1~3개 추가/삽입: <newscenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[...]}]</newscenes> (맨 뒤 추가시 insertRef 생략, 사이 삽입시 insertRef:"SC번호")\n' +
+      '- 씬 내용 작성·추가·삽입: <scene> 블록 (아래 [씬 작성 형식], 씬마다 블록 하나. 사이 삽입이면 @insert SC번호)\n' +
       '- 장면 아이디어 카드 3개: <scene_ideas>[{"title":"씬제목","idea":"한줄아이디어","mood":"분위기"}]</scene_ideas>\n' +
       '- 등장인물: <characters>[JSON]</characters>\n' +
       '★ 새 등장인물 소개·설정 시 <character> 태그 필수 (절대 생략 금지). 인물 설명을 평문으로만 출력하지 말 것.\n' +
@@ -12430,14 +12479,14 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
       '  · gender는 대화 맥락에서 명확히 감지될 때만 포함. 불확실하면 반드시 생략.\n' +
       '  · lastName/firstName/title은 알 수 있을 때만 포함.\n' +
       '- 기존 인물 설정 변경/핵심 설정 업데이트: <setting_update>변경된 설정 내용 (인물명, 변경 내용 포함)</setting_update>\n' +
-      '- 태그는 응답 맨 끝에만, JSON을 본문에 직접 출력 금지.\n' +
+      '- 태그는 응답 맨 끝에만, JSON을 본문에 직접 출력 금지. 씬 본문은 <scene> 블록 밖에 쓰지 말 것.\n' +
       // J8: 씬 액션 태그 우선 사용 지침
       '★ 씬 액션 태그 사용 규칙 (매우 중요):\n' +
       '- 씬이 없을 때: 반드시 <sequence_titles> 포함\n' +
       '- 전체 구조 재편 필요: <sequence_titles> 사용\n' +
-      '- 씬 1~3개 추가/삽입: <newscenes> 사용 (맨 뒤면 insertRef 생략)\n' +
-      '- 기존 씬 수정 필요: <newscenes>[수정된 씬 전체 내용]</newscenes> + <editscenes>SC번호</editscenes> 함께 사용\n' +
-      '- 씬 있고 새 방향 나올 때: <newscenes>[내용]</newscenes> + <editscenes>SC번호</editscenes> 함께\n' +
+      '- 씬 1~3개 추가/삽입: <scene> 블록 사용 (맨 뒤면 @insert 생략)\n' +
+      '- 기존 씬 수정 필요: 수정된 씬 전체를 <scene> 블록으로 + <editscenes>SC번호</editscenes> 함께 사용\n' +
+      '- 씬 있고 새 방향 나올 때: <scene> 블록 + <editscenes>SC번호</editscenes> 함께\n' +
       '- 스토리/설정/인물 대화 2턴 이상 이어지면: 위 태그 중 맥락에 맞는 둘 반드시 포함\n' +
       '- 씬 내용을 직접 쓰고 싶을 때: <sequence_titles>로 제목 먼저 제안. 작가가 명시적으로 "써줘" 요청시만 직접 작성.\n' +
       '- <suggest>characters</suggest>는 씬이 없을 때는 사용 금지 (등장인물 분석은 씬이 있어야 의미있음)\n' +
@@ -12448,23 +12497,17 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
       '- suggest 태그는 꼭 필요할 때만, 응답 맨 끝에 붙이세요.\n' +
       (isTheatricalProject()
         ? (() => {
-            const theatricalTypeOptions = isMusicalProject()
-              ? '"dialogue" | "number" | "transition"'
-              : '"dialogue" | "conflict" | "turn"';
-            return '- 대본 작성 시: <newscenes> 대신 반드시 <subscenes> 태그 사용. ' +
+            return '- 대본 작성 시: <scene> 블록 안에서 @sub 줄로 서브씬을 나눠 작성. ' +
               '씬 하나를 완전히 완성한 뒤 다음 씬으로 진행.\n\n' +
               '[연극/뮤지컬 씬 작성 규칙]\n' +
-              '- slug 형식: "N막 N장" 또는 "장소명"\n' +
+              '- @slug 형식: "N막 N장" 또는 "장소명"\n' +
               '- 씬은 갈등/화제 전환 기준으로 자연스러운 서브씬 단위로 나눠 생성\n' +
               '- 각 서브씬: 등장인물 구성 변화 또는 긴장 축 전환 시 새 단위\n' +
-              '- 서브씬 수: 2~4개 (억지 분할 금지)\n' +
-              '- 대사 중심, 지문은 꼭 필요한 것만\n' +
-              '- type은 반드시 다음 중 하나: ' + theatricalTypeOptions + '\n' +
-              '- 뮤지컬 "number" 서브씬의 lines는 type:"lyric" 사용\n' +
-              '반드시 이 형식만 (lines 항목은 반드시 {"type":"...","text":"..."} 객체):\n' +
-              '<subscenes>[{"label":"레이블","type":"dialogue","lines":[{"type":"character","text":"배역명"},{"type":"dialogue","text":"대사 내용"},{"type":"action","text":"지문"}]}]</subscenes>';
+              '- 대사 중심, 지문은 꼭 필요한 것만\n\n' +
+              '[씬 작성 형식]\n' + newSceneFormatRule({ sub: true, insert: true, multi: true });
           })()
-        : '- 대본 작성 시: 씬 하나를 완전히 완성한 뒤 다음 씬으로 진행. 씬 경계는 <newscenes> 태그로 구분. 토큰이 부족할 것 같으면 현재 씬을 완성 후 중단하고 "이어서 작성할까요?"로 마무리.'
+        : '- 대본 작성 시: 씬 하나를 완전히 완성한 뒤 다음 씬으로 진행. 씬 경계는 <scene> 블록으로 구분. 토큰이 부족할 것 같으면 현재 씬을 완성 후 중단하고 "이어서 작성할까요?"로 마무리.\n\n' +
+          '[씬 작성 형식]\n' + newSceneFormatRule({ insert: true, multi: true })
       );
     const sys = _floHead + _floVarCtx + '\n\n' + _floRules;
     // 씬 재구성 요청이면 토큰 더 많이 + 씬 수 감지
@@ -12511,17 +12554,17 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     let _floExtraActions = [];
     if (['write_multi', 'write_single', 'structure'].includes(_floIntent)) {
       if (isTheatricalProject()) {
-        _tagRule = '\n★ 씬 내용을 직접 작성하세요. 반드시 <subscenes> 태그 사용. <newscenes> 사용 금지.';
+        _tagRule = '\n★ 씬 내용을 직접 작성하세요. 반드시 @sub 서브씬으로 나눈 <scene> 블록 사용.';
       } else if (!_hasChars) {
-        _tagRule = '\n★ 씬 구조 제안 가능. <sequence_titles> 또는 <newscenes> 사용 가능.';
+        _tagRule = '\n★ 씬 구조 제안 가능. <sequence_titles> 또는 <scene> 블록 사용 가능.';
       } else {
-        _tagRule = '\n★ 씬 구조를 적극 제안하세요. <sequence_titles> 또는 <newscenes> 사용.';
+        _tagRule = '\n★ 씬 구조를 적극 제안하세요. <sequence_titles> 또는 <scene> 블록 사용.';
       }
     } else {
       if (_sceneCount >= 4) {
-        _tagRule = '\n★ <sequence_titles>, <newscenes>, <editscenes> 태그 사용 금지. 자연어로만 응답.';
+        _tagRule = '\n★ <sequence_titles>, <scene>, <editscenes> 태그 사용 금지. 자연어로만 응답.';
       } else {
-        _tagRule = '\n★ <sequence_titles>, <newscenes> 태그 사용 자제. 꼭 필요할 때만.';
+        _tagRule = '\n★ <sequence_titles>, <scene> 태그 사용 자제. 꼭 필요할 때만.';
       }
     }
 
@@ -12568,7 +12611,6 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
 
     // Parse special content
     const synopsisData = extractTag(raw, 'synopsis');
-    const scenesRaw = extractTag(raw, 'scenes');
     const seqTitlesRaw = extractTag(raw, 'sequence_titles');
     const sceneIdeasRaw = extractTag(raw, 'scene_ideas');
     const charsRaw = extractTag(raw, 'characters');
@@ -12580,40 +12622,9 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     const choicesRaw = extractTag(raw, 'choices'); // L8: 단일 선택지 파싱
     const surveyRaw = extractTag(raw, 'survey');   // v42: 다중 질문 카드
     const suggestRaw = extractTag(raw, 'suggest');
-    const newScenesFlo = extractTag(raw, 'newscenes');
-    const subScenesRaw = extractTag(raw, 'subscenes'); // 연극/뮤지컬 서브씬 그룹
-    let scenesData = null;
-    if (scenesRaw) { try { scenesData = JSON.parse(scenesRaw); } catch {} }
-    let newScenesDataFlo = null;
-    if (newScenesFlo) { try { newScenesDataFlo = JSON.parse(newScenesFlo); } catch {} }
-    // <subscenes> → 부모씬 + 서브씬 배열로 변환 (연극/뮤지컬 모드)
-    let subSceneGroupData = null;
-    if (subScenesRaw) {
-      try {
-        const subs = JSON.parse(subScenesRaw);
-        if (Array.isArray(subs) && subs.length > 0) {
-          const parentId = Date.now() + Math.floor(Math.random() * 100000);
-          const parentSc = {
-            id: parentId, title: subs[0]?.label ? subs.map(s=>s.label).join(' / ') : '새 장면',
-            parentId: null, subOrder: 0, subSceneType: null,
-            locked: false, lines: [], storyboard: [], diff: null,
-          };
-          const childScs = subs.map((sub, idx) => ({
-            id: Date.now() + idx * 1000 + Math.floor(Math.random() * 100),
-            title: sub.label || `서브씬 ${idx + 1}`,
-            parentId: parentId, subOrder: idx, subSceneType: sub.type || null,
-            locked: false,
-            lines: (sub.lines || []).map(l =>
-              typeof l === 'string'
-                ? { type: 'dialogue', text: l, locked: false }
-                : { type: l.type || 'action', text: l.text || l.content || '', locked: false }
-            ),
-            storyboard: [], diff: null,
-          }));
-          subSceneGroupData = [parentSc, ...childScs];
-        }
-      } catch {}
-    }
+    // 씬 본문: <scene> 텍스트 블록 (옛 <newscenes>/<scenes>/<subscenes> JSON 폴백) — 서브씬은 subscenes 속성으로
+    const newScenesDataFlo = _parseNewScenes(raw, ['newscenes', 'scenes', 'subscenes']);
+    if (newScenesDataFlo?.some(s => s.truncated)) toast('⚠️ 씬 응답이 중간에 끊겨 일부만 받았어요', 4000);
     // sequence_titles 처리
     let seqTitlesData = null;
     if (seqTitlesRaw) { try { seqTitlesData = JSON.parse(seqTitlesRaw); } catch {} }
@@ -12642,15 +12653,10 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     if (sceneIdeasData && Array.isArray(sceneIdeasData) && sceneIdeasData.length > 0) {
       actions.push({ type:'pickSceneIdea', data:sceneIdeasData, label:'💡 아이디어 카드 선택하기', style:'blue' });
     }
-    if (scenesData && Array.isArray(scenesData) && scenesData.length > 0) {
-      actions.push({ type:'addScenes', data:scenesData, label:'🎬 씬 '+scenesData.length+'개 대본에 추가', style:'purple' });
-    }
-    if (newScenesDataFlo && Array.isArray(newScenesDataFlo) && newScenesDataFlo.length > 0 && !subSceneGroupData) {
-      actions.push({ type:'addScenes', data:newScenesDataFlo, label:'🎬 씬 '+newScenesDataFlo.length+'개 대본에 추가', style:'purple' });
-    }
-    if (subSceneGroupData && subSceneGroupData.length > 0) {
-      const subCount = subSceneGroupData.filter(s => s.parentId).length;
-      actions.push({ type:'addScenes', data:subSceneGroupData, label:'🎭 서브씬 '+subCount+'개 대본에 추가', style:'purple' });
+    if (newScenesDataFlo?.length) {
+      const subCount = newScenesDataFlo.reduce((n, s) => n + (s.subscenes?.length || 0), 0);
+      actions.push({ type:'addScenes', data:newScenesDataFlo, style:'purple',
+        label: subCount ? '🎭 서브씬 ' + subCount + '개 대본에 추가' : '🎬 씬 ' + newScenesDataFlo.length + '개 대본에 추가' });
     }
     if (charsData && Array.isArray(charsData) && charsData.length > 0) {
       actions.push({ type:'addCharacters', data:charsData, label:'👥 등장인물 '+charsData.length+'명 추가', style:'purple' });
@@ -12659,7 +12665,8 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     if (editScenesRaw) {
       const scNums = editScenesRaw.split(',').map(s=>s.trim()).filter(Boolean);
       // 플로가 작성한 씬 내용을 함께 전달 (diff 직접 적용용)
-      const _floScene = newScenesDataFlo?.length ? newScenesDataFlo[0] : null;
+      const _fs0 = newScenesDataFlo?.[0] || null;
+      const _floScene = _fs0 && !_fs0.lines?.length && _fs0.subscenes ? { ..._fs0, lines: _fs0.subscenes.flatMap(x => x.lines) } : _fs0;
       if (scNums.length === 1) {
         actions.push({ type:'gotoScriptEdit', data:{scNums, prompt:text, floRaw:displayText, floScene:_floScene}, label:'✦ '+scNums[0]+' 수정하기 →', style:'amber' });
       } else if (scNums.length > 1) {
@@ -13268,18 +13275,19 @@ async function generateScenesFromTitles(seqTitlesData) {
         + '다음 씬들을 작성해주세요:\n'
         + seqTitlesData.map((s,i) => (i+1)+'. "'+s.title+'" — '+((s.slug && /^(INT|EXT)/i.test(s.slug)) ? s.slug : '장소 미정')+(s.hint?' ('+s.hint+')':'')).join('\n')
       }],
-      '반드시 <scenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만. 각 씬 최소 5줄. slug는 반드시 "INT." 또는 "EXT."로 시작하는 실제 슬러그라인으로. 설명 없이.',
-      6000,
+      newSceneFormatRule({ multi: true }) + '\n요청한 씬마다 <scene> 블록 하나씩, 순서대로. 각 씬 최소 5줄.' +
+        (isTheatricalProject() ? '' : ' @slug는 반드시 "INT." 또는 "EXT."로 시작하는 실제 슬러그라인으로.') + ' 설명 없이.',
+      _newSceneOutTokens(seqTitlesData.length),
       'claude-sonnet-5-5',
       null,
       false,
       { think: true, script: true }
     );
     hideAnalyzing();
-    const sr = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
-    if (!sr) { toast('씬 생성 실패. 다시 시도해주세요.'); return; }
-    const scenesData = JSON.parse(sr);
-    if (!scenesData?.length) return;
+    const scenesData = _parseNewScenes(raw);
+    if (!scenesData?.length) { _showNewSceneParseFail(raw); return; }
+    if (scenesData.length < seqTitlesData.length || scenesData.some(s => s.truncated))
+      toast('⚠️ 요청한 ' + seqTitlesData.length + '개 중 ' + scenesData.length + '개만 받았어요' + (scenesData.some(s => s.truncated) ? ' (마지막 씬은 중간에 끊김)' : ''), 5000);
     await fixSlugsPass(scenesData);
     showSmartSceneAddPanel(scenesData);
   } catch(e) {
@@ -13289,6 +13297,7 @@ async function generateScenesFromTitles(seqTitlesData) {
 }
 
 async function fixSlugsPass(scenesData) {
+  if (isTheatricalProject()) return; // 연극/뮤지컬 슬러그는 "N막 N장" — INT/EXT 보정 대상 아님
   const needsFix = scenesData.filter(s => !s.slug || !/^(INT|EXT)/i.test(s.slug));
   if (!needsFix.length) return;
   try {
@@ -13410,14 +13419,13 @@ async function generateSceneFromIdea(idea) {
         + '아이디어: ' + idea.idea + '\n'
         + (idea.mood ? '분위기: ' + idea.mood : '')
       }],
-      '반드시 <scenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만. 최소 5줄. 설명 없이.',
-      3000, 'claude-sonnet-5-5', null, false, { think: true, script: true }
+      newSceneFormatRule() + '\n<scene> 블록 하나만. 최소 5줄. 설명 없이.',
+      _newSceneOutTokens(1), 'claude-sonnet-5-5', null, false, { think: true, script: true }
     );
     hideAnalyzing();
-    const sr = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
-    if (!sr) { toast('씬 생성 실패. 다시 시도해주세요.'); return; }
-    const scenesData = JSON.parse(sr);
-    if (!scenesData?.length) return;
+    const scenesData = _parseNewScenes(raw);
+    if (!scenesData?.length) { _showNewSceneParseFail(raw); return; }
+    if (scenesData[0].truncated) toast('⚠️ 응답이 중간에 끊겨 일부만 받았어요', 4000);
     showSmartSceneAddPanel(scenesData);
   } catch(e) {
     hideAnalyzing();
@@ -13667,25 +13675,7 @@ async function showSmartSceneAddPanel(scenesData) {
       });
     });
 
-    const newScenes = scenesData.map(s => {
-      // 이미 id/parentId가 설정된 서브씬 그룹 데이터는 구조 보존
-      if (s.id && (s.parentId !== undefined)) {
-        return { storyboard: [], diff: null, ...s };
-      }
-      const rawText = [s.slug, ...(s.lines||[]).map(l => l.text)].filter(Boolean).join('\n');
-      const parsedLines = parseFloTextToLines(rawText);
-      if (!parsedLines.some(l => l.type === 'slug')) {
-        parsedLines.unshift({type:'slug', text: isTheatricalProject() ? '1막 1장' : 'INT. 장소 - 시간대', locked:false});
-      }
-      return {
-        id: Date.now() + Math.floor(Math.random() * 100000),
-        title: s.title || '새 씬',
-        locked: false,
-        parentId: null, subOrder: 0, subSceneType: null,
-        lines: parsedLines,
-        storyboard: [], diff: null,
-      };
-    });
+    const newScenes = _scenesFromParsed(scenesData);
 
     // 삭제 전에 삽입 기준 씬 ID 기억 (삭제 후 인덱스 재계산)
     const insertAfterScId = insertAt > 0 && insertAt <= S.cur.scenes.length
@@ -13732,43 +13722,42 @@ async function showSmartSceneAddPanel(scenesData) {
   document.body.appendChild(overlay);
 }
 
-function addScenesFromAI(scenesData) {
-  if (!S.cur) return;
-  const newScenes = [];
-  scenesData.forEach(s => {
-    // subscenes 프로퍼티가 있으면 부모씬 + 자식씬으로 펼치기 (연극/뮤지컬 newscenes 내 중첩 구조 대응)
+// AI 씬 데이터({title, slug, lines, subscenes?} 또는 이미 만들어진 서브씬 그룹) → 씬 객체 배열
+// 받은 줄 타입을 그대로 사용 (텍스트로 되돌려 타입을 다시 추측하지 않음)
+function _scenesFromParsed(scenesData) {
+  const out = [];
+  const defSlug = isTheatricalProject() ? '1막 1장' : 'INT. 장소 - 시간대';
+  const uid = () => Date.now() + Math.floor(Math.random() * 1e9);
+  const normLines = arr => (arr || []).map(l => typeof l === 'string'
+    ? { type: 'dialogue', text: l, locked: false }
+    : { type: l.type || 'action', text: l.text || l.content || '', locked: false });
+  (scenesData || []).forEach(s => {
+    if (s.id && s.parentId !== undefined) { out.push({ storyboard: [], diff: null, ...s }); return; } // 서브씬 그룹 데이터 보존
     const subList = s.subscenes || s.subScenes || s.sub_scenes;
-    if (subList && Array.isArray(subList) && subList.length > 0) {
-      const parentId = Date.now() + Math.floor(Math.random() * 100000);
-      newScenes.push({
-        id: parentId,
-        title: s.title || '새 장면',
-        slug: s.slug || '1막 1장',
-        locked: false, parentId: null, subOrder: 0, subSceneType: null,
-        lines: [{ type: 'slug', text: s.slug || '1막 1장', locked: false }],
+    const slug = s.slug || (normLines(s.lines).find(l => l.type === 'slug')?.text) || defSlug;
+    const body = normLines(s.lines).filter(l => l.type !== 'slug');
+    const parentId = uid();
+    out.push({
+      id: parentId, title: s.title || '새 씬', locked: false, draft: false,
+      parentId: null, subOrder: 0, subSceneType: null,
+      lines: [{ type: 'slug', text: slug, locked: false }, ...body],
+      storyboard: [], diff: null,
+    });
+    if (Array.isArray(subList) && subList.length) {
+      subList.forEach((sub, idx) => out.push({
+        id: uid(), title: sub.label || sub.title || `서브씬 ${idx + 1}`, locked: false, draft: false,
+        parentId, subOrder: idx, subSceneType: sub.type || null,
+        lines: normLines(sub.lines).filter(l => l.type !== 'slug'),
         storyboard: [], diff: null,
-      });
-      subList.forEach((sub, idx) => {
-        newScenes.push({
-          id: Date.now() + (idx + 1) * 1000 + Math.floor(Math.random() * 100),
-          title: sub.label || sub.title || `서브씬 ${idx + 1}`,
-          parentId: parentId, subOrder: idx, subSceneType: sub.type || null,
-          locked: false,
-          lines: (sub.lines || []).map(l => ({ type: l.type||'action', text: l.text||'', locked: false })),
-          storyboard: [], diff: null,
-        });
-      });
-    } else {
-      newScenes.push({
-        id: Date.now() + Math.floor(Math.random() * 100000),
-        title: s.title || '새 씬',
-        slug: s.slug || (isTheatricalProject() ? '1막 1장' : 'INT. 장소 - 시간대'),
-        locked: false, parentId: null, subOrder: 0, subSceneType: null,
-        lines: (s.lines || []).map(l => ({ type: l.type||'action', text: l.text||'', locked: false })),
-        storyboard: [], diff: null,
-      });
+      }));
     }
   });
+  return out;
+}
+
+function addScenesFromAI(scenesData) {
+  if (!S.cur) return;
+  const newScenes = _scenesFromParsed(scenesData);
   S.cur.scenes = [...(S.cur.scenes||[]), ...newScenes];
   save(); renderScriptBody(); renderNavSceneList();
   if (isTheatricalProject()) {
@@ -14702,15 +14691,14 @@ async function handleImageAttach(file) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-sonnet-5-5',
-        max_tokens: 2000,
+        max_tokens: 4000, // 비스트리밍(프록시 응답 시작 제한) — 씬 1개 분량만
         messages: [{
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: file.type, data: base64 } },
             { type: 'text', text:
               '이 이미지를 대본 장면으로 만들어주세요.\n' +
-              '반드시 다음 형식으로만 응답하세요:\n' +
-              '<scenes>[{"title":"씬 제목","slug":"INT/EXT. 장소 - 시간대","lines":[{"type":"action","text":"지문내용"},{"type":"character","text":"배역명"},{"type":"dialogue","text":"대사"}]}]</scenes>'
+              newSceneFormatRule() + '\n<scene> 블록 하나만, 설명 없이.'
             }
           ]
         }]
@@ -14718,11 +14706,8 @@ async function handleImageAttach(file) {
     });
     const data = await response.json();
     const raw = data.content?.map(c=>c.text||'').join('');
-    const scenesRaw = extractTag(raw, 'scenes');
-    if (!scenesRaw) { fabStatus.textContent = '장면 생성 실패'; return; }
-    let scenesData = null;
-    try { scenesData = JSON.parse(scenesRaw); } catch { fabStatus.textContent = '파싱 실패'; return; }
-    if (!scenesData?.length) return;
+    const scenesData = _parseNewScenes(raw || '');
+    if (!scenesData?.length) { fabStatus.textContent = '장면 생성 실패'; console.warn('[image attach] 파싱 실패 — 원문:', raw); return; }
 
     fabStatus.textContent = '장면 종류를 선택해주세요';
 
@@ -15067,14 +15052,13 @@ async function aiSceneFill(scId) {
         + '앞 장면: ' + prevCtx + '\n뒷 장면: ' + nextCtx + '\n\n'
         + '앞뒤 흐름에 자연스럽게 맞는 장면을 써주세요.'
       }],
-      '반드시 <scenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만. 설명 없이.',
-      4000, 'claude-sonnet-5-5', null, false, { think: true, script: true }
+      newSceneFormatRule() + '\n<scene> 블록 하나만, 설명 없이.',
+      _newSceneOutTokens(1), 'claude-sonnet-5-5', null, false, { think: true, script: true }
     );
     hideAnalyzing();
-    const sr = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
-    if (!sr) { toast('장면 생성 실패. 다시 시도해주세요.'); return; }
-    const scenesData = JSON.parse(sr);
-    if (!scenesData?.length) return;
+    const scenesData = _parseNewScenes(raw);
+    if (!scenesData?.length) { _showNewSceneParseFail(raw, '장면 생성'); return; }
+    if (scenesData[0].truncated) toast('⚠️ 응답이 중간에 끊겨 일부만 받았어요', 4000);
     const sd = scenesData[0];
     const newLines = [{ type:'slug', text: sd.slug || sc.lines?.[0]?.text || 'INT. 장소 - 낮', locked:false }];
     (sd.lines||[]).forEach(l => newLines.push({ type:l.type||'action', text:l.text||'', locked:false }));
@@ -15131,14 +15115,21 @@ async function aiSceneFillBulk(scIds) {
 
   showAnalyzing('빈 장면 ' + targets.length + '개를 순서대로 채우고 있습니다... ✍️');
   try {
+    let okCount = 0;
+    const failed = [];
     for (const sc of targets) {
-      await aiSceneFillSilent(sc, scenes);
+      let ok = false;
+      try { ok = await aiSceneFillSilent(sc, scenes); }
+      catch (e) { if (e.name === 'AbortError') throw e; console.warn('[aiSceneFillBulk]', e); }
       // 바로 적용 (diff 없이)
-      if (sc.diff) { sc.lines = sc.diff.newLines; sc.diff = null; }
+      if (ok && sc.diff) { sc.lines = sc.diff.newLines; sc.diff = null; okCount++; }
+      else failed.push(getSceneLabel(sc, scenes));
     }
     hideAnalyzing();
     save(true); renderScriptBody(); renderNavSceneList();
-    toast('✨ ' + targets.length + '개 장면이 완성됐어요! 😊', 4000);
+    toast(failed.length
+      ? '✨ ' + okCount + '개 완성 · 실패 ' + failed.join(', ') + ' — 다시 시도해주세요'
+      : '✨ ' + targets.length + '개 장면이 완성됐어요! 😊', 5000);
   } catch(e) {
     hideAnalyzing();
     if (e.name !== 'AbortError') toast('오류: ' + e.message);
@@ -15163,17 +15154,15 @@ async function aiSceneFillSilent(sc, scenes) {
       + '앞 장면: ' + prevCtx + '\n뒷 장면: ' + nextCtx + '\n\n'
       + '앞뒤 흐름에 자연스럽게 맞는 장면을 써주세요.'
     }],
-    '반드시 <scenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만. 설명 없이.',
-    4000,
+    newSceneFormatRule() + '\n<scene> 블록 하나만, 설명 없이.',
+    _newSceneOutTokens(1),
     'claude-sonnet-5-5',
     null,
     false,
     { think: true, script: true }
   );
-  const sr = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
-  if (!sr) return;
-  const scenesData = JSON.parse(sr);
-  if (!scenesData?.length) return;
+  const scenesData = _parseNewScenes(raw);
+  if (!scenesData?.length) { console.warn('[aiSceneFillSilent] 파싱 실패 — 원문:', raw, _lastStreamMeta); return false; }
   const sd = scenesData[0];
   const newLines = [{ type:'slug', text: sd.slug || sc.lines?.[0]?.text || 'INT. 장소 - 낮', locked:false }];
   (sd.lines||[]).forEach(l => newLines.push({ type:l.type||'action', text:l.text||'', locked:false }));
@@ -15182,6 +15171,7 @@ async function aiSceneFillSilent(sc, scenes) {
     lines: [...(sc.lines||[]).map(l=>({type:'del', text:l.text})), ...newLines.map(l=>({type:'add', text:l.text}))],
     newLines, comment: '빈 장면 채우기'
   };
+  return true;
 }
 
 // ── 이 장면 재구성 ───────────────────────────────────────────────────
@@ -15310,14 +15300,13 @@ async function _execAiSceneInsert(hintVal, hintLabel) {
         + '이 위치의 흐름에 자연스럽게 이어지는 새 장면을 써주세요.'
         + (hintVal ? ' ' + hintVal + '.': '')
       }],
-      '반드시 <scenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만. 설명 없이.',
-      4000, 'claude-sonnet-5-5', null, false, { think: true, script: true }
+      newSceneFormatRule() + '\n<scene> 블록 하나만, 설명 없이.',
+      _newSceneOutTokens(1), 'claude-sonnet-5-5', null, false, { think: true, script: true }
     );
     hideAnalyzing();
-    const sr = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
-    if (!sr) { toast('장면 생성 실패. 다시 시도해주세요.'); return; }
-    const scenesData = JSON.parse(sr);
-    if (!scenesData?.length) return;
+    const scenesData = _parseNewScenes(raw);
+    if (!scenesData?.length) { _showNewSceneParseFail(raw, '장면 생성'); return; }
+    if (scenesData[0].truncated) toast('⚠️ 응답이 중간에 끊겨 일부만 받았어요', 4000);
     showNewSceneInsertPanel(scenesData, '✨ 새 장면이 준비됐어요!', sc, scLabel, direction);
     toast('✨ 새 장면을 확인해보세요 😊', 4000);
   } catch(e) {
@@ -15781,19 +15770,16 @@ async function handleRefSceneCreate(text) {
       '반드시 다음 형식으로만 응답하세요:\n' +
       '<insert_after>SC번호</insert_after> 또는 <insert_at>end</insert_at>\n' +
       '<reason>추가 이유 한 줄 — 긍정적 표현으로</reason>\n' +
-      '<scenes>[{"title":"씬 제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용"}]}]</scenes>',
-      6000, 'claude-sonnet-5-5', null, false, { think: true, script: true }
+      newSceneFormatRule(),
+      _newSceneOutTokens(1), 'claude-sonnet-5-5', null, false, { think: true, script: true }
     );
     hideAnalyzing();
 
     const insertAfterNum = raw.match(/<insert_after>SC\s*(\d+)<\/insert_after>/i)?.[1];
     const reason = raw.match(/<reason>([\s\S]*?)<\/reason>/i)?.[1]?.trim() || '';
-    const scenesRaw = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
-
-    if (!scenesRaw) { toast('씬 생성 실패. 다시 시도해주세요.'); return; }
-    let scenesData = null;
-    try { scenesData = JSON.parse(scenesRaw); } catch { toast('씬 데이터 파싱 실패.'); return; }
-    if (!scenesData?.length) return;
+    const scenesData = _parseNewScenes(raw);
+    if (!scenesData?.length) { _showNewSceneParseFail(raw); return; }
+    if (scenesData[0].truncated) toast('⚠️ 응답이 중간에 끊겨 일부만 받았어요', 4000);
 
     // 삽입 기준 씬: AI 제안 우선, 없으면 참조 씬 중 마지막
     let refSc = null;
@@ -15910,12 +15896,8 @@ async function handleAiSceneAdd(hint, forcedRefSc, forcedRefLabel, isInsertOnly)
 
   showAnalyzing('새 장면을 구상하고 있습니다... 🌱');
 
-  // 토큰 예산: 전체 씬 줄 수 기반 상향
-  const _totalExistingLines = scenes.reduce((s, sc) => s + (sc.lines||[]).length, 0);
-  const _addTokens = _DEV_FORCE_HAIKU ? 4000
-    : _totalExistingLines <= 50  ? 10000
-    : _totalExistingLines <= 100 ? 18000
-    : _totalExistingLines <= 200 ? 25000 : 40000;
+  // 출력 한도: 새 씬 1개 분량 기준 (대본 전체 길이와 무관)
+  const _addTokens = _DEV_FORCE_HAIKU ? 6000 : _newSceneOutTokens(1);
   const _addModel = _DEV_FORCE_HAIKU ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-5-5';
 
   // 플레이스홀더 제거 헬퍼
@@ -15938,8 +15920,7 @@ async function handleAiSceneAdd(hint, forcedRefSc, forcedRefLabel, isInsertOnly)
       '반드시 다음 형식으로만 응답하세요:\n' +
       '<insert_after>SC번호</insert_after> 또는 <insert_at>start|end</insert_at>\n' +
       '<reason>추가 이유 한 줄 — 반드시 긍정적 표현으로 (예: ~을 더 풍성하게, ~을 자연스럽게 연결, ~의 매력을 살려서)</reason>\n' +
-      '<scenes>[{"title":"씬 제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용"}]}]</scenes>\n' +
-      '씬 lines는 충분히 작성하세요. 대사와 지문을 압축하거나 생략하지 마세요.',
+      newSceneFormatRule(),
       _addTokens, _addModel, null, false, { think: true, script: true }
     );
     _removePlaceholder();
@@ -15948,12 +15929,9 @@ async function handleAiSceneAdd(hint, forcedRefSc, forcedRefLabel, isInsertOnly)
     const insertAfter = raw.match(/<insert_after>SC\s*(\d+)<\/insert_after>/i)?.[1];
     const insertAt = raw.match(/<insert_at>(start|end)<\/insert_at>/i)?.[1];
     const reason = raw.match(/<reason>([\s\S]*?)<\/reason>/i)?.[1]?.trim() || '';
-    const scenesRaw = raw.match(/<scenes>([\s\S]*?)<\/scenes>/i)?.[1];
-
-    if (!scenesRaw) { toast('씬 생성 실패. 다시 시도해주세요.'); return; }
-    let scenesData = null;
-    try { scenesData = JSON.parse(scenesRaw); } catch(e) { toast('씬 데이터 파싱 실패.'); return; }
-    if (!scenesData?.length) return;
+    const scenesData = _parseNewScenes(raw);
+    if (!scenesData?.length) { _showNewSceneParseFail(raw); return; }
+    if (scenesData.some(s => s.truncated)) toast('⚠️ 응답이 중간에 끊겨 일부만 받았어요', 4000);
 
     let refSc = null;
     if (insertAfter) {
@@ -16049,8 +16027,7 @@ async function handleSceneInsertPrompt(text) {
   // 먼저 선택지 제시
   const insertChoices = [
     '기존 씬에 내용 추가 (씬 수 유지)',
-    '새 씬으로 분리 생성',
-    'AI가 더 적합한 방법으로 판단'
+    '새 씬으로 분리 생성'
   ];
   window._sceneInsertText = text;
   window._sceneInsertRefSc = refSc;
@@ -16070,7 +16047,7 @@ async function handleSceneInsertPrompt(text) {
 
 async function confirmSceneInsertChoice() {
   const sel = document.querySelector('#rp-body .choice-option.selected');
-  const choice = sel ? parseInt(sel.dataset.val) : 2;
+  const choice = sel ? parseInt(sel.dataset.val) : 1;
   closeResponsePanel();
 
   const text = window._sceneInsertText || '';
@@ -16099,8 +16076,8 @@ async function confirmSceneInsertChoice() {
       : (refSc ? getSceneLabel(refSc, scenes) + ' 뒤에 삽입할 씬' : '마지막에 추가할 씬');
     const sys = '당신은 대본 작가입니다. 요청에 맞는 새 씬을 생성하세요.\n' +
       '생성 위치: ' + insertPosHint + '\n' +
-      '반드시 <scenes>[{"title":"씬 제목","slug":"INT/EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes> 형식으로만 응답하세요.\n' +
-      '태그 외 설명 텍스트 없이 씬 JSON만 출력하세요.';
+      newSceneFormatRule() + '\n' +
+      '<scene> 블록 외 설명 텍스트는 쓰지 마세요.';
 
     const raw = await callClaudeStream(
       [{role:'user', content:
@@ -16108,15 +16085,13 @@ async function confirmSceneInsertChoice() {
         '\n\n앞뒤 씬 컨텍스트:\n' + ctxLines +
         '\n\n요청: ' + text
       }],
-      sys, 4000, 'claude-sonnet-5-5', null, false, { think: true, script: true }
+      sys, _newSceneOutTokens(1), 'claude-sonnet-5-5', null, false, { think: true, script: true }
     );
     hideAnalyzing();
 
-    const scenesRaw = extractTag(raw, 'scenes');
-    if (!scenesRaw) { toast('씬 생성 실패. 다시 시도해주세요.'); return; }
-    let scenesData = null;
-    try { scenesData = JSON.parse(scenesRaw); } catch {}
-    if (!scenesData?.length) { toast('씬 데이터 파싱 실패.'); return; }
+    const scenesData = _parseNewScenes(raw);
+    if (!scenesData?.length) { _showNewSceneParseFail(raw); return; }
+    if (scenesData.some(s => s.truncated)) toast('⚠️ 응답이 중간에 끊겨 일부만 받았어요', 4000);
 
     const refLabel = refSc ? getSceneLabel(refSc, scenes) : null;
 
@@ -17408,7 +17383,8 @@ async function handleScriptPrompt(text) {
     '🔒 표시된 잠금 줄은 절대 수정하지 마세요.\n' +
     '각 씬의 줄 수는 원본과 같거나 더 많아야 합니다. 대사와 지문을 압축하거나 생략하지 마세요.\n' +
     sceneEditFormatRule() + '\n' +
-    '요청한 인물이 기존 씬 어디에도 없거나, 새 씬을 써달라는 요청인 경우: <r> 대신 <newscenes>[{"title":"씬제목","slug":"INT./EXT. 장소 - 시간","lines":[{"type":"action|character|dialogue|parenthetical","text":"내용"}],"insertRef":"SC마지막번호"}]</newscenes> 형식으로 새 씬을 만들어주세요.\n' +
+    '요청한 인물이 기존 씬 어디에도 없거나, 새 씬을 써달라는 요청인 경우: <r> 대신 새 씬 <scene> 블록으로 응답하세요 (특정 씬 뒤에 넣을 때는 @insert SC번호).\n' +
+    newSceneFormatRule({ insert: true }) + '\n' +
     '편집 없이 제안/질문에 답할 때는 자연어로만 응답하세요.\n' +
     '방향 선택이 필요하면 <choices>["선택지1","선택지2"]</choices>도 추가하세요.';
 
@@ -17438,22 +17414,20 @@ async function handleScriptPrompt(text) {
       { think: true, script: true }
     );
     const choicesRaw = extractTag(raw, 'choices');
-    const newscenesRaw = extractTag(raw, 'newscenes');
     const updates = _parseSceneEditResponse(raw);
     let choices = null;
     if (choicesRaw) { try { choices = JSON.parse(choicesRaw); } catch {} }
-    let newScenesData = null;
-    if (newscenesRaw) { try { newScenesData = JSON.parse(newscenesRaw); } catch {} }
+    const newScenesData = updates ? null : _parseNewScenes(raw, ['newscenes']);
 
     // 새 씬 삽입 요청 — 삽입 방식 선택 패널 표시
     if (newScenesData && Array.isArray(newScenesData) && newScenesData.length > 0) {
       const comment = cleanDisplayText(raw) || `새 씬 ${newScenesData.length}개 삽입 준비됨`;
       // insertRef 힌트에서 씬 인덱스 추출
       const ref = newScenesData[0].insertRef || '';
-      const refMatch = ref.match(/SC(\d+)/i);
-      const refIdx = refMatch ? parseInt(refMatch[1]) - 1 : -1;
-      const refSc = refIdx >= 0 ? S.cur.scenes[refIdx] : null;
-      const refLabel = refSc ? `씬${refIdx+1} "${refSc.title}"` : '마지막';
+      const refMatch = ref.match(/SC\s*(\d+(?:-[\dA-Z]+)?)/i);
+      const refSc = refMatch ? S.cur.scenes.find(s => getSceneLabel(s, S.cur.scenes) === 'SC ' + refMatch[1].toUpperCase()) : null;
+      const refLabel = refSc ? getSceneLabel(refSc, S.cur.scenes) + ' "' + refSc.title + '"' : '마지막';
+      if (newScenesData.some(s => s.truncated)) toast('⚠️ 응답이 중간에 끊겨 일부만 받았어요', 4000);
       showNewSceneInsertPanel(newScenesData, comment, refSc, refLabel);
       return;
     }
@@ -21709,6 +21683,8 @@ function cleanDisplayText(raw, opts = {}) {
     .replace(/<scenes[\s\S]*?<\/scenes>/gi, '')
     .replace(/<characters[\s\S]*?<\/characters>/gi, '')
     .replace(/<newscenes[\s\S]*?<\/newscenes>/gi, '')
+    .replace(/<scene(?:\s[^>]*)?>[\s\S]*?<\/scene>/gi, '')
+    .replace(/<scene(?:\s[^>]*)?>[\s\S]*/gi, '')
     .replace(/<newproject[\s\S]*?<\/newproject>/gi, '')
     .replace(/<r(?:\s[^>]*)?>[\s\S]*?<\/r>/gi, '')
     .replace(/<result>[\s\S]*?<\/result>/gi, '')
@@ -21832,9 +21808,8 @@ async function handleFileAttach(e) {
         '1. 응답 본문은 반드시 자연어 한국어로만 작성하세요. JSON·코드·XML 태그를 본문에 쓰지 마세요.\n' +
         '2. 태그는 응답 맨 끝에만 붙이세요.\n' +
         '3. 시놉시스/줄거리가 있으면: <synopsis>내용</synopsis>\n' +
-        '4. 대본/씬이 있으면: <scenes>[{"title":"씬제목","slug":"INT/EXT. 장소 - 시간","merge":false,"lines":[{"type":"action|character|dialogue","text":"내용"}]}]</scenes>\n' +
-        '   - type은 action(지문)/character(배역명)/dialogue(대사) 중 하나만 사용\n' +
-        '   - 앞 구간과 이어지는 씬이면 merge:true\n' +
+        '4. 대본/씬이 있으면: 원문 내용 그대로 씬마다 <scene> 블록으로 (앞 구간과 이어지는 씬이면 블록 안에 "@merge" 줄 추가)\n' +
+        newSceneFormatRule({ multi: true }) + '\n' +
         '5. 현재 프로젝트와 전혀 다른 작품이면: <newproject>추천제목</newproject>\n' +
         '6. 반드시 <relevance>related</relevance> 또는 <relevance>unrelated</relevance> 태그를 붙이세요.\n' +
         '   related: 대본/시나리오/이야기 관련 파일\n' +
@@ -21852,12 +21827,11 @@ async function handleFileAttach(e) {
       let raw = '';
       await callClaudeStream(
         [{role:'user', content:'다음 텍스트를 분석해주세요:\n\n' + text}],
-        makeSys(''), 6000, 'claude-haiku-4-5-20251001', c => { raw = c; }, true
+        makeSys(''), _parseOutTokens(text), 'claude-haiku-4-5-20251001', c => { raw = c; }, true
       );
       synopsisData = extractTag(raw, 'synopsis');
-      const sr = extractTag(raw, 'scenes');
       newProjectTitle = extractTag(raw, 'newproject');
-      if (sr) { try { const d = JSON.parse(sr); if (Array.isArray(d)) allScenes = d; } catch(pe) { console.warn('parse err', pe); } }
+      allScenes = _parseNewScenes(raw) || [];
       summaryText = cleanDisplayText(raw);
     } else {
       // 긴 파일 — 씬 경계 기준 청크 분할 (공통 헬퍼, 1500자 기준)
@@ -21873,7 +21847,7 @@ async function handleFileAttach(e) {
         let raw = '';
         await callClaudeStream(
           [{role:'user', content:'다음 텍스트를 분석해주세요 (' + (ci+1) + '/' + total + '):\n\n' + chunks[ci]}],
-          makeSys((ci+1) + '/' + total, lastSceneContext), 6000, 'claude-haiku-4-5-20251001', c => { raw = c; }, true
+          makeSys((ci+1) + '/' + total, lastSceneContext), _parseOutTokens(chunks[ci]), 'claude-haiku-4-5-20251001', c => { raw = c; }, true
         );
         // 시놉시스 — 아직 없을 때만 자동 저장
         const synChunk = extractTag(raw, 'synopsis');
@@ -21888,10 +21862,10 @@ async function handleFileAttach(e) {
           newProjectTitle = extractTag(raw, 'newproject');
           summaryText = cleanDisplayText(raw);
         }
-        const sr = extractTag(raw, 'scenes');
-        if (sr) {
+        {
           try {
-            const d = JSON.parse(sr);
+            const d = _parseNewScenes(raw);
+            if (!d) console.warn('[file attach] 구간 ' + (ci + 1) + ' 씬 없음/실패 — 원문:', raw);
             if (Array.isArray(d) && d.length > 0) {
               d.forEach((sc, si) => {
                 // merge:true 이고 이미 등록된 씬이 있으면 마지막 씬에 이어붙이기
