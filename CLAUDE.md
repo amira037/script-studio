@@ -610,7 +610,7 @@ document.addEventListener('keydown', (e) => {
 ## AI 사용량 측정
 
 - 모든 `callClaude` / `callClaudeStream` / `callClaudeBackground` / 웹 검색 응답의 `usage` → `_recordUsage(model, usage, proj, cat)`
-- 저장 위치: `proj.usage['YYYY-MM-DD'][cat] = { usd, saved, n }` — 프로젝트 데이터라 기존 Supabase 동기화로 함께 업로드 (새 컬럼 없음). sync 정리 목록에서 지우지 말 것
+- 저장 위치: `proj.usage['YYYY-MM-DD'][cat] = { usd, saved, n, cw, cwx, cr }` (cw=캐시 저장 금액, cwx=저장 할증분(일반 입력 대비 차액), cr=캐시 읽기 금액, 2026-10-14부터 기록). 패널에 순절감 = saved − cwx 표시 — 프로젝트 데이터라 기존 Supabase 동기화로 함께 업로드 (새 컬럼 없음). sync 정리 목록에서 지우지 말 것
 - 분류(`_usageCategory`): 호출 스택 함수명 → `USAGE_CAT_RULES` (analysis / write / edit / flo), 실패 시 `S._usageCtx`(마지막 진입 핸들러) → etc
 - 단가 `USAGE_PRICES`, 환율 `USD_KRW` 상수. 모델 추가·가격 변경 시 갱신
 - 표시: 설정 패널 "AI 사용량" (`_renderUsagePanel`, 설정 열 때 갱신) — 오늘/최근 7일/이번 달, 기능별, 현재 작품

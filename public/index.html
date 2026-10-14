@@ -2586,11 +2586,12 @@ function _renderUsagePanel() {
   const month = today.slice(0, 7);
   const weekStart = _usageDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6));
   const sum = (projs, pred) => {
-    const t = { usd: 0, saved: 0, n: 0, cats: {} };
+    const t = { usd: 0, saved: 0, n: 0, cw: 0, cwx: 0, cr: 0, cats: {} };
     projs.forEach(p => Object.entries(p.usage || {}).forEach(([day, cats]) => {
       if (!pred(day)) return;
       Object.entries(cats).forEach(([cat, c]) => {
         t.usd += c.usd; t.saved += c.saved; t.n += c.n;
+        t.cw += c.cw || 0; t.cwx += c.cwx || 0; t.cr += c.cr || 0;
         t.cats[cat] = (t.cats[cat] || 0) + c.usd;
       });
     }));
@@ -2602,14 +2603,16 @@ function _renderUsagePanel() {
   const tWeek = sum(all, d => d >= weekStart && d <= today);
   const tMonth = sum(all, d => d.startsWith(month));
   const tCur = S.cur ? sum([S.cur], d => d.startsWith(month)) : null;
+  // 순절감 = 읽기로 아낀 돈 − 저장 할증분 (캐시를 안 썼을 때 대비 실제 이득)
   const row = (label, t) => '<div class="usage-row"><span>' + label + '</span><b>' + won(t.usd) + '</b>' +
-    '<small>' + t.n + '회 · 캐시 절감 ' + won(t.saved) + '</small></div>';
+    '<small>' + t.n + '회 · 캐시 저장 ' + won(t.cw) + ' · 캐시 읽기 ' + won(t.cr) + '</small>' +
+    '<small>절감 ' + won(t.saved) + ' − 저장 할증 ' + won(t.cwx) + ' = 순절감 <b style="color:' + (t.saved - t.cwx >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + won(t.saved - t.cwx) + '</b></small></div>';
   const cats = Object.entries(tMonth.cats).sort((a, b) => b[1] - a[1])
     .map(([c, usd]) => '<div class="usage-cat"><span>' + escH(USAGE_CAT_LABELS[c] || c) + '</span><span>' + won(usd) + '</span></div>').join('');
   el.innerHTML = row('오늘', tToday) + row('최근 7일', tWeek) + row('이번 달', tMonth) +
     (cats ? '<div class="usage-sub">이번 달 기능별</div>' + cats : '') +
     (tCur ? '<div class="usage-sub">현재 작품 (이번 달)</div><div class="usage-cat"><span>' + escH(S.cur.title || '제목 없음') + '</span><span>' + won(tCur.usd) + '</span></div>' : '') +
-    '<div class="usage-note">추정치 · 환율 ' + USD_KRW.toLocaleString() + '원/$ · 정확한 청구 금액은 Anthropic Console 기준</div>';
+    '<div class="usage-note">추정치 · 환율 ' + USD_KRW.toLocaleString() + '원/$ · 정확한 청구 금액은 Anthropic Console 기준<br>캐시 저장·읽기 금액은 2026-10-14 이후 기록분부터 집계 · 저장 할증 = 캐시 저장 단가가 일반 입력보다 비싼 차액</div>';
 }
 
 function _updateSyncToggleUI() {
@@ -3455,13 +3458,18 @@ function _recordUsage(model, u, proj, cat) {
   const usd = ((u.input_tokens || 0) * pIn + (u.output_tokens || 0) * pOut + read * pRead + w5m * pW5 + w1h * pW1) / 1e6
     + (u.server_tool_use?.web_search_requests || 0) * 0.01; // 웹 검색 $10 / 1000회
   const saved = read * (pIn - pRead) / 1e6;                 // 캐시 덕분에 아낀 금액
+  const cw = (w5m * pW5 + w1h * pW1) / 1e6;                 // 캐시 저장에 쓴 금액
+  const cwx = (w5m * (pW5 - pIn) + w1h * (pW1 - pIn)) / 1e6; // 그중 일반 입력보다 더 낸 할증분
+  const cr = read * pRead / 1e6;                             // 캐시 읽기에 쓴 금액
   if (!proj.usage) proj.usage = {};
   const day = proj.usage[_usageDay()] || (proj.usage[_usageDay()] = {});
   const c = day[cat] || (day[cat] = { usd: 0, saved: 0, n: 0 });
   c.usd = +(c.usd + usd).toFixed(6); c.saved = +(c.saved + saved).toFixed(6); c.n++;
+  c.cw = +((c.cw || 0) + cw).toFixed(6); c.cwx = +((c.cwx || 0) + cwx).toFixed(6); c.cr = +((c.cr || 0) + cr).toFixed(6);
   if (proj.id) { _dirtyProjectIds.add(proj.id); _saveDirtyIds(); }
   if (proj === S.cur) save(true); else storage.set('ss_projects', S.projects);
-  console.log('[usage]', USAGE_CAT_LABELS[cat] || cat, '₩' + Math.round(usd * USD_KRW), '(절감 ₩' + Math.round(saved * USD_KRW) + ')');
+  console.log('[usage]', USAGE_CAT_LABELS[cat] || cat, '₩' + Math.round(usd * USD_KRW),
+    '(캐시 저장 ₩' + Math.round(cw * USD_KRW) + ' · 읽기 ₩' + Math.round(cr * USD_KRW) + ' · 절감 ₩' + Math.round(saved * USD_KRW) + ')');
 }
 
 async function callClaude(messages, system, maxTokens = 2000, model = 'claude-sonnet-5-5', opts = null) {
