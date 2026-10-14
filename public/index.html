@@ -7586,6 +7586,14 @@ function buildSceneBlock(sc, i) {
       }, 50);
     };
     hdr.addEventListener('contextmenu', e => { e.preventDefault(); openHdrMenu(e.clientX, e.clientY); });
+    // 모바일: 헤더 길게 누르기(600ms)로 같은 메뉴 (네비게이터와 동일)
+    let _hdrPress = null;
+    hdr.addEventListener('touchstart', te => {
+      const t = te.touches[0];
+      _hdrPress = setTimeout(() => openHdrMenu(t.clientX, t.clientY + 10), 600);
+    }, { passive: true });
+    hdr.addEventListener('touchmove', () => clearTimeout(_hdrPress), { passive: true });
+    hdr.addEventListener('touchend', () => clearTimeout(_hdrPress), { passive: true });
   }
 
   // Ensure slug line exists as first line
@@ -9451,6 +9459,21 @@ function demoteSceneToSub(scId) {
 
   const targetSubs = scenes.filter(s => s.parentId === target.id && !s.draft);
   const nextOrder = targetSubs.length ? Math.max(...targetSubs.map(s => s.subOrder)) + 1 : 0;
+
+  // 배열상 앞 씬의 서브씬들 사이에 끼어 있으면 (예: 2-3 뒤에 최상위로 잘못 삽입된 씬) 그 자리 그대로 편입 → 2-4
+  const myArrIdx = scenes.indexOf(sc);
+  const subsBefore = targetSubs.filter(s => scenes.indexOf(s) < myArrIdx);
+  if (subsBefore.length && subsBefore.length < targetSubs.length) {
+    sc.parentId = target.id;
+    sc.subOrder = Math.max(...subsBefore.map(s => s.subOrder)) + 0.5;
+    scenes.filter(s => s.parentId === target.id && !s.draft)
+      .sort((a, b) => a.subOrder - b.subOrder).forEach((s, i) => { s.subOrder = i; });
+    S.selectedIds.clear(); renderChips(); updateToolbarInfo(); updateDelBtn();
+    save(); renderScriptBody(); renderNavSceneList();
+    setTimeout(() => scrollToScene(sc.id), 100);
+    toast(`✓ ${getSceneLabel(sc, scenes)} 서브씬으로 편입됨`);
+    return;
+  }
 
   const ownDrafts = scenes.filter(s => s.draft && s.draftOf === sc.id);
   const moveIds = new Set([sc.id, ...ownDrafts.map(d => d.id)]);
@@ -18902,12 +18925,28 @@ function showNewSceneInsertPanel(scenesData, comment, refSc, refLabel, direction
 
     if (mode === 'end' || !refSc) {
       S.cur.scenes.push(...newScs);
+    } else if (refSc.parentId) {
+      // 서브씬 기준 → 같은 부모의 형제 서브씬으로 (2-3 뒤 → 2-4)
+      newScs.forEach((n, i) => {
+        n.parentId = refSc.parentId;
+        n.subSceneType = null;
+        n.subOrder = refSc.subOrder + (mode === 'before' ? -0.5 : 0.5) + i * 0.01;
+      });
+      const idx = S.cur.scenes.findIndex(s => s.id === refSc.id);
+      S.cur.scenes.splice(mode === 'before' ? idx : idx + 1, 0, ...newScs);
+      S.cur.scenes.filter(s => s.parentId === refSc.parentId && !s.draft)
+        .sort((a, b) => a.subOrder - b.subOrder).forEach((s, i) => { s.subOrder = i; });
     } else {
       const idx = S.cur.scenes.findIndex(s => s.id === refSc.id);
       if (mode === 'before') {
         S.cur.scenes.splice(idx, 0, ...newScs);
-      } else { // after
-        S.cur.scenes.splice(idx + 1, 0, ...newScs);
+      } else { // after — 서브씬·대안이 딸린 씬이면 그 묶음 끝 뒤에 (부모-서브씬 블록을 끊지 않게)
+        const block = new Set([refSc.id]);
+        S.cur.scenes.forEach(s => { if (s.parentId === refSc.id) block.add(s.id); });
+        S.cur.scenes.forEach(s => { if (s.draft && block.has(s.draftOf)) block.add(s.id); });
+        let last = idx;
+        S.cur.scenes.forEach((s, i) => { if (block.has(s.id)) last = Math.max(last, i); });
+        S.cur.scenes.splice(last + 1, 0, ...newScs);
       }
     }
     save(); renderScriptBody(); renderNavSceneList();
@@ -18920,8 +18959,8 @@ function showNewSceneInsertPanel(scenesData, comment, refSc, refLabel, direction
         renderScriptBody(); renderNavSceneList();
       }, 150);
     }
-    const insertLabel = newScs.map(s=>s.title).join(', ');
-    toast('✨ "' + insertLabel + '" 장면이 추가됐습니다! 😊', 4000);
+    const insertLabel = newScs.map(s => getSceneLabel(s, S.cur.scenes) + ' "' + s.title + '"').join(', ');
+    toast('✨ ' + insertLabel + ' 장면이 추가됐습니다! 😊', 4000);
     focusAfterInsert(newScs[0].id);
   };
 
