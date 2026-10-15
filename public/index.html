@@ -933,6 +933,10 @@ textarea, input { font-family:var(--fb); }
 .diff-apply-btn { font-size:var(--fs-10); background:var(--green2); color:var(--green); border:1px solid rgba(110,200,154,.4); border-radius:var(--r); padding:4px 12px; transition:all .15s; }
 .diff-apply-btn:hover { background:rgba(110,200,154,.25); }
 .diff-partial-btn { font-size:var(--fs-10); background:var(--blue2); color:var(--blue); border:1px solid rgba(110,168,200,.3); border-radius:var(--r); padding:4px 12px; }
+.diff-alts { display:flex; gap:6px; padding:7px 12px; border-top:1px dashed var(--border2); flex-wrap:wrap; align-items:center; }
+.diff-alts-label { font-size:var(--fs-10); color:var(--text3); margin-right:2px; }
+.diff-alt-btn { font-size:var(--fs-10); background:none; color:var(--text2); border:1px solid var(--border2); border-radius:var(--r); padding:4px 10px; text-align:left; transition:all .15s; }
+.diff-alt-btn:hover { color:var(--accent); border-color:var(--accent2); background:var(--accent3); }
 .diff-cancel-btn { font-size:var(--fs-10); background:none; color:var(--text3); border:1px solid var(--border2); border-radius:var(--r); padding:4px 10px; }
 
 /* ═══════════════════════════════════════════
@@ -8734,8 +8738,20 @@ function buildDiffBlock(sc) {
         : `<button class="diff-apply-btn" onclick="applyDiff(${sc.id})">✓ 바로 적용</button>`}
       <button class="diff-apply-btn" style="background:var(--accent3);color:var(--accent);border-color:var(--accent2);" onclick="saveAsDraft(${sc.id})">📝 대안으로 저장</button>
       <button class="diff-cancel-btn" onclick="cancelDiff(${sc.id})">✕ 취소</button>
-    </div>`;
+    </div>
+    ${(sc.diff.altChoices || []).length ? `<div class="diff-alts">
+      <span class="diff-alts-label">다른 방향으로 대안 쓰기 ✨</span>
+      ${sc.diff.altChoices.map((c, i) => `<button class="diff-alt-btn" onclick="writeEditAltFromDiff(${sc.id}, ${i})">↳ ${escH(c)}</button>`).join('')}
+    </div>` : ''}`;
   return wrap;
+}
+
+// diff 블록의 '다른 방향' 버튼 — 원본(아직 diff 미적용) 기준으로 그 방향의 대안 씬 생성, 제안된 diff는 그대로
+function writeEditAltFromDiff(scId, idx) {
+  const sc = S.cur.scenes.find(s => s.id === scId);
+  const dir = sc?.diff?.altChoices?.[idx];
+  if (!dir) return;
+  writeEditAlternative([scId], sc.diff.prompt || '', dir);
 }
 
 function buildDiffLines(lines) {
@@ -9054,11 +9070,19 @@ function cancelDiff(id) {
 function saveAsDraft(id) {
   const sc = S.cur.scenes.find(s=>s.id===id);
   if (!sc || !sc.diff) return;
+  if (!_insertDraftScene(sc, sc.diff.newLines)) return;
+  sc.diff = null;
+  save(); renderScriptBody(); renderNavSceneList();
+  toast('📝 대안 장면이 바로 아래에 추가됐습니다', 3000);
+}
+
+// sc 바로 아래에 lines로 대안 씬 삽입 → 삽입된 대안 씬 / 취소 시 null (저장·렌더는 호출 측)
+function _insertDraftScene(sc, lines, title) {
   // 대안 씬 5개↑ 시 확인
   const origId = sc.draft ? sc.draftOf : sc.id;
   const existingDrafts = S.cur.scenes.filter(s => s.draft && s.draftOf === origId);
   if (existingDrafts.length >= 5) {
-    if (!confirm('대안 씬이 이미 ' + existingDrafts.length + '개입니다. 계속하시겠어요?')) return;
+    if (!confirm('대안 씬이 이미 ' + existingDrafts.length + '개입니다. 계속하시겠어요?')) return null;
   }
   const draftSc = {
     id: Date.now() + Math.floor(Math.random() * 100000),
@@ -9069,16 +9093,16 @@ function saveAsDraft(id) {
     parentId: undefined, // 서브씬이어도 draft는 parentId 없음 (getSceneLabel SC 1-1-A 레이블 보장)
     subOrder: 0,
     subSceneType: null,
-    lines: sc.diff.newLines.map(l => ({...l})),
+    lines: lines.map(l => ({...l})),
     storyboard: [], diff: null,
   };
+  if (title) draftSc.title = title;
   // K1-d: 대안 씬 summary 즉시 생성
   draftSc.summary = buildSceneSummaryBasic(draftSc);
-  const idx = S.cur.scenes.indexOf(sc);
-  S.cur.scenes.splice(idx + 1, 0, draftSc);
-  sc.diff = null;
-  save(); renderScriptBody(); renderNavSceneList();
-  toast('📝 대안 장면이 바로 아래에 추가됐습니다', 3000);
+  // 기존 대안들 뒤에 (네비게이터는 그룹 렌더지만 배열 순서도 맞춰 둠)
+  const after = [sc, ...existingDrafts].reduce((m, x) => Math.max(m, S.cur.scenes.indexOf(x)), -1);
+  S.cur.scenes.splice(after + 1, 0, draftSc);
+  return draftSc;
 }
 
 // ═══════════════════════════════════════════
@@ -17409,8 +17433,10 @@ async function handleScriptPrompt(text) {
     '요청한 인물이 기존 씬 어디에도 없거나, 새 씬을 써달라는 요청인 경우: <r> 대신 새 씬 <scene> 블록으로 응답하세요 (특정 씬 뒤에 넣을 때는 @insert SC번호).\n' +
     newSceneFormatRule({ insert: true }) + '\n' +
     '"이어서 써줘/더 길게/늘려줘/채워줘" 같은 확장 요청은 되묻지 말고 바로 씁니다: 해당 씬의 기존 줄을 그대로 두고 뒤에 자연스럽게 이어지는 줄을 충분히 덧붙여 <r>로 씬 전체를 응답하세요. 앞뒤 씬과 대본 흐름에서 상황을 판단하세요.\n' +
-    '작가가 질문하거나 의견을 물을 때만 편집 없이 자연어로 응답하세요. 편집 지시에는 질문으로 되묻지 마세요.\n' +
-    '방향 선택이 꼭 필요하면 <choices>["선택지1","선택지2"]</choices>도 추가하세요.';
+    '편집 지시에는 먼저 씁니다 — 모호해도 대본·앞뒤 씬·결정사항으로 판단해 가장 자연스러운 방향으로 쓰세요.\n' +
+    '방향이 의미 있게 갈리면, 쓴 <r> 블록 뒤에 다른 방향을 <choices>["~ 방향으로","~ 방향으로"]</choices>로 2~3개 덧붙이세요 (작가가 고르면 대안 씬으로 써 줌). 사소한 차이면 붙이지 마세요.\n' +
+    '쓰기 전에 되묻는 건 대본으로 판단할 수 없고 잘못 쓰면 크게 엇나가는 경우(예: 앞뒤 씬과 맞추려면 서로 모순되는 두 길 중 하나를 골라야 함)만 — 그때는 편집 없이 짧게 묻고 <choices>를 붙이세요.\n' +
+    '작가가 질문하거나 의견을 물으면 편집 없이 자연어로 답하세요.';
 
   // 이어 쓰기/확장 요청 — 원본이 짧아도 새로 써야 할 분량이 많음
   const _isExpandReq = /이어서|이어 ?써|이어지게|길게|늘려|확장|더 ?써|채워|보강|분량/.test(text);
@@ -17488,6 +17514,7 @@ async function handleScriptPrompt(text) {
           }
         }
         sc.diff = { prompt:text, lines:diffLines, newLines, comment };
+        if (choices && choices.length) sc.diff.altChoices = choices.map(String).slice(0, 4);
         applied++;
       });
       save(); renderScriptBody();
@@ -17513,7 +17540,6 @@ async function handleScriptPrompt(text) {
         save(true);
         appendMsgEl({ role:'assistant', text: summary }, false);
       }
-      if (choices && choices.length) showChoicesPanel(text, choices);
     } else {
       // updates 없음 — AI가 <r> 태그 없이 응답 (질문/제안/분석 응답)
       const commentText = cleanDisplayText(raw) || '';
@@ -19016,6 +19042,52 @@ function showNewSceneInsertPanel(scenesData, comment, refSc, refLabel, direction
   showResponsePanel('choice', '✨ 새 씬 ' + scenesData.length + '개 미리보기', bodyHTML, actsHTML);
 }
 
+
+// 라인 편집 후 AI가 붙인 다른 방향 선택지 → 원본 기준으로 그 방향의 대안 씬 생성 (기존 diff는 그대로)
+async function writeEditAlternative(sceneIds, origPrompt, direction) {
+  S._usageCtx = 'edit';
+  const targets = sceneIds.map(id => S.cur.scenes.find(s => s.id === id)).filter(sc => sc && !sc.locked);
+  if (!targets.length) { toast('대상 씬을 찾을 수 없어요.'); return; }
+  const memos = getChatMemos();
+  const sys = '당신은 대본 편집 AI입니다.\n\n' +
+    ((S.cur.synopsis||'').trim() ? '[시놉시스]\n' + S.cur.synopsis.slice(0, 300) + '\n\n' : '') +
+    ((S.cur.characters||[]).length ? '[등장인물]\n' + S.cur.characters.map(c => c.name + (c.role ? ' ('+c.role+')' : '')).join(', ') + '\n\n' : '') +
+    (memos.length ? '[핵심 결정사항 — 반드시 준수]\n' + memos.map(m => '• '+m).join('\n') + '\n\n' : '') +
+    '[편집 가능한 씬 데이터]\n' +
+    '⚠️ 씬 데이터에 표시된 sceneId를 그대로 사용하세요.\n' +
+    '🔒 표시된 잠금 줄은 절대 수정하지 마세요.\n' +
+    '되묻지 말고 지정된 방향으로 바로 쓰세요. 선택지(<choices>)는 붙이지 마세요.\n' +
+    sceneEditFormatRule();
+  const sceneData = targets.map(sc => _sceneToEditText(sc, S.cur.scenes)).join('\n\n');
+  setWaiting(true);
+  showAnalyzing('✦ 대안 쓰는 중...');
+  try {
+    const raw = await callClaudeStream(
+      [{role:'user', content: `지시: ${origPrompt}\n방향: ${direction}\n\n씬 데이터:\n${sceneData}\n\n⚠️ 씬마다 <r sceneId="sceneId값">…</r> 대본 텍스트 형식으로 씬 전체를 응답하세요.`}],
+      sys, _estimateSceneOutTokens(targets, /이어서|이어 ?써|길게|늘려|확장|더 ?써|채워|보강|분량/.test(origPrompt) ? 2.5 : undefined),
+      'claude-sonnet-5-5', () => {}, false, { think: true, script: true }
+    );
+    hideAnalyzing();
+    const updates = _parseSceneEditResponse(raw);
+    if (!updates || !updates.length) { _showEditParseFail(raw, '대안'); return; }
+    const made = [];
+    updates.forEach(u => {
+      const sc = targets.find(s => s.id === u.sceneId) || (u.title ? targets.find(s => s.title === u.title) : null);
+      if (!sc || !(u.lines||[]).length) return;
+      const d = _insertDraftScene(sc, u.lines, (u.title || sc.title) + ' (대안)');
+      if (d) made.push(d);
+    });
+    if (!made.length) { toast('대안을 만들지 못했어요.'); return; }
+    save(); renderScriptBody(); renderNavSceneList();
+    scrollToScene(made[0].id);
+    toast('📝 ' + made.map(d => getSceneLabel(d, S.cur.scenes)).join(', ') + ' 대안 추가 — 「' + direction.slice(0, 20) + '」', 4000);
+  } catch (e) {
+    if (e.name !== 'AbortError') showCommentPanel('오류: ' + e.message);
+  } finally {
+    hideAnalyzing();
+    setWaiting(false);
+  }
+}
 
 function showCommentPanel(rawText, choices, editCtx) {
   const text = cleanDisplayText(rawText) || rawText.slice(0, 300) || '처리 완료';

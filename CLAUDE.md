@@ -179,7 +179,8 @@ const isSyncEnabled = () => localStorage.getItem('ss_sync_enabled') !== 'false';
 | `applyDiff(id)` | diff 적용 + 합치기 시 뒷장면 삭제 |
 | `applyDiffOnly(id)` | diff만 적용 (합치기 시 뒷장면 유지) |
 | `cancelDiff(id)` | diff 취소 |
-| `saveAsDraft(id)` | 현재 씬의 diff를 대안 씬으로 저장 (원본 바로 아래 삽입) |
+| `saveAsDraft(id)` | 현재 씬의 diff를 대안 씬으로 저장 (`_insertDraftScene` — 기존 대안들 뒤에 삽입, 레이블 안 밀림) |
+| `writeEditAlternative(ids, prompt, dir)` | 편집 후 선택지 방향으로 대안 씬 생성 |
 | `buildDiffBlock(sc)` | diff UI DOM 생성 |
 | `splitSceneAt(sc, lineIdx)` | lineIdx 이후를 새 씬으로 분리 |
 
@@ -302,6 +303,9 @@ handleScriptPrompt(text)
 - `_isShortCmd`(≤`LONG_INPUT_CHARS` 200자)일 때만: 인물 분석, SC 분석, 대사 분석(haikusRoute), 구조 변경 차단 — 긴 지시 속 인용 대사의 단어로 오인 방지
 - 선택(또는 언급) 씬 7개 이상 → 문구와 무관하게 `confirmManySceneEdit` 확인 바 ([진행] / [FLO에서 의논] / [취소])
 - 편집 요청마다 하던 Haiku edit/brainstorm 분류는 제거 (질문·제안은 편집 AI가 자연어/<choices>로 직접 답함)
+- **먼저 쓰고 나중에 묻기**: 편집 AI는 모호해도 대본으로 판단해 바로 씀. 방향이 갈리면 `<r>` 뒤에 `<choices>` → `sc.diff.altChoices`에 저장 → diff 블록 안 '다른 방향' 버튼(`writeEditAltFromDiff`) → `writeEditAlternative(ids, prompt, 방향)`이 원본 기준 대안 씬(SC N-A) 생성 (기존 diff 유지). 응답 패널(backdrop이 diff를 가림)이나 FLO 설문 패널(`showChoicesPanel`)로 띄우지 말 것
+- 쓰기 전 질문(편집 없이 `<choices>`)은 대본으로 판단 불가한 모순일 때만 → `showCommentPanel(text, choices, {sceneIds, prompt})` — 선택 시 원래 대상 씬·요청 복원 후 재진입 (선택 해제 상태로 재진입하면 전체 씬이 편집 대상이 됨)
+- 15줄 이하 씬은 Haiku지만 이어 쓰기/확장 요청(`_isExpandReq`)은 Sonnet + 출력 한도 2.5배
 - 장면 번호 없는 전체 구조 변경(`structuralRequest`)은 라인에서 진행 불가 → `showBrainstormSuggestion(..., {noContinue:true})`로 FLO 안내만
 
 **플로 컨텍스트 주입 트리거 키워드:**
