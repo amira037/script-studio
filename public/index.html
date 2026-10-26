@@ -7511,10 +7511,13 @@ function buildSceneBlock(sc, i) {
     toast('✓ 대안 장면으로 복제됨', 3000);
     setTimeout(() => scrollToScene(cloned.id), 100);
   };
-  acts.appendChild(titleAiBtn);
-  acts.appendChild(txtEditBtn);
-  acts.appendChild(cloneBtn);
-  if (isTheatricalProject() && !sc.draft) {
+  const _isContainer = _isSubContainer(sc);
+  if (!_isContainer) {
+    acts.appendChild(titleAiBtn);
+    acts.appendChild(txtEditBtn);
+    acts.appendChild(cloneBtn);
+  }
+  if (isTheatricalProject() && !sc.draft && !_isContainer) {
     const splitBtn = document.createElement('button');
     splitBtn.className = 'sc-hdr-btn';
     splitBtn.style.cssText = 'font-size:var(--fs-10);color:var(--accent);border-color:rgba(200,169,110,.4);background:rgba(200,169,110,.08);';
@@ -7610,6 +7613,17 @@ function buildSceneBlock(sc, i) {
     const slugText = sc.slug || defaultSlugText;
     sc.lines.unshift({ type:'slug', text:slugText, locked:false });
     delete sc.slug;
+  }
+
+  // 서브씬 묶음 머리: 줄 영역 대신 안내만 (옛 diff가 남아 있으면 그것만 표시)
+  if (_isContainer) {
+    const n = (S.cur.scenes || []).filter(c => c.parentId === sc.id && !c.draft).length;
+    const hint = document.createElement('div');
+    hint.style.cssText = 'padding:6px 12px 8px;font-size:var(--fs-10);color:var(--text3);';
+    hint.textContent = '서브씬 ' + n + '개 묶음 — 내용은 아래 서브씬에서 편집합니다';
+    block.appendChild(hint);
+    if (sc.diff) block.appendChild(buildDiffBlock(sc));
+    return block;
   }
 
   // Lines
@@ -9082,6 +9096,7 @@ function saveAsDraft(id) {
 // sc 바로 아래에 lines로 대안 씬 삽입 → 삽입된 대안 씬 / 취소 시 null (저장·렌더는 호출 측)
 function _insertDraftScene(sc, lines, title) {
   // 대안 씬 5개↑ 시 확인
+  if (_isSubContainer(sc)) { toast('서브씬이 있는 장면은 각 서브씬에서 대안을 만들어 주세요.'); return null; }
   const origId = sc.draft ? sc.draftOf : sc.id;
   const existingDrafts = S.cur.scenes.filter(s => s.draft && s.draftOf === origId);
   if (existingDrafts.length >= 5) {
@@ -9666,13 +9681,40 @@ function _normalizeSceneOrder() {
   scenes.forEach(top => {
     if (top.draft || top.parentId) return;
     push(top);
-    (subs[top.id] || [])
-      .sort((a, b) => ((a.subOrder ?? 0) - (b.subOrder ?? 0)) || (pos.get(a) - pos.get(b)))
-      .forEach((c, i) => { c.subOrder = i; push(c); pushDrafts(c.id); });
+    const kids = (subs[top.id] || [])
+      .sort((a, b) => ((a.subOrder ?? 0) - (b.subOrder ?? 0)) || (pos.get(a) - pos.get(b)));
+    // 서브씬 묶음 머리(연극/뮤지컬)에 남은 내용 줄 → 첫 서브씬 맨 앞으로 (부모는 제목·slug만)
+    if (kids.length && isTheatricalProject() && !top.diff) {
+      const extra = (top.lines || []).filter(l => l.type !== 'slug');
+      if (extra.length) {
+        top.lines = top.lines.filter(l => l.type === 'slug');
+        const first = kids[0];
+        first.lines = first.lines || [];
+        const at = first.lines.findIndex(l => l.type !== 'slug');
+        first.lines.splice(at < 0 ? first.lines.length : at, 0, ...extra);
+      }
+    }
+    kids.forEach((c, i) => { c.subOrder = i; push(c); pushDrafts(c.id); });
     pushDrafts(top.id);
   });
   scenes.forEach(push); // 고아 (부모 없는 서브씬, 원본 없는 대안)
   if (out.some((s, i) => s !== scenes[i])) scenes.splice(0, scenes.length, ...out);
+}
+
+// 연극/뮤지컬에서 서브씬이 있는 최상위 씬 = 묶음 머리 (제목·slug만, 줄 입력·대안 없음)
+function _isSubContainer(sc) {
+  return !!sc && isTheatricalProject() && !sc.parentId && !sc.draft &&
+    (S.cur?.scenes || []).some(c => c.parentId === sc.id && !c.draft);
+}
+
+// 편집 대상 목록에서 묶음 머리를 자식 서브씬들로 바꿈 (화면 순서, 중복 제거)
+function _expandSubContainers(list) {
+  const want = new Set();
+  list.forEach(sc => {
+    if (_isSubContainer(sc)) S.cur.scenes.forEach(c => { if (c.parentId === sc.id && !c.draft) want.add(c); });
+    else want.add(sc);
+  });
+  return (S.cur.scenes || []).filter(s => want.has(s));
 }
 
 function _sceneDisplayOrder() {
@@ -17017,9 +17059,10 @@ async function handleScriptPrompt(text) {
     return;
   }
 
-  const selectedScenes = S.selectedIds.size > 0
-    ? (S.cur?.scenes||[]).filter(s => S.selectedIds.has(s.id) && !s.locked)
-    : (S.cur?.scenes||[]).filter(s => !s.locked);
+  // 서브씬 묶음 머리(부모씬)는 자식 서브씬들로 바꿔 편집
+  const selectedScenes = _expandSubContainers(S.selectedIds.size > 0
+    ? (S.cur?.scenes||[]).filter(s => S.selectedIds.has(s.id))
+    : (S.cur?.scenes||[])).filter(s => !s.locked);
 
   if (!selectedScenes.length) { toast('편집할 씬이 없습니다.'); return; }
 

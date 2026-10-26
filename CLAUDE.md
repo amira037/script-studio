@@ -94,6 +94,8 @@ const isPlayProject       = () => S.cur?.medium === '연극';
 - **서브씬 병합**: 부모씬 헤더 우클릭 → '서브씬 합치기' → `mergeSubScenes(parentId)`
 - **드래그**: 서브씬은 같은 부모 내에서만, 부모씬은 서브씬 블록 함께 → `moveSceneWithChildren`
 - **갈등도**: 부모씬 = 서브씬 최고값으로 집계 (`checkConflictWithPrompt` 후처리)
+- **순서 기준**: `subOrder`(같으면 배열 순서). `save()`·`renderScriptBody`·`renderNavSceneList`마다 `_normalizeSceneOrder()`가 배열을 화면 순서(최상위 → [서브씬 → 그 대안] → 최상위 대안)로 정렬하고 subOrder를 0..n-1로 재매김 — 새 서브씬은 `subOrder`를 소수(예: +0.5)로 줘도 됨
+- **묶음 머리**: 서브씬이 있는 최상위 씬(`_isSubContainer`)은 제목·slug만. 줄 영역·복제·텍스트·나누기 버튼 숨김, `_insertDraftScene` 차단, 남은 내용 줄은 `_normalizeSceneOrder`가 첫 서브씬 앞으로 옮김. 라인 편집 대상은 `_expandSubContainers`로 자식 서브씬으로 바뀜
 - **서브씬 작성**: 연극/뮤지컬 모드에서 AI는 `<scene>` 블록 안에 `@sub 레이블 | 타입` 줄로 서브씬을 나눔 → 파서가 `subscenes` 속성으로 → `_scenesFromParsed`가 부모+서브씬으로 펼침
 
 ---
