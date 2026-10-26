@@ -3175,6 +3175,7 @@ function _stampSceneEdits() {
 }
 
 function save(skipUndo = false) {
+  _normalizeSceneOrder();
   if (!_syncReady) return;
   _stampSceneEdits();
   if (!skipUndo && S.cur) pushUndo();
@@ -6130,6 +6131,7 @@ function renderNavSceneList() {
   if (!list || !S.cur) return;
   updateNavAnalysisBtns();
   list.innerHTML = '';
+  _normalizeSceneOrder();
   // 네비게이터 표시 순서:
   // 연극/뮤지컬: 최상위 씬 → 서브씬들(subOrder순) → 대안씬들
   // 비연극: 기존 로직 (일반 씬 → 대안 씬들)
@@ -6930,6 +6932,7 @@ function renderScriptBody() {
   const body = document.getElementById('script-body');
   if (!body || !S.cur) return;
   body.innerHTML = '';
+  _normalizeSceneOrder();
   const scenes = S.cur.scenes || [];
   if (!scenes.length) {
     body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);font-family:var(--fm);font-size:var(--fs-12)">씬이 없습니다. AI와 대화하거나 + 씬 추가를 눌러 시작하세요.</div>';
@@ -9646,6 +9649,32 @@ function mergeSubScenes(parentId) {
 
 // ── 기계적 이어 붙이기 (AI 없음) ──────────────────────────────────────
 // 화면 순서(부모 → 서브씬)로 붙어 있는 씬만 허용. 제목은 앞씬, 뒷씬 슬러그는 버림
+// 씬 배열을 화면 순서로 정렬 — 최상위 → [서브씬 → 그 대안들] → 최상위의 대안들, 고아는 맨 뒤
+// 서브씬 순서 기준은 subOrder(같으면 배열 순서), 정렬 후 0..n-1로 다시 매김. save·렌더마다 호출
+function _normalizeSceneOrder() {
+  const scenes = S.cur?.scenes;
+  if (!scenes?.length) return;
+  const pos = new Map(scenes.map((s, i) => [s, i]));
+  const drafts = {}, subs = {};
+  scenes.forEach(s => {
+    if (s.draft && s.draftOf != null) (drafts[s.draftOf] ||= []).push(s);
+    else if (!s.draft && s.parentId) (subs[s.parentId] ||= []).push(s);
+  });
+  const out = [], seen = new Set();
+  const push = s => { if (!seen.has(s)) { seen.add(s); out.push(s); } };
+  const pushDrafts = id => (drafts[id] || []).forEach(push);
+  scenes.forEach(top => {
+    if (top.draft || top.parentId) return;
+    push(top);
+    (subs[top.id] || [])
+      .sort((a, b) => ((a.subOrder ?? 0) - (b.subOrder ?? 0)) || (pos.get(a) - pos.get(b)))
+      .forEach((c, i) => { c.subOrder = i; push(c); pushDrafts(c.id); });
+    pushDrafts(top.id);
+  });
+  scenes.forEach(push); // 고아 (부모 없는 서브씬, 원본 없는 대안)
+  if (out.some((s, i) => s !== scenes[i])) scenes.splice(0, scenes.length, ...out);
+}
+
 function _sceneDisplayOrder() {
   const all = (S.cur?.scenes || []).filter(s => !s.draft);
   const out = [];
@@ -14454,7 +14483,6 @@ function splitSceneAt(sc, splitIdx) {
     const before = sc.lines.slice(0, splitIdx);
     const after  = sc.lines.slice(splitIdx);
     sc.lines = before;
-    const siblings = sc.parentId ? scenes.filter(s => s.parentId === sc.parentId).sort((a,b)=>a.subOrder-b.subOrder) : [];
     const newSc = {
       id: Date.now() + Math.floor(Math.random() * 100000),
       title: sc.title + ' (2)',
@@ -14464,7 +14492,7 @@ function splitSceneAt(sc, splitIdx) {
       collapsed: false,
       locked: false,
       parentId: sc.parentId || null,
-      subOrder: sc.parentId ? siblings.findIndex(s=>s.id===sc.id) + 1 : 0,
+      subOrder: sc.parentId ? (sc.subOrder ?? 0) + 0.5 : 0, // 바로 뒤 — save()의 _normalizeSceneOrder가 정수로 재정렬
       subSceneType: sc.subSceneType || null,
       summary: {}
     };
