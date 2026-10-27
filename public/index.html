@@ -145,6 +145,7 @@ textarea, input { font-family:var(--fb); }
 .proj-card-body { padding:10px 13px; }
 .proj-card-meta { font-size:var(--fs-10); color:var(--text3); font-family:var(--fm); margin-bottom:5px; }
 .proj-card-tags { display:flex; gap:4px; flex-wrap:wrap; }
+.sync-fail-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--red); flex-shrink:0; cursor:help; }
 .ptag { font-size:var(--fs-9); padding:1px 5px; border-radius:3px; font-family:var(--fm); background:var(--accent3); color:var(--accent); }
 .proj-card-acts { display:flex; gap:5px; padding:0 13px 12px; }
 .proj-open-btn {
@@ -2018,6 +2019,7 @@ const SW_VERSION = 'v43.6';
     <button class="ham-btn" id="ham-btn" onclick="toggleNav()">
       <div class="ham-line"></div><div class="ham-line"></div><div class="ham-line"></div>
     </button>
+    <span class="sync-fail-dot" id="app-sync-fail-dot" style="display:none;" title="클라우드 저장 실패 — 이 기기에만 저장됨"></span>
     <div class="app-proj-title" id="app-title" onclick="openProjEdit()" title="클릭하여 속성 편집">—</div>
     <div style="display:flex;align-items:center;gap:5px;flex-shrink:0;" onclick="openProjEdit()" title="클릭하여 속성 편집" style="cursor:pointer;">
       <span class="app-proj-medium" id="app-medium"></span>
@@ -2701,6 +2703,25 @@ function _clearDirtyIds() {
   _dirtyProjectIds.clear();
   localStorage.removeItem(_dirtyKey);
 }
+// 마지막 업로드가 실패한 프로젝트 ID — 홈 카드·헤더에 빨간 점 표시
+const _syncFailKey = 'ss_sync_fail_' + USER_ID;
+let _syncFailedIds = (() => {
+  try { return new Set(JSON.parse(localStorage.getItem(_syncFailKey) || '[]')); }
+  catch { return new Set(); }
+})();
+function _setSyncFailed(id, failed) {
+  if (failed === _syncFailedIds.has(id)) return;
+  failed ? _syncFailedIds.add(id) : _syncFailedIds.delete(id);
+  localStorage.setItem(_syncFailKey, JSON.stringify([..._syncFailedIds]));
+  _renderSyncFailDots();
+}
+function _renderSyncFailDots() {
+  const dot = document.getElementById('app-sync-fail-dot');
+  if (dot) dot.style.display = S.cur && _syncFailedIds.has(S.cur.id) ? '' : 'none';
+  document.querySelectorAll('.proj-card [data-sync-fail]').forEach(el => {
+    el.style.display = _syncFailedIds.has(Number(el.dataset.syncFail)) ? '' : 'none';
+  });
+}
 function _scheduleSyncToSupabase(projects, immediate = false) {
   _syncPendingProjects = projects;
   // 현재 열린 프로젝트만 dirty 표시. S.cur 없으면 아무것도 추가 안 함
@@ -2810,13 +2831,14 @@ async function syncToSupabase(projects, { keepalive = false } = {}) {
       let resp = await send(body, gz, ka);
       // 프록시가 gzip을 못 받으면(구버전 배포 등) 압축 없이 한 번 더
       if (!resp.ok && gz) {
-        console.warn('[sync] gzip upload failed, retrying plain', resp.status);
+        console.warn('[sync] gzip upload failed, retrying plain', resp.status, await resp.text().catch(() => ''));
         resp = await send(payload, false, false);
       }
+      _setSyncFailed(proj.id, !resp.ok);
       if (resp.ok) {
         _setProjectUploadTime(proj.id, Date.now());
       } else {
-        console.warn('Supabase sync HTTP error', resp.status, proj.title);
+        console.warn('Supabase sync HTTP error', resp.status, proj.title, await resp.text().catch(() => ''));
         allOk = false;
       }
     };
@@ -2840,6 +2862,8 @@ async function syncToSupabase(projects, { keepalive = false } = {}) {
       updateSyncStatus('⚠ 일부 프로젝트 클라우드 저장 실패');
     }
   } catch(e) {
+    // 종료 중 keepalive 실패는 표시 안 함 (다음 접속 때 다시 올림)
+    if (!keepalive) cleanProjects.forEach(p => _setSyncFailed(p.id, true));
     if (e.name === 'AbortError') {
       console.warn('Supabase sync timeout');
       updateSyncStatus('⚠ 클라우드 저장 타임아웃');
@@ -2861,6 +2885,7 @@ function _applyRemoteUpdates(remoteProjects) {
     _setProjectSaveTime(remoteData.id, now);
     _setProjectUploadTime(remoteData.id, now);
     _dirtyProjectIds.delete(remoteData.id);
+    _setSyncFailed(remoteData.id, false);
   });
   _saveDirtyIds();
   localStorage.setItem(_storageKey('ss_projects'), JSON.stringify(S.projects));
@@ -4809,6 +4834,7 @@ function renderHome() {
       <div class="proj-card-body">
         <div class="proj-card-meta" style="display:flex;align-items:center;gap:6px;">
           <span>씬 ${(p.scenes||[]).length}개</span>${ownerTag}
+          <span class="sync-fail-dot" data-sync-fail="${p.id}" style="display:none;margin-left:auto;" title="클라우드 저장 실패 — 이 기기에만 저장됨"></span>
         </div>
         <div class="proj-card-tags">${tags}</div>
       </div>
@@ -4821,6 +4847,7 @@ function renderHome() {
     card.onclick = (e) => { if (e.target.closest('.proj-icon-btn')) return; openProject(p.id); };
     grid.appendChild(card);
   });
+  _renderSyncFailDots();
 
   // New card
   const nc = document.createElement('div');
@@ -4857,6 +4884,7 @@ function closeDelProjModal() {
 }
 function deleteProject(id) {
   S.projects = S.projects.filter(p => p.id !== id);
+  _setSyncFailed(id, false);
   save(); renderHome();
   closeDelProjModal();
   toast('삭제됐습니다');
@@ -5749,6 +5777,7 @@ function openProject(id) {
   document.getElementById('home-screen').style.display = 'none';
   document.getElementById('app-screen').classList.add('show');
   document.getElementById('app-title').textContent = p.title;
+  _renderSyncFailDots();
   updateAppMediumTag(p);
 
   // Default nav state

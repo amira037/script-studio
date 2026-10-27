@@ -151,6 +151,8 @@ const isSyncEnabled = () => localStorage.getItem('ss_sync_enabled') !== 'false';
 - **`syncFromSupabase(force=true)`**: `isSyncEnabled()` false면 즉시 return. 앱 시작 500ms 후 호출
   - `remoteTime >= localSaveTime - 3000` → 원격 데이터로 덮어씀
   - 로컬이 더 최신 → Supabase에 로컬 재업로드 (데이터 손실 방지)
+- **업로드 실패 표시**: 프로젝트별 마지막 업로드 실패 시 `_syncFailedIds`(localStorage `ss_sync_fail_<USER>`)에 기록 → 홈 카드·앱 헤더에 빨간 점(`.sync-fail-dot`). 성공·삭제·원격 반영 시 해제. 종료 중 keepalive 실패는 표시 안 함
+- **일시정지 방지**: Supabase 무료 플랜은 7일 미사용 시 pause → Vercel Cron(`vercel.json` `crons`)이 매일 `/api/supabase-ping` 호출
 
 ---
 

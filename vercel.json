@@ -1,5 +1,8 @@
 {
   "rewrites": [
     { "source": "/api/claude", "destination": "/api/claude.js" }
+  ],
+  "crons": [
+    { "path": "/api/supabase-ping", "schedule": "0 18 * * *" }
   ]
 }
