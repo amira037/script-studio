@@ -2754,13 +2754,83 @@ window.addEventListener('beforeunload', (e) => {
   // 아직 클라우드에 안 올라간 변경이 있으면 업로드 시작 + 나가기 확인창으로 시간 확보 (데스크톱)
   if (_flushSyncNow()) { e.preventDefault(); e.returnValue = ''; }
 });
+// 프로젝트 본문은 IndexedDB에 저장 — localStorage는 Safari 등에서 한도(약 5MB)가 작아
+// 대본이 커지면 QuotaExceededError로 저장·동기화 반영이 조용히 실패함
+// 작은 키(시각·설정·dirty 목록)는 그대로 localStorage
+const _idbOpen = (() => {
+  let p = null;
+  return () => p || (p = new Promise((resolve, reject) => {
+    if (!window.indexedDB) return reject(new Error('IndexedDB 없음'));
+    const req = indexedDB.open('ss_store', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('kv');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  }).catch(e => { p = null; throw e; }));
+})();
+async function _idbGet(key) {
+  const db = await _idbOpen();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction('kv').objectStore('kv').get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function _idbSet(key, val) {
+  const db = await _idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('kv', 'readwrite');
+    tx.objectStore('kv').put(val, key); // put 시점에 복제되므로 이후 S.projects 변경 영향 없음
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+let _idbOk = !!window.indexedDB;
+let _idbFailToastShown = false;
+// 프로젝트 배열 로컬 저장 — IndexedDB 성공 후에만 옛 localStorage 사본 삭제 (공간 확보)
+function _persistProjects(projects) {
+  const key = _storageKey('ss_projects');
+  if (_idbOk) {
+    _idbSet(key, projects)
+      .then(() => { if (localStorage.getItem(key) !== null) localStorage.removeItem(key); })
+      .catch(e => {
+        console.warn('[storage] IndexedDB 저장 실패', e);
+        if (!_idbFailToastShown) { _idbFailToastShown = true; toast('⚠ 이 기기에 저장하지 못했습니다 — 클라우드 동기화는 계속됩니다', 4000); }
+      });
+    return;
+  }
+  try { localStorage.setItem(key, JSON.stringify(projects)); }
+  catch (e) {
+    console.warn('Storage error', e);
+    if (!_idbFailToastShown) { _idbFailToastShown = true; toast('⚠ 이 기기 저장 공간이 부족합니다 — 클라우드 동기화는 계속됩니다', 4000); }
+  }
+}
+// 앱 시작 시 프로젝트 읽기 — IndexedDB 우선, 없으면 옛 localStorage에서 옮겨옴
+async function _loadProjects() {
+  const key = _storageKey('ss_projects');
+  let legacy = null;
+  try { legacy = JSON.parse(localStorage.getItem(key)); } catch {}
+  if (_idbOk) {
+    try {
+      const fromIdb = await _idbGet(key);
+      if (Array.isArray(fromIdb)) return fromIdb;
+      if (Array.isArray(legacy)) _persistProjects(legacy); // 이전
+      return legacy || [];
+    } catch (e) {
+      console.warn('[storage] IndexedDB 사용 불가 — localStorage로 대체', e);
+      _idbOk = false;
+    }
+  }
+  return legacy || [];
+}
 const storage = {
   get(key) { try { return JSON.parse(localStorage.getItem(_storageKey(key))); } catch { return null; } },
   set(key, val, structuralChange = false) {
     // admin은 로컬 저장 및 Supabase 업로드 안 함
     if (IS_ADMIN) return;
     try {
-      localStorage.setItem(_storageKey(key), JSON.stringify(val));
+      if (key === 'ss_projects') _persistProjects(val);
+      else localStorage.setItem(_storageKey(key), JSON.stringify(val));
       if (key === 'ss_projects') {
         const now = Date.now();
         localStorage.setItem(_storageKey('ss_local_save_time'), String(now));
@@ -2888,7 +2958,7 @@ function _applyRemoteUpdates(remoteProjects) {
     _setSyncFailed(remoteData.id, false);
   });
   _saveDirtyIds();
-  localStorage.setItem(_storageKey('ss_projects'), JSON.stringify(S.projects));
+  _persistProjects(S.projects);
   localStorage.setItem(_storageKey('ss_local_save_time'), String(now));
   localStorage.setItem(_storageKey('ss_last_upload_time'), String(now));
 
@@ -3219,14 +3289,14 @@ function save(skipUndo = false) {
   storage.set('ss_api', { key: S.apiKey, proxy: S.useProxy });
 }
 
-function load() {
+async function load() {
   if (IS_ADMIN) {
     S.projects = [];
     S.useProxy = true;
     _syncReady = true; // admin은 저장 안 하니까 바로 허용
     return;
   }
-  S.projects = storage.get('ss_projects') || [];
+  S.projects = await _loadProjects();
   const api = storage.get('ss_api') || {};
   S.apiKey = api.key || '';
   S.useProxy = api.proxy !== false;
@@ -22504,41 +22574,44 @@ if (!_urlUser && !_savedUser) {
   }
 }
 
-load();
-// 앱 시작 시 Supabase에서 최신 데이터 강제 pull (admin 포함)
-setTimeout(() => {
-  syncFromSupabase(true).catch(e => console.warn('Initial sync failed', e));
-}, 500);
+// 프로젝트는 IndexedDB에서 비동기로 읽음 — 읽은 뒤에 sync·데모·홈 렌더
+(async () => {
+  await load();
+  // 앱 시작 시 Supabase에서 최신 데이터 강제 pull (admin 포함)
+  setTimeout(() => {
+    syncFromSupabase(true).catch(e => console.warn('Initial sync failed', e));
+  }, 500);
 
-// Demo project
-if (!S.projects.length) {
-  S.projects = [{
-    id:1, title:'BLUE BLIND', medium:'뮤지컬',
-    genreTags:['판타지','로맨스'],
-    lastOpened: Date.now(),
-    synopsis:'현대 서울, 올림픽 다이버 청이는 물 속에서 낯선 공명을 경험한다.',
-    synopsisSections:[],
-    storyboard:[],
-    messages:[{role:'assistant', text:'안녕하세요! 《BLUE BLIND》 작업을 시작해볼까요? 어떤 장면이나 캐릭터부터 이야기해볼까요?'}],
-    characters:[
-      {id:10, name:'심청/청이', role:'주인공', description:'올림픽 다이빙 선수. 물과 깊은 공명 능력.', traits:['강인함','감수성']},
-      {id:11, name:'용신', role:'신격', description:'인간을 사랑하는 바다의 신.', traits:['초월적','이중성']},
-      {id:12, name:'율랑', role:'현실적 연인', description:'두 시대를 잇는 인물.', traits:['헌신','따뜻함']},
-    ],
-    scenes:[
-      {id:101, title:'오프닝 — 다이빙', locked:true, storyboard:[], diff:null,
-       lines:[{type:'slug',text:'INT. 올림픽 수영장 - 낮',locked:false},{type:'action',text:'관중의 함성 속에 청이가 다이빙대 위에 선다.',locked:false},{type:'character',text:'청이',locked:false},{type:'action',text:'속으로',locked:false},{type:'dialogue',text:'저 아래에... 뭔가 있어.',locked:true}]},
-      {id:102, title:'용신과의 조우', locked:false, storyboard:[], diff:null,
-       lines:[{type:'slug',text:'INT. 수중 공간 - 시간 불명',locked:false},{type:'action',text:'수면 아래, 빛이 일렁인다.',locked:false},{type:'character',text:'용신',locked:false},{type:'dialogue',text:'오랜만이구나, 청이.',locked:false},{type:'character',text:'청이',locked:false},{type:'dialogue',text:'당신은... 누구세요?',locked:false}]},
-      {id:103, title:'율랑과의 재회', locked:false, storyboard:[], diff:null,
-       lines:[{type:'slug',text:'EXT. 한강 공원 - 저녁',locked:false},{type:'action',text:'율랑이 벤치에 앉아 청이를 기다리고 있다.',locked:false},{type:'character',text:'율랑',locked:false},{type:'dialogue',text:'많이 늦었네. 또 훈련이었어?',locked:false}]},
-    ],
-  }];
-  save();
-}
+  // Demo project
+  if (!S.projects.length) {
+    S.projects = [{
+      id:1, title:'BLUE BLIND', medium:'뮤지컬',
+      genreTags:['판타지','로맨스'],
+      lastOpened: Date.now(),
+      synopsis:'현대 서울, 올림픽 다이버 청이는 물 속에서 낯선 공명을 경험한다.',
+      synopsisSections:[],
+      storyboard:[],
+      messages:[{role:'assistant', text:'안녕하세요! 《BLUE BLIND》 작업을 시작해볼까요? 어떤 장면이나 캐릭터부터 이야기해볼까요?'}],
+      characters:[
+        {id:10, name:'심청/청이', role:'주인공', description:'올림픽 다이빙 선수. 물과 깊은 공명 능력.', traits:['강인함','감수성']},
+        {id:11, name:'용신', role:'신격', description:'인간을 사랑하는 바다의 신.', traits:['초월적','이중성']},
+        {id:12, name:'율랑', role:'현실적 연인', description:'두 시대를 잇는 인물.', traits:['헌신','따뜻함']},
+      ],
+      scenes:[
+        {id:101, title:'오프닝 — 다이빙', locked:true, storyboard:[], diff:null,
+         lines:[{type:'slug',text:'INT. 올림픽 수영장 - 낮',locked:false},{type:'action',text:'관중의 함성 속에 청이가 다이빙대 위에 선다.',locked:false},{type:'character',text:'청이',locked:false},{type:'action',text:'속으로',locked:false},{type:'dialogue',text:'저 아래에... 뭔가 있어.',locked:true}]},
+        {id:102, title:'용신과의 조우', locked:false, storyboard:[], diff:null,
+         lines:[{type:'slug',text:'INT. 수중 공간 - 시간 불명',locked:false},{type:'action',text:'수면 아래, 빛이 일렁인다.',locked:false},{type:'character',text:'용신',locked:false},{type:'dialogue',text:'오랜만이구나, 청이.',locked:false},{type:'character',text:'청이',locked:false},{type:'dialogue',text:'당신은... 누구세요?',locked:false}]},
+        {id:103, title:'율랑과의 재회', locked:false, storyboard:[], diff:null,
+         lines:[{type:'slug',text:'EXT. 한강 공원 - 저녁',locked:false},{type:'action',text:'율랑이 벤치에 앉아 청이를 기다리고 있다.',locked:false},{type:'character',text:'율랑',locked:false},{type:'dialogue',text:'많이 늦었네. 또 훈련이었어?',locked:false}]},
+      ],
+    }];
+    save();
+  }
 
-renderHome();
-updateApiDot();
+  renderHome();
+  updateApiDot();
+})();
 
 // ═══════════════════════════════════════════
 // 액션 바 — getSelectionState / renderSelectionActionBar

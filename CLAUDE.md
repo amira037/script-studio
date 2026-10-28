@@ -146,7 +146,10 @@ const isSyncEnabled = () => localStorage.getItem('ss_sync_enabled') !== 'false';
 
 ### 저장 로직
 
-- **`storage.set`**: localStorage 저장 → `isSyncEnabled()` 체크 → 켜짐이면 `syncToSupabase()` 호출
+- **프로젝트 본문(`ss_projects_<USER>`)은 IndexedDB** (`ss_store` DB, `kv` 스토어) — `_persistProjects` / `_loadProjects`. localStorage는 Safari 등에서 한도가 작아 QuotaExceededError로 저장·원격 반영이 조용히 실패했음. 시각·설정·dirty 목록 등 작은 키는 localStorage 유지. `localStorage.setItem(_storageKey('ss_projects'), …)` 직접 쓰지 말 것
+  - 첫 실행 시 옛 localStorage 사본을 IndexedDB로 옮기고, 저장 성공 후 localStorage 사본 삭제. IndexedDB 불가(일부 사생활 모드)면 localStorage로 대체
+  - `load()`는 async — 초기화 블록(sync 예약·데모·`renderHome`)은 `await load()` 뒤에서 실행
+- **`storage.set`**: 로컬 저장(ss_projects는 IndexedDB) → `isSyncEnabled()` 체크 → 켜짐이면 `syncToSupabase()` 호출
   - `ss_projects` 저장 시 `ss_local_save_time` (타임스탬프) 동시 기록
 - **`syncFromSupabase(force=true)`**: `isSyncEnabled()` false면 즉시 return. 앱 시작 500ms 후 호출
   - `remoteTime >= localSaveTime - 3000` → 원격 데이터로 덮어씀
