@@ -2746,8 +2746,16 @@ function _flushSyncNow() {
   syncToSupabase(_syncPendingProjects || S.projects, { keepalive: true }).catch(() => {});
   return true;
 }
+// 다시 보일 때 원격 변경 가져오기 — 앱을 닫지 않고 백그라운드에 두면 시작 시 pull만으로는
+// 다른 기기에서 올린 버전을 못 받고, 옛 버전으로 편집·업로드해 덮어쓰게 됨
+const RESUME_PULL_MIN_MS = 30000;
+let _lastPullAt = 0;
+let _pulling = false;
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') _flushSyncNow();
+  if (document.visibilityState === 'hidden') { _flushSyncNow(); return; }
+  if (!_syncReady || _pulling || IS_ADMIN || !isSyncEnabled()) return;
+  if (Date.now() - _lastPullAt < RESUME_PULL_MIN_MS) return;
+  syncFromSupabase(true).catch(e => console.warn('Resume sync failed', e));
 });
 window.addEventListener('pagehide', _flushSyncNow);
 window.addEventListener('beforeunload', (e) => {
@@ -3008,6 +3016,16 @@ function showSyncConflictModal(conflicts) {
 // Supabase에서 최신 데이터 가져오기 (Vercel 프록시 경유)
 async function syncFromSupabase(force = false) {
   if (!isSyncEnabled()) return false;
+  if (_pulling) return false;
+  _pulling = true;
+  _lastPullAt = Date.now();
+  try {
+    return await _syncFromSupabase(force);
+  } finally {
+    _pulling = false;
+  }
+}
+async function _syncFromSupabase(force) {
   try {
     // user_id 기준으로 조회 — 프로젝트별 개별 행 + 구버전 단일 행 모두 포함
     const query = IS_ADMIN
@@ -5843,7 +5861,10 @@ function openProject(id) {
   S.cur = p;
   p.lastOpened = Date.now();
   S.selectedIds.clear();
-  save();
+  // 열기만 한 건 변경이 아님 — save()로 dirty·저장 시각을 찍으면 다른 기기의 새 버전을
+  // 이 기기의 옛 버전이 덮어씀 (pull 없이 열었을 때). lastOpened는 이 기기에만 저장
+  _normalizeSceneOrder();
+  if (_syncReady && !IS_ADMIN) { _stampSceneEdits(); _persistProjects(S.projects); }
   document.getElementById('home-screen').style.display = 'none';
   document.getElementById('app-screen').classList.add('show');
   document.getElementById('app-title').textContent = p.title;

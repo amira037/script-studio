@@ -154,6 +154,8 @@ const isSyncEnabled = () => localStorage.getItem('ss_sync_enabled') !== 'false';
 - **`syncFromSupabase(force=true)`**: `isSyncEnabled()` false면 즉시 return. 앱 시작 500ms 후 호출
   - `remoteTime >= localSaveTime - 3000` → 원격 데이터로 덮어씀
   - 로컬이 더 최신 → Supabase에 로컬 재업로드 (데이터 손실 방지)
+  - 탭/앱이 다시 보일 때(`visibilitychange` visible)도 pull (`RESUME_PULL_MIN_MS` 30초 간격, `_pulling`으로 중복 방지) — 백그라운드에 둔 기기가 옛 버전으로 덮어쓰는 문제
+- **`openProject`는 `save()` 호출 금지**: 열기만 해도 dirty·저장 시각이 찍혀 옛 버전이 클라우드를 덮어씀. 로컬 저장(`_persistProjects`)만
 - **업로드 실패 표시**: 프로젝트별 마지막 업로드 실패 시 `_syncFailedIds`(localStorage `ss_sync_fail_<USER>`)에 기록 → 홈 카드·앱 헤더에 빨간 점(`.sync-fail-dot`). 성공·삭제·원격 반영 시 해제. 종료 중 keepalive 실패는 표시 안 함
 - **일시정지 방지**: Supabase 무료 플랜은 7일 미사용 시 pause → Vercel Cron(`vercel.json` `crons`)이 매일 `/api/supabase-ping` 호출
 
