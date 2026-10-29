@@ -129,12 +129,15 @@ export default async function handler(req, res) {
         }
         firstMainSc = false;
 
+        // 연극/뮤지컬은 slug 대신 씬 제목 (서브씬 제목은 출력 안 함)
         const slug = isTheatrical ? null : (sc.lines||[]).find(l=>l.type==='slug');
+        const title = (sc.title||'').trim();
+        const head = isTheatrical ? (['새 씬','새 장면'].includes(title) ? '' : title) : slug?.text;
         children.push(new Paragraph({
           spacing:{before:0,after:160,line:LINE_SPACING,lineRule:'auto'},
           children:[
             new TextRun({text:'S#'+getSceneNum(sc)+'.  ',font:FONT,size:SZ,bold:true}),
-            ...(slug ? [new TextRun({text:slug.text,font:FONT,size:SZ,bold:true})] : [])
+            ...(head ? [new TextRun({text:head,font:FONT,size:SZ,bold:true})] : [])
           ]
         }));
         children.push(emptyP(120));
