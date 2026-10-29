@@ -95,7 +95,9 @@ const isPlayProject       = () => S.cur?.medium === '연극';
 - **드래그**: 서브씬은 같은 부모 내에서만, 부모씬은 서브씬 블록 함께 → `moveSceneWithChildren`
 - **갈등도**: 부모씬 = 서브씬 최고값으로 집계 (`checkConflictWithPrompt` 후처리)
 - **순서 기준**: `subOrder`(같으면 배열 순서). `save()`·`renderScriptBody`·`renderNavSceneList`마다 `_normalizeSceneOrder()`가 배열을 화면 순서(최상위 → [서브씬 → 그 대안] → 최상위 대안)로 정렬하고 subOrder를 0..n-1로 재매김 — 새 서브씬은 `subOrder`를 소수(예: +0.5)로 줘도 됨
-- **묶음 머리**: 서브씬이 있는 최상위 씬(`_isSubContainer`)은 제목·slug만. 줄 영역·복제·텍스트·나누기 버튼 숨김, `_insertDraftScene` 차단, 남은 내용 줄은 `_normalizeSceneOrder`가 첫 서브씬 앞으로 옮김. 라인 편집 대상은 `_expandSubContainers`로 자식 서브씬으로 바뀜
+- **묶음 머리**: 서브씬이 있는 최상위 씬(`_isSubContainer`)은 제목·slug만. 줄 영역·복제·텍스트·나누기 버튼 숨김, `_insertDraftScene` 차단, 남은 내용 줄은 `_normalizeSceneOrder`가 첫 서브씬 앞으로 옮김. 라인 편집 대상은 `_expandSubContainers`로 자식 서브씬으로 바뀜 (`handleScriptPrompt`·AI 선택 작업·`handleSceneRewrite`·`bulkEditScenes` / `aiSceneFill(Bulk)`는 묶음 머리 제외)
+- **묶음 선택** (`toggleSceneSelect`): 부모 체크 = 서브씬 전체 체크/해제, 서브씬 하나 해제 → 부모 해제, 다 체크 → 부모 체크. 프롬프트 SC 주입·7개 확인 개수에서 묶음 머리 제외. AI 편집 응답이 묶음 머리 sceneId를 가리키면 무시
+- **첫 서브씬 추가** (`addSubSceneTo`): 부모에 쓴 내용이 있으면 그 내용이 `N-1`이 되고 새 빈 서브씬은 `N-2` (부모 diff 남아 있으면 차단)
 - **서브씬 작성**: 연극/뮤지컬 모드에서 AI는 `<scene>` 블록 안에 `@sub 레이블 | 타입` 줄로 서브씬을 나눔 → 파서가 `subscenes` 속성으로 → `_scenesFromParsed`가 부모+서브씬으로 펼침
 
 ---
@@ -218,8 +220,8 @@ const isSyncEnabled = () => localStorage.getItem('ss_sync_enabled') !== 'false';
 
 **이어 붙이기 vs AI 합치기:** "이어 붙이기" = 내용 그대로(무료·즉시), "✨ AI로 합치기" = `handleSceneMerge`(diff 검토). ✨ = 토큰 쓰는 기능
 - 진입: 선택 액션 바 `[이어 붙이기] [✨ AI로 합치기]` / 씬 헤더 우클릭 `↑ SC N에 이어 붙이기`(전 장르) / 합치기 패널 `🔗 이어 붙이기`
-- 허용: 화면 순서(`_sceneDisplayOrder`)로 붙어 있고 — 서브씬 없는 최상위끼리 / 부모 + 자기 서브씬(3+3-1) / 같은 부모 서브씬끼리
-- 차단: 서브씬 있는 최상위끼리(→서브씬 합치기 안내), 다른 부모 서브씬(3-2+4-1), 대안 씬 또는 대안 딸린 씬(→대안 비교 버튼), 잠긴 씬, diff 남은 씬
+- 허용: 화면 순서(`_sceneDisplayOrder`)로 붙어 있고 — 서브씬 없는 최상위끼리 / 같은 부모 서브씬끼리
+- 차단: 묶음 머리(`_isSubContainer`)가 끼면 전부(→서브씬 합치기 안내, 선택 액션 바에서 이어 붙이기·AI 합치기 숨김), 서브씬 있는 최상위끼리, 다른 부모 서브씬(3-2+4-1), 대안 씬 또는 대안 딸린 씬(→대안 비교 버튼), 잠긴 씬, diff 남은 씬
 
 **합치기 제약:**
 - 대안 씬 + 일반 씬 혼합 선택 시 차단

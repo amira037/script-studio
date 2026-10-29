@@ -6606,6 +6606,19 @@ function toggleSceneSelect(id, checked) {
     S.autoSelectedIds.clear();
     S.selectedIds.add(id);
   } else { S.selectedIds.delete(id); S.autoSelectedIds.delete(id); }
+  // 서브씬 묶음: 부모 체크 = 서브씬 전체 체크. 서브씬 하나라도 빠지면 부모 체크 해제, 다 차면 부모도 체크
+  const _scs = S.cur?.scenes || [];
+  const _sc = _scs.find(s => s.id === id);
+  const _kidsOf = pid => _scs.filter(c => c.parentId === pid && !c.draft);
+  if (_isSubContainer(_sc)) {
+    _kidsOf(id).forEach(c => { checked ? S.selectedIds.add(c.id) : S.selectedIds.delete(c.id); S.autoSelectedIds.delete(c.id); });
+  } else if (_sc?.parentId && !_sc.draft) {
+    const _p = _scs.find(s => s.id === _sc.parentId);
+    if (_isSubContainer(_p)) {
+      if (_kidsOf(_p.id).every(c => S.selectedIds.has(c.id))) S.selectedIds.add(_p.id);
+      else { S.selectedIds.delete(_p.id); S.autoSelectedIds.delete(_p.id); }
+    }
+  }
   syncSelection();
   // 씬 선택 시 네비게이터 해당 항목으로 스크롤
   if (checked) {
@@ -7360,11 +7373,25 @@ function addSubSceneTo(parentId) {
   const scenes = S.cur?.scenes || [];
   const parentSc = scenes.find(s => s.id === parentId);
   if (!parentSc) return;
+  const siblings = scenes.filter(s => s.parentId === parentId && !s.draft);
+  // 첫 서브씬 추가: 부모에 쓴 내용은 그대로 1번 서브씬이 되고, 새 서브씬은 그 뒤에 (부모는 제목·slug만)
+  let moved = null;
+  if (!siblings.length) {
+    if (parentSc.diff) { toast('이 장면의 수정 제안을 먼저 적용하거나 취소해 주세요.'); return; }
+    const body = (parentSc.lines || []).filter(l => l.type !== 'slug');
+    parentSc.lines = (parentSc.lines || []).filter(l => l.type === 'slug');
+    if (!isEmptyScene({ lines: body })) {
+      moved = makeScene(parentSc.title || '새 장면', '');
+      moved.lines = [moved.lines[0], ...body];
+      moved.parentId = parentId;
+      moved.subSceneType = 'dialogue';
+      moved.subOrder = 0;
+    }
+  }
   const sc = makeScene('새 장면', '');
   sc.parentId = parentId;
   sc.subSceneType = isMusicalProject() ? 'dialogue' : 'dialogue';
-  const siblings = scenes.filter(s => s.parentId === parentId && !s.draft);
-  sc.subOrder = siblings.length;
+  sc.subOrder = siblings.length + (moved ? 1 : 0);
   // 이 부모의 마지막 서브씬 바로 다음에 삽입
   const parentIdx = scenes.findIndex(s => s.id === parentId);
   let insertIdx = parentIdx;
@@ -7372,11 +7399,14 @@ function addSubSceneTo(parentId) {
     if (scenes[i].parentId === parentId && !scenes[i].draft) insertIdx = i;
     else break;
   }
-  scenes.splice(insertIdx + 1, 0, sc);
+  scenes.splice(insertIdx + 1, 0, ...(moved ? [moved, sc] : [sc]));
   S.selectedIds.clear();
   save(); renderScriptBody(); renderNavSceneList();
   setTimeout(() => scrollToScene(sc.id), 100);
-  toast(`서브씬 "${sc.title}" 추가됨`);
+  if (moved) {
+    const lbl = getSceneLabel(parentSc, scenes);
+    toast(`${lbl}에 쓴 내용은 ${getSceneLabel(moved, scenes)}로 옮겨졌어요 · 새 서브씬 ${getSceneLabel(sc, scenes)} 추가됨`, 4000);
+  } else toast(`서브씬 "${sc.title}" 추가됨`);
 }
 function addSceneAtEnd() {
   const scenes = S.cur?.scenes || [];
@@ -9860,6 +9890,8 @@ function _appendSceneCheck(ids) {
   }
   if (picked.some(s => s.locked)) return { ok: false, reason: '잠긴 씬은 이어 붙일 수 없어요. 잠금을 풀고 다시 시도해 주세요.' };
   if (picked.some(s => s.diff)) return { ok: false, reason: '수정 제안(diff)이 남아 있는 씬이 있어요. 먼저 적용하거나 취소해 주세요.' };
+  // 묶음 머리(제목만)에 서브씬을 붙이면 내용이 다른 서브씬 앞으로 밀려 들어감 → 서브씬 합치기로
+  if (picked.some(_isSubContainer)) return { ok: false, reason: '서브씬 묶음 장면에는 이어 붙일 수 없어요. 서브씬끼리 붙이거나, 장면 우클릭 → \'서브씬 합치기\'를 써 주세요.' };
   const order = _sceneDisplayOrder();
   const ordered = picked.sort((a, b) => order.indexOf(a) - order.indexOf(b));
   const [first, ...rest] = ordered;
@@ -15131,7 +15163,7 @@ function handleAiBtn() {
   if (S.selectedIds.size === 0) { showAiSceneAddPanel(); return; }
 
   const scenes = S.cur?.scenes || [];
-  const selected = scenes.filter(s => S.selectedIds.has(s.id));
+  const selected = _expandSubContainers(scenes.filter(s => S.selectedIds.has(s.id)));
   const emptySelected = selected.filter(isEmptyScene);
   const filledSelected = selected.filter(s => !isEmptyScene(s));
   const total = selected.length;
@@ -15267,6 +15299,7 @@ async function aiSceneFill(scId) {
   const scenes = S.cur.scenes || [];
   const sc = scenes.find(s => s.id === scId);
   if (!sc) return;
+  if (_isSubContainer(sc)) { toast('서브씬이 있는 장면은 각 서브씬에서 채워 주세요.'); return; }
   const scIdx = scenes.indexOf(sc);
   const scLabel = getSceneLabel(sc, scenes);
 
@@ -15347,7 +15380,7 @@ function showAiSceneFillBulkPanel(emptyScenes) {
 async function aiSceneFillBulk(scIds) {
   if (!S.cur) return;
   const scenes = S.cur.scenes || [];
-  const targets = scIds.map(id => scenes.find(s => s.id === id)).filter(Boolean);
+  const targets = scIds.map(id => scenes.find(s => s.id === id)).filter(s => s && !_isSubContainer(s));
   if (!targets.length) return;
 
   showAnalyzing('빈 장면 ' + targets.length + '개를 순서대로 채우고 있습니다... ✍️');
@@ -15554,7 +15587,7 @@ async function _execAiSceneInsert(hintVal, hintLabel) {
 
 async function handleSceneRewrite() {
   const scenes = S.cur?.scenes || [];
-  const selected = scenes.filter(s => S.selectedIds.has(s.id));
+  const selected = _expandSubContainers(scenes.filter(s => S.selectedIds.has(s.id)));
   if (!selected.length) return;
 
   const inp = document.getElementById('prompter-inp');
@@ -16968,7 +17001,7 @@ async function handleScriptPrompt(text) {
   if (S.selectedIds.size > 0 && !/SC\s*\d+[\w-]*/i.test(text) && S.cur?.scenes?.length) {
     const validSel = [...S.selectedIds]
       .map(id => (S.cur.scenes||[]).find(s => s.id === id))
-      .filter(sc => sc && !sc.locked);
+      .filter(sc => sc && !sc.locked && !_isSubContainer(sc)); // 묶음 머리는 빼고 서브씬 레이블만 (내용 없음 — 편집은 _expandSubContainers가 처리)
     // 선택된 씬이 있고, 텍스트에 씬 제목 일부도 없을 때만 주입
     // (이미 제목이 텍스트에 있으면 normalizeSceneNums가 처리함)
     if (validSel.length > 0) {
@@ -17357,7 +17390,8 @@ async function handleScriptPrompt(text) {
     }
 
     // 선택 씬 수 기준 판단
-    const selCount = S.selectedIds.size || (text.match(/SC\s*\d+/gi)||[]).length;
+    const selCount = [...S.selectedIds].filter(id => !_isSubContainer(S.cur.scenes.find(s => s.id === id))).length
+      || (text.match(/SC\s*\d+/gi)||[]).length;
 
     // 구조적 요청 — SC번호 불명확하거나 7개 이상이면 브레인스토밍 권유
     const structuralRequest = /씬.*전체.*삭제|순서.*재배치|구조.*변경|씬.*순서.*바꿔|전체.*구성.*바꿔/.test(text);
@@ -17509,7 +17543,7 @@ async function handleScriptPrompt(text) {
               const sc = S.cur.scenes.find(s => s.id === u.sceneId)
                 || S.cur.scenes.find(s => s.title === u.title)
                 || S.cur.scenes.find(s => u.title && s.title.includes(u.title.slice(0,6)));
-              if (!sc) return;
+              if (!sc || _isSubContainer(sc)) return; // 묶음 머리엔 줄을 쓰지 않음
               if (u.title && u.title !== sc.title) sc.title = u.title;
               const diffLines = [];
               const newLines = u.lines || [];
@@ -17686,7 +17720,7 @@ async function handleScriptPrompt(text) {
           // id 없으면 제목 완전 일치만 (부분 매칭 금지)
           || (u.title ? selectedScenes.find(s => s.title === u.title) : null)
           || (u.title ? S.cur.scenes.find(s => s.title === u.title) : null);
-        if (!sc) return;
+        if (!sc || _isSubContainer(sc)) return; // 묶음 머리엔 줄을 쓰지 않음
         // 제목 즉시 반영 (diff 없이)
         if (u.title && u.title !== sc.title) {
           sc.title = u.title;
@@ -18224,10 +18258,11 @@ async function bulkEditScenes(scIds, prompt) {
   if (excluded.length > 0) {
     toast('중요 장면 ' + excluded.length + '개 제외됨');
   }
-  const targets = scIds
+  const targets = _expandSubContainers(scIds
     .filter(id => !scenes.find(s=>s.id===id)?.locked)
     .map(id => scenes.find(s=>s.id===id))
-    .filter(Boolean).filter(s=>!s.draft);
+    .filter(Boolean).filter(s=>!s.draft))
+    .filter(s => !s.locked);
   if (!targets.length) { toast('편집할 씬이 없습니다.'); return; }
 
   const nonDraft = scenes.filter(s=>!s.draft);
@@ -18258,7 +18293,7 @@ async function bulkEditScenes(scIds, prompt) {
       if (!parsed) { _lastFailRaw = raw; continue; }
       parsed.forEach(item => {
         const sc = scenes.find(s=>s.id===item.sceneId);
-        if (!sc || !item.lines?.length) return;
+        if (!sc || _isSubContainer(sc) || !item.lines?.length) return;
         if (item.title && item.title !== sc.title) sc.title = item.title;
         const newLines = item.lines.map(l=>({type:l.type||'action',text:l.text||'',locked:!!l.locked}));
         sc.diff = { prompt, lines: _buildLineDiff(sc.lines||[], newLines), newLines, comment: item.comment||'' };
@@ -22802,6 +22837,8 @@ function renderSelectionActionBar(state) {
     }
   }
   const st = effectiveState;
+  // 서브씬 묶음 장면이 끼면 이어 붙이기·AI 합치기 숨김 (체크 한 번에 구조가 무너지지 않게 — 우클릭 '서브씬 합치기' 사용)
+  const _noJoin = st.normalIds.some(id => _isSubContainer(scenes.find(s => s.id === id)));
 
   // ── 버튼 매트릭스 (구조 조작만) ─────────────────────────────────────
   if (st.count === 1 && !st.hasDraft) {
@@ -22810,8 +22847,7 @@ function renderSelectionActionBar(state) {
     bar.appendChild(btnInsertAfter);
   } else if (st.count === 2 && st.isConsecutive && !st.hasMixed) {
     // 2개 연속 일반
-    bar.appendChild(btnAppend);
-    bar.appendChild(btnMerge);
+    if (!_noJoin) { bar.appendChild(btnAppend); bar.appendChild(btnMerge); }
     bar.appendChild(btnInsertBetween);
     bar.appendChild(btnReorder);
   } else if (st.count === 2 && !st.isConsecutive && !st.hasMixed) {
@@ -22819,8 +22855,7 @@ function renderSelectionActionBar(state) {
     bar.appendChild(btnReorder);
   } else if (st.count >= 3 && st.isConsecutive && !st.hasDraft) {
     // 3개↑ 연속
-    bar.appendChild(btnAppend);
-    bar.appendChild(btnMerge);
+    if (!_noJoin) { bar.appendChild(btnAppend); bar.appendChild(btnMerge); }
     bar.appendChild(btnReorder);
   } else if (st.count >= 3 && !st.isConsecutive && !st.hasDraft) {
     // 3개↑ 비연속
