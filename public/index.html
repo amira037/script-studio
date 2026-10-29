@@ -7913,8 +7913,8 @@ function buildSceneBlock(sc, i) {
 
       // 붙여넣기: 내부 클립보드 우선, 없으면 일반 텍스트 처리
       el.addEventListener('paste', (e) => {
-        // 내부 클립보드 — 타입 포함 붙여넣기
-        if (window._lineClipboard?.length) {
+        // 내부 클립보드 — 타입 포함 붙여넣기 (그 뒤 밖에서 다른 글을 복사했으면 그 글이 우선)
+        if (_lineClipboardMatches((e.clipboardData || window.clipboardData)?.getData('text'))) {
           e.preventDefault();
           const clips = window._lineClipboard;
           line.text = clips[0].text;
@@ -8358,6 +8358,7 @@ function buildSceneBlock(sc, i) {
             window._lineClipboard = selIdxs.map(i => ({
               type: sc.lines[i]?.type || 'action', text: sc.lines[i]?.text || ''
             }));
+            _syncLineClipboard();
             sc.lines.forEach(l => { l.aiSelected = false; });
             exitAiWriteMode(); renderAllLines();
             toast('📋 ' + window._lineClipboard.length + '줄 복사됨', 2000);
@@ -8367,6 +8368,7 @@ function buildSceneBlock(sc, i) {
             window._lineClipboard = selIdxs.map(i => ({
               type: sc.lines[i]?.type || 'action', text: sc.lines[i]?.text || ''
             }));
+            _syncLineClipboard();
             sc.lines = sc.lines.filter(l => !l.aiSelected);
             save(); renderAllLines(); exitAiWriteMode();
             toast('✂ ' + window._lineClipboard.length + '줄 잘라냄', 2000);
@@ -8528,10 +8530,12 @@ function buildSceneBlock(sc, i) {
           menu.appendChild(mkDiv());
           const copyBtn = mkMenuBtn('복사', null, () => {
             window._lineClipboard = [{type: sc.lines[li]?.type || 'action', text: sc.lines[li]?.text || ''}];
+            _syncLineClipboard();
             toast('📋 1줄 복사됨', 2000);
           });
           const cutBtn = mkMenuBtn('잘라내기', 'var(--red)', () => {
             window._lineClipboard = [{type: sc.lines[li]?.type || 'action', text: sc.lines[li]?.text || ''}];
+            _syncLineClipboard();
             sc.lines.splice(li, 1);
             save(); renderAllLines();
             toast('✂ 1줄 잘라냄', 2000);
@@ -22533,6 +22537,21 @@ document.addEventListener('mousemove', (e) => {
   }, true);
 })();
 
+// 줄 복사 시 같은 글을 시스템 클립보드에도 써 둠 → 붙여넣을 때 시스템 클립보드가 그대로면 내부(타입 포함), 바뀌었으면(밖에서 복사) 일반 텍스트
+const _clipNorm = t => (t || '').replace(/\r\n?/g, '\n').trim();
+function _syncLineClipboard() {
+  const clips = window._lineClipboard;
+  window._lineClipboardText = clips?.length ? _clipNorm(clips.map(c => c.text).join('\n')) : null;
+  if (!clips?.length || !navigator.clipboard?.writeText) { window._lineClipboardText = undefined; return; }
+  navigator.clipboard.writeText(clips.map(c => c.text).join('\n'))
+    .catch(() => { window._lineClipboardText = undefined; }); // 쓰기 실패 → 비교 불가, 예전처럼 내부 우선
+}
+function _lineClipboardMatches(sysText) {
+  if (!window._lineClipboard?.length) return false;
+  if (window._lineClipboardText === undefined || sysText == null) return true;
+  return _clipNorm(sysText) === window._lineClipboardText;
+}
+
 document.addEventListener('keydown', (e) => {
   const isMac = navigator.platform.toUpperCase().includes('MAC');
   const isMod = isMac ? e.metaKey : e.ctrlKey;
@@ -22561,6 +22580,7 @@ document.addEventListener('keydown', (e) => {
       e.preventDefault();
       const selIdxs = scene.lines.map((l,i) => l.aiSelected ? i : -1).filter(i => i >= 0);
       window._lineClipboard = selIdxs.map(i => ({type: scene.lines[i].type, text: scene.lines[i].text}));
+      _syncLineClipboard();
       if (e.key === 'x') {
         scene.lines = scene.lines.filter(l => !l.aiSelected);
         save(); renderAllLines(); exitAiWriteMode();
@@ -22581,6 +22601,7 @@ document.addEventListener('keydown', (e) => {
       }
       e.preventDefault();
       window._lineClipboard = [{type: cl.sc.lines[cl.li].type, text: cl.sc.lines[cl.li].text}];
+      _syncLineClipboard();
       if (e.key === 'x') {
         cl.sc.lines.splice(cl.li, 1);
         window._cursorLine = null;
