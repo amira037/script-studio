@@ -84,14 +84,17 @@ export default async function handler(req, res) {
     // 대화 좌우 여백 — 일반(영화/드라마) 가운데 정렬
     const DLG_LEFT  = 1080;
     const DLG_RIGHT = 1080;
-    // 한 줄 형식(배역명  대사): 대사는 배역명 바로 뒤 + 약 2자 띄우고 시작, 줄바꿈되면 그 위치에 맞춤
+    // 한 줄 형식(배역명  대사): 배역명 4글자 + 약 2자 띄운 곳에서 대사 시작 (4글자 이하는 모두 같은 위치),
+    // 더 긴 배역명만 그 뒤로 밀림. 줄바꿈되면 대사 시작 위치에 맞춤
     const inline = opts?.dialogueStyle === 'inline';
     const CHAR_W = SZ * 10;          // 12pt 전각(한글) 한 글자 ≈ 240 twips
     const INLINE_GAP = CHAR_W * 2;   // 배역명과 대사 사이
-    const nameTab = name => [...(name||'')].reduce((w, ch) => w + (ch.charCodeAt(0) < 0x1100 ? CHAR_W / 2 : CHAR_W), 0) + INLINE_GAP;
-    let speakerTab = INLINE_GAP * 2; // 이어지는 대사·(지문) 들여쓰기 = 직전 화자의 대사 시작 위치
+    const INLINE_TAB = CHAR_W * 4 + INLINE_GAP;
+    const nameTab = name => Math.max(INLINE_TAB,
+      [...(name||'')].reduce((w, ch) => w + (ch.charCodeAt(0) < 0x1100 ? CHAR_W / 2 : CHAR_W), 0) + INLINE_GAP);
+    let speakerTab = INLINE_TAB; // 이어지는 대사·(지문) 들여쓰기 = 직전 화자의 대사 시작 위치
     // 지문은 대사보다 안쪽으로 — 좌우 모두 대사 여백 + 반 인치
-    const ACTION_LEFT  = (inline ? 720 : isTheatrical ? INDENT_ONE : DLG_LEFT) + 720;
+    const ACTION_LEFT  = (inline ? INLINE_TAB : isTheatrical ? INDENT_ONE : DLG_LEFT) + 720;
     const ACTION_RIGHT = (inline || isTheatrical ? 0 : DLG_RIGHT) + 720;
     const paren = s => (s||'').startsWith('(') ? s : '('+(s||'')+')';
 
