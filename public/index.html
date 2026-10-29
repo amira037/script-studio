@@ -8064,12 +8064,14 @@ function buildSceneBlock(sc, i) {
           const _sel2 = window.getSelection();
           if (_sel2 && _sel2.isCollapsed && _sel2.rangeCount > 0) {
             const _r2 = _sel2.getRangeAt(0);
-            const _textLen = el.textContent.length;
-            const _container = _r2.startContainer;
-            const _offset = _r2.startOffset;
-            const _atEnd = (_offset === _textLen && _container === el)
-              || (_container === el.lastChild && _offset === (_container.length || 0));
-            if (_atEnd && !sc.lines[li+1]?.locked) {
+            // 커서 뒤 남은 글자로 판단 (컨테이너가 el이면 offset이 글자 수가 아니라 자식 노드 수라 직접 비교하면 틀림)
+            const _postRange = document.createRange();
+            _postRange.selectNodeContents(el);
+            _postRange.setStart(_r2.startContainer, _r2.startOffset);
+            const _atEnd = _postRange.toString() === '';
+            // 연극/뮤지컬에선 slug 줄이 화면에 없으니 붙이지 않음
+            const _nextSlugHidden = sc.lines[li+1]?.type === 'slug' && isTheatricalProject();
+            if (_atEnd && !sc.lines[li+1]?.locked && !_nextSlugHidden) {
               e.preventDefault();
               const _curLen = sc.lines[li].text.length;
               sc.lines[li].text += sc.lines[li+1].text;

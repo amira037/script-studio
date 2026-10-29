@@ -1,6 +1,6 @@
 import {
   Document, Packer, Paragraph, TextRun, AlignmentType,
-  Footer, PageNumber, BorderStyle, PageBreak
+  Footer, PageNumber, BorderStyle, PageBreak, Tab, TabStopType
 } from 'docx';
 
 export default async function handler(req, res) {
@@ -84,6 +84,16 @@ export default async function handler(req, res) {
     // 대화 좌우 여백 — 일반(영화/드라마) 가운데 정렬
     const DLG_LEFT  = 1080;
     const DLG_RIGHT = 1080;
+    // 한 줄 형식(배역명  대사): 대사는 배역명 바로 뒤 + 약 2자 띄우고 시작, 줄바꿈되면 그 위치에 맞춤
+    const inline = opts?.dialogueStyle === 'inline';
+    const CHAR_W = SZ * 10;          // 12pt 전각(한글) 한 글자 ≈ 240 twips
+    const INLINE_GAP = CHAR_W * 2;   // 배역명과 대사 사이
+    const nameTab = name => [...(name||'')].reduce((w, ch) => w + (ch.charCodeAt(0) < 0x1100 ? CHAR_W / 2 : CHAR_W), 0) + INLINE_GAP;
+    let speakerTab = INLINE_GAP * 2; // 이어지는 대사·(지문) 들여쓰기 = 직전 화자의 대사 시작 위치
+    // 지문은 대사보다 안쪽으로 — 좌우 모두 대사 여백 + 반 인치
+    const ACTION_LEFT  = (inline ? 720 : isTheatrical ? INDENT_ONE : DLG_LEFT) + 720;
+    const ACTION_RIGHT = (inline || isTheatrical ? 0 : DLG_RIGHT) + 720;
+    const paren = s => (s||'').startsWith('(') ? s : '('+(s||'')+')';
 
     // 일반 씬(부모씬)만 번호 부여 — 서브씬·대안씬 제외
     const mainScenes = (project.scenes||[]).filter(s => !s.draft && s.parentId == null);
@@ -128,16 +138,37 @@ export default async function handler(req, res) {
         prevType = 'slug';
       }
 
-      (sc.lines||[]).forEach(line => {
-        if (line.type==='slug') return;
+      const lines = (sc.lines||[]).filter(l => l.type !== 'slug');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
 
         if (line.type==='action') {
-          const spaceBefore = (prevType==='dialogue'||prevType==='parenthetical'||prevType==='lyric') ? 200 : 0;
+          const spaceBefore = (prevType && prevType !== 'action' && prevType !== 'slug') ? 200 : 0;
           children.push(new Paragraph({
+            indent:{left:ACTION_LEFT,right:ACTION_RIGHT},
             spacing:{before:spaceBefore,after:80,line:LINE_SPACING,lineRule:'auto'},
             children:[t(line.text)]
           }));
           prevType = 'action';
+
+        } else if (inline && line.type==='character') {
+          // 한 줄: 배역명 [탭] (지문) 대사 — 줄바꿈되면 대사 시작 위치에 맞춤
+          const runs = [new TextRun({text:line.text,font:FONT,size:SZ,bold:true})];
+          let j = i + 1;
+          const after = [];
+          if (lines[j]?.type==='parenthetical') { after.push(t(paren(lines[j].text)+' ',{italics:true})); j++; }
+          if (lines[j]?.type==='dialogue') { after.push(t(lines[j].text,{bold:!!lines[j].keyline})); j++; }
+          if (after.length) runs.push(new TextRun({children:[new Tab()],font:FONT,size:SZ}), ...after);
+          const spaceBefore = (prevType && prevType !== 'slug') ? 160 : 0;
+          speakerTab = nameTab(line.text);
+          children.push(new Paragraph({
+            tabStops:[{type:TabStopType.LEFT,position:speakerTab}],
+            indent:{left:speakerTab,hanging:speakerTab},
+            spacing:{before:spaceBefore,after:80,line:LINE_SPACING,lineRule:'auto'},
+            children:runs
+          }));
+          prevType = 'dialogue';
+          i = j - 1;
 
         } else if (line.type==='character') {
           const spaceBefore = (prevType==='action'||prevType==='dialogue'||prevType==='slug') ? 240 : 120;
@@ -149,20 +180,20 @@ export default async function handler(req, res) {
           prevType = 'character';
 
         } else if (line.type==='parenthetical') {
-          const txt = line.text.startsWith('(') ? line.text : '('+line.text+')';
+          const txt = paren(line.text);
           children.push(new Paragraph({
             alignment: AlignmentType.LEFT,
-            indent: isTheatrical ? {left:INDENT_ONE} : {},
+            indent: inline ? {left:speakerTab} : isTheatrical ? {left:INDENT_ONE} : {},
             spacing:{before:40,after:40,line:LINE_SPACING,lineRule:'auto'},
             children:[t(txt,{italics:true})]
           }));
           prevType = 'parenthetical';
 
         } else if (line.type==='dialogue') {
-          if (isTheatrical) {
+          if (inline || isTheatrical) {
             children.push(new Paragraph({
               alignment: AlignmentType.LEFT,
-              indent:{left:INDENT_ONE},
+              indent:{left:inline ? speakerTab : INDENT_ONE},
               spacing:{before:0,after:80,line:LINE_SPACING,lineRule:'auto'},
               children:[t(line.text,{bold:!!line.keyline})]
             }));
@@ -179,13 +210,13 @@ export default async function handler(req, res) {
         } else if (line.type==='lyric') {
           children.push(new Paragraph({
             alignment: AlignmentType.LEFT,
-            indent:{left:INDENT_ONE},
+            indent:{left:inline ? speakerTab : INDENT_ONE},
             spacing:{before:0,after:40,line:LINE_SPACING,lineRule:'auto'},
             children:[t(line.text,{italics:true})]
           }));
           prevType = 'lyric';
         }
-      });
+      }
     });
 
     const footer = new Footer({
