@@ -384,11 +384,18 @@ callClaudeStream → 실시간 스트리밍
 | floRoute/haikusRoute | claude-haiku-4-5-20251001 | 60~150 |
 
 **FLO 대화 자료 첨부 / 수정 반영:**
-- FLO 입력창 📎·드래그&드롭 → `_floAttachments` (txt/md/docx, 여러 개, 파일당 `FLO_ATTACH_MAX_CHARS` 12만 자) → `sendFloChat`이 user 메시지 `files:[{name,chars,text}]`로 저장. 라인 프롬프터 📎(`handleFileAttach`, 씬 가져오기)와 별개
+- FLO 입력창 📎·드래그&드롭 → `_floAttachments` (txt/md/docx, 여러 개, 파일당 `FLO_ATTACH_MAX_CHARS` 12만 자, 읽기는 `_readAttachInto` 공통) → `_sendToFlo(text, files)`가 user 메시지 `files:[{name,chars,text}]`로 저장 (런타임 `file` 객체는 저장 안 함)
+- **라인 에디터 📎** (`onLineAttach` → `_lineAttachments` 칩, 이미지는 기존 `handleImageAttach`): 보내면 씬 선택 없이 `_sendLineAttachments`로 분기
+  - 글 있음: `_lineAttachRouteFromText` — 반영/고쳐… → reflect, 가져와/추가해/새 씬으로… → import, 그 외 → talk
+  - 파일만: `_classifyAttach` (AI 없음) — `_scriptOverlap`(파일 8글자 조각 중 현재 대본에 있는 비율) ≥ `ATTACH_REFLECT_MIN`(0.5) → reflect / 대본 형식 아님(`_looksLikeScript`) → talk / 겹침 < `ATTACH_NEW_MAX`(0.2) → import / 그 사이 → ask(칩 줄에 [반영][새 씬으로])
+  - reflect·talk → `_sendToFlo`(FLO 패널 자동 열림, 기본 문구 `FLO_REFLECT_TEXT`/`FLO_TALK_TEXT`), import → `_importFileAsScenes(file)` (기존 가져오기, 한 번에 하나)
+  - FLO 📎도 파일만 보내면 `_classifyAttach`가 reflect일 때 반영 문구로 보냄
+  - 설정 '파일 읽기'(`handleFileAttach`)는 그대로 바로 가져오기
 - 첨부는 이번 요청 user 메시지 앞(`_floFilesBlock`)에 붙고, 히스토리(`buildCompressedHistory`)에선 최근 `FLO_ATTACH_KEEP_MSGS`(8)개 메시지만 원문 유지 — 오래된 건 `text` 삭제(이름만). 히스토리 접기 길이 계산엔 첨부 미포함
 - 첨부한 턴은 키워드 패널 분기 안 함 (`_isShortCmd` false)
 - `_floEditReq`(반영/고쳐/수정해… 새 씬 요청 제외) → `_tagRule`로 `<r sc>` 사용 지시, 순차 작성 모드 스킵, thinking ON, 출력 한도 = 언급 씬 분량 or 32000
 - `<r sc>` → `_buildLcsSceneDiff`(LCS — 끼워 넣은 줄만 표시, 잠긴 줄·빈 줄 유지) → `sc.diff`. 묶음 머리·잠긴 씬·잘린 블록·없는 씬은 건너뛰고 말풍선에 표시
+- 반영 모드에서 대본에 없는 씬은 FLO가 `<scene>` + `@insert SC N`(맨 앞은 `@insert 맨앞`)으로 씀 → `_insertFloNewScenes`가 레이블을 삽입 전에 모두 해석해 기준 씬 블록(서브씬·대안 포함) 뒤에 바로 삽입, 같은 기준이면 순서대로, 되돌리기 토스트. addScenes 버튼 대신 stageFloEdits 카드에 ➕로 표시 (수정안 레이블은 삽입 후 다시 계산)
 
 **긴 입력 보호:** `handleChatPrompt`의 키워드 분기(P1 승인, 막혔어, 웹 검색, 시퀀스, needsMore 구간 선택)는 `_isShortCmd`(≤200자)일 때만 — 긴 구상 글 안의 단어로 패널이 가로채지 않게
 

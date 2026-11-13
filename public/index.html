@@ -1975,6 +1975,8 @@ body:has(.app-nav.mobile-open) .flo-fab { display:none !important; }
 .flo-file-chip .ffc-x { cursor:pointer; color:var(--text3); border:none; background:none; padding:0 0 0 2px; font-size:var(--fs-10); }
 .flo-file-chip .ffc-x:hover { color:var(--red); }
 .flo-file-chip.dropped { opacity:.5; }
+#line-attach-row { background:none; border-top:none; padding:0 0 7px; align-items:center; }
+.line-attach-ask { display:flex; flex-wrap:wrap; align-items:center; gap:5px; width:100%; margin-top:2px; font-size:var(--fs-11); color:var(--text2); }
 .msg-files { display:flex; flex-wrap:wrap; gap:4px; justify-content:flex-end; margin-top:4px; }
 #flo-dw-chat.flo-drop { outline:2px dashed var(--accent2); outline-offset:-4px; }
 .flo-edit-preview .fep-sc { font-weight:600; color:var(--accent); margin-top:4px; }
@@ -2174,9 +2176,10 @@ const SW_VERSION = 'v43.6';
           <span class="chip-hint" id="chip-hint"></span>
         </div>
         <div class="action-bar" id="action-bar"></div>
+        <div class="flo-attach-row" id="line-attach-row"></div>
         <div class="prompter-row">
-          <label class="attach-btn" title="파일 첨부 (txt/md/docx)">
-            📎<input type="file" accept=".txt,.md,.docx,.jpg,.jpeg,.png,.gif,.webp" onchange="handleFileAttach(event)" style="opacity:0;position:absolute;width:0;height:0;overflow:hidden">
+          <label class="attach-btn" title="파일 첨부 (txt/md/docx 여러 개, 이미지) — 보내면 반영/새 씬/FLO 대화로 자동 처리">
+            📎<input type="file" multiple accept=".txt,.md,.docx,.jpg,.jpeg,.png,.gif,.webp" onchange="onLineAttach(event)" style="opacity:0;position:absolute;width:0;height:0;overflow:hidden">
           </label>
           <textarea class="prompter-inp" id="prompter-inp" rows="1"
             placeholder="라인에게 씬 수정, 추가, 분석을 지시하세요"
@@ -3599,6 +3602,65 @@ function _stageFloEdits(edits, prompt) {
   });
   if (staged.length) { save(); renderScriptBody(); renderNavSceneList(); }
   return { staged, skipped };
+}
+
+// 반영 모드에서 FLO가 쓴 새 씬(<scene> + @insert SC N) → 각자 제자리에 바로 삽입, 되돌리기 토스트
+// @insert 레이블은 삽입 전 대본 기준으로 먼저 전부 해석 (삽입하면 번호가 밀리므로)
+// 반환: [{id, label, title, after}]
+function _insertFloNewScenes(scenesData) {
+  const scenes = S.cur?.scenes || [];
+  if (!scenesData?.length) return [];
+  const findLbl = ref => {
+    const m = (ref || '').match(/SC\s*([\dA-Za-z]+(?:-[\dA-Za-z]+)*)/i);
+    if (!m) return null;
+    const lbl = 'SC ' + m[1].toUpperCase();
+    return scenes.find(s => getSceneLabel(s, scenes) === lbl) || null;
+  };
+  // 기준 씬이 속한 최상위 씬 블록(서브씬·대안 포함)의 마지막 씬
+  const blockEnd = sc => {
+    const top = sc.parentId ? scenes.find(s => s.id === sc.parentId) || sc : (sc.draft ? scenes.find(s => s.id === sc.draftOf) || sc : sc);
+    const ids = new Set([top.id]);
+    scenes.forEach(s => { if (s.parentId === top.id) ids.add(s.id); });
+    scenes.forEach(s => { if (s.draft && ids.has(s.draftOf)) ids.add(s.id); });
+    let last = top;
+    scenes.forEach(s => { if (ids.has(s.id)) last = s; });
+    return last;
+  };
+  const plan = scenesData.map(d => {
+    const ref = d.insertRef || '';
+    const front = /맨\s*앞|처음|^0$/.test(ref);
+    const refSc = front ? null : findLbl(ref);
+    return { d, front, anchor: refSc ? blockEnd(refSc) : null, afterLabel: front ? '맨 앞' : refSc ? getSceneLabel(refSc, scenes) + ' 뒤' : '맨 뒤' };
+  });
+  const inserted = [];
+  const lastAfter = new Map(); // 같은 기준 뒤에 여러 개면 순서대로 이어 붙임
+  let frontIdx = 0;
+  plan.forEach(p => {
+    const group = _scenesFromParsed([p.d]);
+    if (!group.length) return;
+    group.forEach(s => { s.summary = buildSceneSummaryBasic(s); });
+    const key = p.front ? 'front' : p.anchor ? p.anchor.id : 'end';
+    let idx;
+    if (p.front) idx = frontIdx;
+    else if (lastAfter.has(key)) idx = S.cur.scenes.findIndex(s => s.id === lastAfter.get(key)) + 1;
+    else if (p.anchor) idx = S.cur.scenes.findIndex(s => s.id === p.anchor.id) + 1;
+    else idx = S.cur.scenes.length;
+    if (idx <= 0 && !p.front) idx = S.cur.scenes.length;
+    S.cur.scenes.splice(idx, 0, ...group);
+    if (p.front) frontIdx += group.length;
+    lastAfter.set(key, group[group.length - 1].id);
+    inserted.push({ id: group[0].id, ids: group.map(s => s.id), title: group[0].title, after: p.afterLabel });
+  });
+  if (!inserted.length) return [];
+  save(); renderScriptBody(); renderNavSceneList();
+  inserted.forEach(x => { const sc = S.cur.scenes.find(s => s.id === x.id); x.label = sc ? getSceneLabel(sc, S.cur.scenes) : ''; });
+  const allIds = new Set(inserted.flatMap(x => x.ids));
+  toast('➕ 새 씬 ' + inserted.length + '개를 추가했어요', 6000, () => {
+    S.cur.scenes = S.cur.scenes.filter(s => !allIds.has(s.id));
+    save(); renderScriptBody(); renderNavSceneList();
+    toast('↩ 새 씬 추가를 되돌렸어요', 2000);
+  }, '되돌리기');
+  return inserted;
 }
 
 // 수정안이 올라간 첫 씬으로 이동 (모바일은 FLO 패널을 닫아 diff가 보이게)
@@ -6983,10 +7045,16 @@ async function onFloAttach(e) {
 }
 async function _addFloAttachFiles(files) {
   if (!S.cur) { toast('먼저 프로젝트를 열어주세요.'); return; }
+  await _readAttachInto(_floAttachments, files);
+  _renderFloAttachRow();
+  document.getElementById('flo-chat-inp')?.focus();
+}
+// 파일들을 읽어 list에 {name, chars, text, file} 추가 (file은 런타임 전용 — 메시지 저장 시 제외)
+async function _readAttachInto(list, files) {
   for (const f of files) {
     const ext = (f.name.split('.').pop() || '').toLowerCase();
     if (!['txt', 'md', 'docx'].includes(ext)) { toast('txt / md / docx만 첨부할 수 있어요: ' + f.name, 3000); continue; }
-    if (_floAttachments.some(a => a.name === f.name)) { toast('이미 첨부됨: ' + f.name); continue; }
+    if (list.some(a => a.name === f.name)) { toast('이미 첨부됨: ' + f.name); continue; }
     try {
       let text = (await readFileAsText(f)).replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
       if (!text) { toast('빈 파일입니다: ' + f.name); continue; }
@@ -6995,11 +7063,123 @@ async function _addFloAttachFiles(files) {
         text = text.slice(0, FLO_ATTACH_MAX_CHARS);
         toast('⚠️ ' + f.name + '이 길어 앞 ' + FLO_ATTACH_MAX_CHARS.toLocaleString() + '자만 첨부해요', 4000);
       }
-      _floAttachments.push({ name: f.name, chars, text });
+      list.push({ name: f.name, chars, text, file: f });
     } catch (err) { toast('파일 읽기 실패: ' + f.name + ' — ' + err.message, 3500); }
   }
-  _renderFloAttachRow();
-  document.getElementById('flo-chat-inp')?.focus();
+}
+
+// ── 첨부 파일 자동 판단 (AI 없음) ────────────────────────────────────
+// 대본과 겹치는 정도: 파일의 8글자 조각 중 현재 대본(대안 제외)에 있는 비율 — 형식(docx 한 줄 대사 등)이 달라도 비교되게 공백·문장부호 제거
+function _scriptOverlap(text) {
+  const norm = t => (t || '').replace(/[\s"'“”‘’.,!?…·~\-—–()\[\]{}:：;]/g, '');
+  const K = 8;
+  const src = norm((S.cur?.scenes || []).filter(s => !s.draft)
+    .map(s => (s.title || '') + (s.lines || []).map(l => l.text || '').join('')).join(''));
+  const f = norm(text);
+  if (src.length < K || f.length < K) return 0;
+  const set = new Set();
+  for (let i = 0; i + K <= src.length; i++) set.add(src.slice(i, i + K));
+  const step = Math.max(1, Math.floor(f.length / 5000)); // 긴 파일은 표본만
+  let hit = 0, tot = 0;
+  for (let i = 0; i + K <= f.length; i += step) { tot++; if (set.has(f.slice(i, i + K))) hit++; }
+  return tot ? hit / tot : 0;
+}
+// 대본 형식인지: 씬 머리 2개 이상, 또는 배역명·대사 줄 비율 20% 이상
+function _looksLikeScript(text) {
+  const lines = (text || '').split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length < 5) return false;
+  const head = lines.filter(l => /^(S#\s*\d|#\s*\d|INT\.|EXT\.|씬\s*\d|장면\s*\d|SC\s*\d|\d+\s*막|제?\s*\d+\s*장)/i.test(l)).length;
+  const dlg = lines.filter(l => /^[가-힣A-Za-z]{1,8}\s*[:：]\s*\S/.test(l) || /^[가-힣A-Za-z]{1,8}\s{2,}\S/.test(l) || /^[가-힣A-Za-z]{1,8}\s*[:：]$/.test(l)).length;
+  return head >= 2 || dlg / lines.length >= 0.2;
+}
+// 'reflect'(내 대본 수정본) / 'import'(새 대본) / 'talk'(자료·메모) / 'ask'(애매)
+const ATTACH_REFLECT_MIN = 0.5, ATTACH_NEW_MAX = 0.2;
+function _classifyAttach(files) {
+  const ov = Math.max(0, ...files.map(f => _scriptOverlap(f.text)));
+  const script = files.some(f => _looksLikeScript(f.text));
+  if (ov >= ATTACH_REFLECT_MIN) return 'reflect';
+  if (!script) return 'talk';
+  return ov >= ATTACH_NEW_MAX ? 'ask' : 'import';
+}
+const FLO_REFLECT_TEXT = '첨부한 수정본을 지금 대본과 비교해서, 바뀐 곳을 찾아 반영해줘.';
+const FLO_TALK_TEXT = '첨부한 파일을 읽고 이야기해줘.';
+
+// FLO 패널을 열고 메시지(첨부 포함)를 보냄 — FLO 입력창·라인 에디터 첨부 공통
+function _sendToFlo(text, files) {
+  if (!S.cur) return;
+  openFloPanel('chat');
+  S.activeTab = 'chat';
+  const userMsgObj = { role: 'user', text };
+  if (files?.length) userMsgObj.files = files.map(({ name, chars, text }) => ({ name, chars, text }));
+  if (!S.cur.messages) S.cur.messages = [];
+  S.cur.messages.push(userMsgObj);
+  save(true);
+  appendMsgEl(userMsgObj);
+  handleChatPrompt(text);
+}
+
+// ── 라인 에디터 📎 — 파일을 칩으로 붙이고, 보낼 때 반영/가져오기/FLO 대화로 자동 분기 ──
+let _lineAttachments = [];
+async function onLineAttach(e) {
+  const files = [...(e.target.files || [])];
+  e.target.value = '';
+  if (!S.cur) { toast('먼저 프로젝트를 열어주세요.'); return; }
+  const imgs = files.filter(f => f.type.startsWith('image/'));
+  if (imgs.length) { await handleImageAttach(imgs[0]); return; } // 이미지 → 기존 이미지 분석
+  await _readAttachInto(_lineAttachments, files);
+  _renderLineAttachRow();
+  const inp = document.getElementById('prompter-inp');
+  if (inp) { inp.placeholder = '보내면 알아서 처리해요 (반영 / 새 씬으로 / FLO와 이야기)'; inp.focus(); }
+}
+function _renderLineAttachRow(ask) {
+  const row = document.getElementById('line-attach-row');
+  if (!row) return;
+  row.innerHTML = '';
+  _lineAttachments.forEach((f, i) => row.appendChild(_floFileChip(f, () => {
+    _lineAttachments.splice(i, 1); _renderLineAttachRow();
+    if (!_lineAttachments.length) renderChips();
+  })));
+  if (ask) {
+    const bar = document.createElement('div'); bar.className = 'line-attach-ask';
+    const q = document.createElement('span'); q.textContent = '대본 일부와 겹쳐요. 어떻게 할까요?';
+    bar.appendChild(q);
+    [['✦ 기존 씬에 반영', 'reflect'], ['새 씬으로 가져오기', 'import']].forEach(([label, route]) => {
+      const b = document.createElement('button'); b.className = 'setting-btn'; b.textContent = label;
+      b.onclick = () => _runLineAttachRoute(route, ask.text);
+      bar.appendChild(b);
+    });
+    row.appendChild(bar);
+  }
+  row.classList.toggle('show', _lineAttachments.length > 0);
+}
+function _lineAttachRouteFromText(text) {
+  if (/반영|고쳐|수정해|수정안|적용해|바꿔\s*줘|다듬어|손봐|교정/.test(text)) return 'reflect';
+  if (/가져와|불러와|추가해|넣어\s*줘|새\s*(씬|장면)으로|(씬|장면)으로\s*(만들|넣|추가|가져)/.test(text)) return 'import';
+  return 'talk';
+}
+async function _sendLineAttachments(text) {
+  const route = text ? _lineAttachRouteFromText(text) : _classifyAttach(_lineAttachments);
+  if (route === 'ask') { _renderLineAttachRow({ text }); return; }
+  if (!text) toast(route === 'reflect' ? '✦ 지금 대본의 수정본으로 보여서 바뀐 곳을 반영할게요'
+    : route === 'import' ? '📥 새 대본으로 보여서 씬으로 가져올게요' : '💬 FLO가 읽고 이야기할게요', 3000);
+  await _runLineAttachRoute(route, text);
+}
+async function _runLineAttachRoute(route, text) {
+  const files = _lineAttachments;
+  if (!files.length) return;
+  if (route === 'import') {
+    // 가져오기 배너는 한 번에 파일 하나 — 나머지는 칩으로 남김
+    const first = files.shift();
+    if (files.length) toast('가져오기는 한 번에 하나씩 — 나머지 ' + files.length + '개는 남겨둘게요', 3000);
+    _renderLineAttachRow();
+    if (!files.length) renderChips();
+    await _importFileAsScenes(first.file);
+    return;
+  }
+  _lineAttachments = [];
+  _renderLineAttachRow();
+  renderChips();
+  _sendToFlo(text || (route === 'reflect' ? FLO_REFLECT_TEXT : FLO_TALK_TEXT), files);
 }
 function removeFloAttach(i) { _floAttachments.splice(i, 1); _renderFloAttachRow(); }
 function _floFileChip(f, onRemove) {
@@ -7048,7 +7228,8 @@ function sendFloChat() {
   if (!inp) return;
   let text = inp.value.trim();
   if (!text && !_floAttachments.length) return;
-  if (!text) text = '첨부한 파일을 읽고 이야기해줘.';
+  // 파일만 보냈으면: 지금 대본의 수정본으로 보이면 반영 요청, 아니면 읽고 이야기
+  if (!text) text = _classifyAttach(_floAttachments) === 'reflect' ? FLO_REFLECT_TEXT : FLO_TALK_TEXT;
   // E-1: 미처리 제안 리마인더 체크
   const rem = document.getElementById('pending-reminder');
   if (rem && rem.classList.contains('show')) {
@@ -7057,19 +7238,10 @@ function sendFloChat() {
     return;
   }
   inp.value = ''; inp.style.height = '';
-  S.activeTab = 'chat';
-  // 사용자 메시지 저장 + 버블 표시
-  const userMsgObj = { role: 'user', text };
-  if (_floAttachments.length) {
-    userMsgObj.files = _floAttachments;
-    _floAttachments = [];
-    _renderFloAttachRow();
-  }
-  if (!S.cur.messages) S.cur.messages = [];
-  S.cur.messages.push(userMsgObj);
-  save(true);
-  appendMsgEl(userMsgObj);
-  handleChatPrompt(text);
+  const files = _floAttachments;
+  _floAttachments = [];
+  _renderFloAttachRow();
+  _sendToFlo(text, files);
 }
 
 // ═══════════════════════════════════════════
@@ -10883,7 +11055,13 @@ function _appendFloActionPreviews(body, actions) {
       const b = box('', '↕ 제안 순서');
       [...d].sort((x, y) => (x.newIndex ?? 0) - (y.newIndex ?? 0)).forEach((s, i) => row(b, (i + 1) + '. ' + (s.id ?? '')));
     } else if (a.type === 'stageFloEdits' && Array.isArray(d?.summary)) {
-      const b = box('flo-edit-preview', '✦ 라인 에디터에 올린 수정안');
+      const b = box('flo-edit-preview', '✦ 라인 에디터에 반영한 내용');
+      (d.inserted || []).forEach(s => {
+        const r = document.createElement('div'); r.className = 'fm-row';
+        const sc = document.createElement('span'); sc.className = 'fep-sc'; sc.textContent = '➕ ' + (s.label || '') + ' 「' + (s.title || '') + '」 ';
+        const nn = document.createElement('span'); nn.className = 'fep-n'; nn.textContent = '새 씬 · ' + (s.after || '');
+        r.append(sc, nn); b.appendChild(r);
+      });
       d.summary.forEach(s => {
         const r = document.createElement('div'); r.className = 'fm-row';
         const sc = document.createElement('span'); sc.className = 'fep-sc'; sc.textContent = s.label + ' 「' + (s.title || '') + '」 ';
@@ -11463,7 +11641,7 @@ function handleMsgAction(action) {
       const r = _stageFloEdits(_missing, action.data.prompt);
       if (r.staged.length) toast('✦ 수정안 ' + r.staged.length + '개를 다시 올렸어요', 2500);
     }
-    _gotoFloEdits(_ids);
+    _gotoFloEdits([..._ids, ...(action.data.inserted || []).map(s => s.id)]);
   } else if (action.type === 'deleteSceneSuggest') {
     // 씬 삭제 확인
     const lbl = action.data;
@@ -11853,6 +12031,12 @@ async function sendPrompt() {
   if (isWaiting) return;
   const inp = document.getElementById('prompter-inp');
   const text = inp.value.trim();
+  // 첨부 파일이 있으면 씬 선택과 무관하게 반영/가져오기/FLO 대화로 분기
+  if (_lineAttachments.length) {
+    inp.value = ''; inp.style.height = 'auto';
+    await _sendLineAttachments(text);
+    return;
+  }
   if (!text) return;
   // AI 줄 선택 모드면 handleAiWriteSelected로
   if (_aiWriteMode) {
@@ -13122,8 +13306,10 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     }
     if (_floEditReq) {
       _tagRule = '\n★ 작가가 기존 씬 수정·반영을 요청했습니다. 고칠 씬마다 <r sc="SC번호"> 수정 블록으로 바로 쓰세요 (씬 전체, 고친 씬만). ' +
-        '<scene>·<sequence_titles>는 쓰지 말고, 본문에는 무엇을 바꿨는지 짧게만.' +
-        (_turnFiles ? ' 첨부 파일이 수정본이면 대본 전체와 비교해 달라진 씬을 모두 찾아 반영하세요.' : '');
+        '대본에 아직 없는 씬이 필요하면(수정본에 새로 생긴 씬, 하나를 둘로 나눈 뒷부분 등) 그 씬만 <scene> 블록으로 쓰고 ' +
+        '"@insert SC번호"로 어느 기존 씬 뒤인지 지정하세요 (맨 앞이면 "@insert 맨앞", 맨 뒤면 생략). 이미 있는 씬을 <scene>으로 다시 쓰지 말 것. ' +
+        '<sequence_titles>는 쓰지 말고, 본문에는 무엇을 바꾸고 무엇을 추가했는지 짧게만.' +
+        (_turnFiles ? ' 첨부 파일이 수정본이면 대본 전체와 비교해 달라진 씬과 새로 생긴 씬을 모두 찾아 반영하세요.' : '');
     }
 
     // 씬 작성 의도면 토큰/모델 상향 (full JSON 출력 보장)
@@ -13196,8 +13382,22 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     const surveyRaw = extractTag(raw, 'survey');   // v42: 다중 질문 카드
     const suggestRaw = extractTag(raw, 'suggest');
     // 씬 본문: <scene> 텍스트 블록 (옛 <newscenes>/<scenes>/<subscenes> JSON 폴백) — 서브씬은 subscenes 속성으로
-    const newScenesDataFlo = _parseNewScenes(raw, ['newscenes', 'scenes', 'subscenes']);
+    let newScenesDataFlo = _parseNewScenes(raw, ['newscenes', 'scenes', 'subscenes']);
     if (newScenesDataFlo?.some(s => s.truncated)) toast('⚠️ 씬 응답이 중간에 끊겨 일부만 받았어요', 4000);
+    // 반영 모드: 새 씬은 각자 @insert 위치에 바로 삽입 (수정안과 한 번에 반영, 되돌리기 토스트)
+    if (_floEditReq && newScenesDataFlo?.length) {
+      const _ins = _insertFloNewScenes(newScenesDataFlo.filter(s => !s.truncated));
+      const _cut = newScenesDataFlo.filter(s => s.truncated).map(s => (s.title || '새 씬') + ' (응답이 중간에 끊김)');
+      if (!_floEditResult) _floEditResult = { staged: [], skipped: [] };
+      _floEditResult.inserted = _ins;
+      _floEditResult.skipped.push(..._cut);
+      // 삽입으로 번호가 밀렸으니 수정안 레이블 다시 계산
+      _floEditResult.staged.forEach(s => {
+        const sc = S.cur.scenes.find(x => x.id === s.id);
+        if (sc) s.label = getSceneLabel(sc, S.cur.scenes);
+      });
+      newScenesDataFlo = null; // addScenes 버튼 생략
+    }
     // sequence_titles 처리
     let seqTitlesData = null;
     if (seqTitlesRaw) { try { seqTitlesData = JSON.parse(seqTitlesRaw); } catch {} }
@@ -13214,14 +13414,18 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     const actions = [];
     if (_floEditResult) {
       const { staged, skipped } = _floEditResult;
+      const inserted = _floEditResult.inserted || [];
       // 히스토리에도 남도록 말풍선 텍스트에 기록 (태그 본문은 저장되지 않으므로)
       if (staged.length) displayText += '\n\n✦ 라인 에디터에 수정안을 올렸어요: ' + staged.map(s => s.label).join(', ');
+      if (inserted.length) displayText += (staged.length ? '\n' : '\n\n') + '➕ 새 씬을 추가했어요: ' + inserted.map(s => s.label + ' 「' + s.title + '」').join(', ');
       if (skipped.length) displayText += '\n⚠️ 올리지 못한 씬: ' + skipped.join(', ');
-      if (staged.length) {
+      if (staged.length || inserted.length) {
+        const parts = [staged.length ? '수정안 ' + staged.length : '', inserted.length ? '새 씬 ' + inserted.length : ''].filter(Boolean);
         actions.push({ type:'stageFloEdits', style:'amber',
-          data:{ edits:_floEdit.edits, prompt:text, summary:staged },
-          label:'✦ 수정안 ' + staged.length + '개 라인 에디터에서 보기 →' });
-        toast('✦ 수정안 ' + staged.length + '개를 라인 에디터에 올렸어요', 3000);
+          data:{ edits:_floEdit.edits, prompt:text, summary:staged, inserted },
+          label:'✦ ' + parts.join(' · ') + '개 라인 에디터에서 보기 →' });
+        // 새 씬 추가는 되돌리기 토스트가 이미 떠 있으므로 수정안 토스트는 새 씬이 없을 때만
+        if (staged.length && !inserted.length) toast('✦ 수정안 ' + staged.length + '개를 라인 에디터에 올렸어요', 3000);
       }
     }
     // 시놉시스 / 설정 변경 — 토스트만으로는 사라지므로 채팅에 본문 카드 + 버튼으로 남김
@@ -22436,6 +22640,10 @@ async function handleFileAttach(e) {
   const file = e.target.files[0];
   e.target.value = '';
   if (!file) return;
+  await _importFileAsScenes(file);
+}
+// 파일 → 씬 가져오기 (설정 '파일 읽기', 라인 에디터 첨부의 '새 씬으로' 경로)
+async function _importFileAsScenes(file) {
   if (!S.cur) { toast('먼저 프로젝트를 열어주세요.'); return; }
 
   // 이미지 분기
