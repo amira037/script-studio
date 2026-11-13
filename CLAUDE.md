@@ -396,6 +396,7 @@ callClaudeStream → 실시간 스트리밍
 - `_floEditReq`(반영/고쳐/수정해… 새 씬 요청 제외) → `_tagRule`로 `<r sc>` 사용 지시, 순차 작성 모드 스킵, thinking ON, 출력 한도 = 언급 씬 분량 or 32000
 - `<r sc>` → `_buildLcsSceneDiff`(LCS — 끼워 넣은 줄만 표시, 잠긴 줄·빈 줄 유지) → `sc.diff`. 묶음 머리·잠긴 씬·잘린 블록·없는 씬은 건너뛰고 말풍선에 표시
 - 반영 모드에서 대본에 없는 씬은 FLO가 `<scene>` + `@insert SC N`(맨 앞은 `@insert 맨앞`)으로 씀 → `_insertFloNewScenes`가 레이블을 삽입 전에 모두 해석해 기준 씬 블록(서브씬·대안 포함) 뒤에 바로 삽입, 같은 기준이면 순서대로, 되돌리기 토스트. addScenes 버튼 대신 stageFloEdits 카드에 ➕로 표시 (수정안 레이블은 삽입 후 다시 계산)
+- 연극/뮤지컬 반영 (`_tagRule` 추가 규칙): 수정본엔 서브씬 경계가 없음(docx 내보내기도 서브씬 제목 미출력) → ① 기존 장면은 대본의 서브씬 경계에 맞춰 바뀐 서브씬만 `<r sc="SC N-N">`, 경계 변경 금지 ② 장면 안 새 대목은 기본 앞/뒤 서브씬 수정에 포함, 독립된 대목만 `<scene>`(@slug·@sub 없이) + `@insert SC N-N` → `_insertFloNewScenes`가 그 장면 안 새 서브씬으로 (subOrder 기준+0.5, `_normalizeSceneOrder`가 재매김) ③ 새 장면은 `@sub`로 2~4개 직접 나눠 `@insert SC N``
 
 **긴 입력 보호:** `handleChatPrompt`의 키워드 분기(P1 승인, 막혔어, 웹 검색, 시퀀스, needsMore 구간 선택)는 `_isShortCmd`(≤200자)일 때만 — 긴 구상 글 안의 단어로 패널이 가로채지 않게
 
