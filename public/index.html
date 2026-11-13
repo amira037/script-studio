@@ -1403,6 +1403,7 @@ textarea, input { font-family:var(--fb); }
 .setting-label small { display:block; font-size:var(--fs-10); color:var(--text3); margin-top:1px; }
 .setting-val { font-size:var(--fs-10); color:var(--text3); font-family:var(--fm); background:var(--bg3); border:1px solid var(--border); border-radius:4px; padding:2px 8px; }
 .setting-btn { font-size:var(--fs-10); padding:4px 11px; border-radius:var(--r); border:1px solid var(--border2); background:none; color:var(--text2); transition:all .15s; white-space:nowrap; }
+.setting-btn.cache-mode-btn.on { border-color:var(--accent); color:var(--accent); background:var(--accent3); }
 .setting-btn:hover { border-color:var(--border3); color:var(--text); }
 .setting-status { width:7px; height:7px; border-radius:50%; background:var(--text3); flex-shrink:0; }
 .setting-status.on { background:var(--green); }
@@ -1954,6 +1955,31 @@ body:has(.app-nav.mobile-open) .flo-fab { display:none !important; }
   flex-shrink:0; transition:all .15s; align-self:flex-end;
 }
 .flo-chat-send:hover { background:rgba(200,169,110,.25); }
+/* FLO 대화 자료 첨부 */
+.flo-attach-btn {
+  width:32px; height:32px; border-radius:var(--r); position:relative;
+  border:1px solid var(--border2); background:transparent; color:var(--text3);
+  font-size:var(--fs-14); cursor:pointer; flex-shrink:0; align-self:flex-end;
+  display:flex; align-items:center; justify-content:center; transition:all .15s;
+}
+.flo-attach-btn:hover { border-color:var(--accent2); color:var(--accent); background:var(--accent3); }
+.flo-attach-row { display:none; flex-wrap:wrap; gap:4px; padding:6px 8px 0; background:var(--bg3); border-top:1px solid var(--border); flex-shrink:0; }
+.flo-attach-row.show { display:flex; }
+.flo-attach-row.show + .flo-chat-inp-row { border-top:none; }
+.flo-file-chip {
+  display:inline-flex; align-items:center; gap:4px; max-width:100%;
+  font-size:var(--fs-10); font-family:var(--fm); color:var(--text2);
+  background:var(--bg2); border:1px solid var(--border2); border-radius:var(--r); padding:2px 6px;
+}
+.flo-file-chip .ffc-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:180px; }
+.flo-file-chip .ffc-x { cursor:pointer; color:var(--text3); border:none; background:none; padding:0 0 0 2px; font-size:var(--fs-10); }
+.flo-file-chip .ffc-x:hover { color:var(--red); }
+.flo-file-chip.dropped { opacity:.5; }
+.msg-files { display:flex; flex-wrap:wrap; gap:4px; justify-content:flex-end; margin-top:4px; }
+#flo-dw-chat.flo-drop { outline:2px dashed var(--accent2); outline-offset:-4px; }
+.flo-edit-preview .fep-sc { font-weight:600; color:var(--accent); margin-top:4px; }
+.flo-edit-preview .fep-sc:first-of-type { margin-top:0; }
+.flo-edit-preview .fep-n { color:var(--text3); font-family:var(--fm); font-size:var(--fs-10); }
 
 /* 하단 칩 "선택 없음" */
 .chip-none {
@@ -2200,7 +2226,11 @@ const SW_VERSION = 'v43.6';
           <!-- 채팅 드로어: #chat-msgs + 입력창 -->
           <div class="flo-dw show" id="flo-dw-chat">
             <div class="chat-msgs" id="chat-msgs"></div>
+            <div class="flo-attach-row" id="flo-attach-row"></div>
             <div class="flo-chat-inp-row">
+              <label class="flo-attach-btn" title="대화 자료 첨부 (txt/md/docx, 여러 개 가능)">
+                📎<input type="file" multiple accept=".txt,.md,.docx" onchange="onFloAttach(event)" style="opacity:0;position:absolute;width:0;height:0;overflow:hidden">
+              </label>
               <textarea class="flo-chat-inp" id="flo-chat-inp" rows="1" placeholder="플로에게 이야기 방향, 인물, 구조를 물어보세요"
                 onkeydown="onFloKey(event)" oninput="autoResize(this)"></textarea>
               <button class="flo-chat-send" onclick="sendFloChat()">↑</button>
@@ -2318,6 +2348,14 @@ const SW_VERSION = 'v43.6';
     </div>
     <div class="setting-group">
       <div class="setting-group-title">AI 사용량</div>
+      <div class="setting-row">
+        <div class="setting-label">대본 캐시<small id="cache-mode-label"></small></div>
+        <div style="display:flex;gap:5px;">
+          <button class="setting-btn cache-mode-btn" data-mode="on" onclick="setCacheMode('on')">켜기</button>
+          <button class="setting-btn cache-mode-btn" data-mode="5m" onclick="setCacheMode('5m')">5분만</button>
+          <button class="setting-btn cache-mode-btn" data-mode="off" onclick="setCacheMode('off')">끄기</button>
+        </div>
+      </div>
       <div id="usage-panel" class="usage-panel"></div>
     </div>
     <div class="setting-group">
@@ -2583,6 +2621,27 @@ function toggleSyncEnabled() {
   _updateSyncToggleUI();
   toast(next ? '☁️ 클라우드 동기화 켜짐' : '🔌 클라우드 동기화 꺼짐', 2000);
 }
+// 대본 캐시 모드 (기기별 localStorage) — 'on': 안정 구간 1시간 + 최근 구간 5분 / '5m': 전부 5분 / 'off': 캐시 표시 없음
+// 대본 전체 컨텍스트(opts.script)는 모드와 무관하게 그대로 보냄 — 끄면 매 호출 대본을 일반 입력 단가로 냄
+const CACHE_MODE_LABELS = {
+  on:  '1시간+5분 — 자주 쓸 때 유리 (1시간 저장은 입력 단가 2배)',
+  '5m': '5분만 — 저장 할증 1.25배, 5분 안에 다시 쓰면 읽기 0.1배',
+  off: '끔 — 할증 없음, 매번 대본 전체를 일반 입력 단가로',
+};
+const getCacheMode = () => { const m = localStorage.getItem('ss_cache_mode'); return m in CACHE_MODE_LABELS ? m : 'on'; };
+function setCacheMode(mode) {
+  if (!(mode in CACHE_MODE_LABELS)) return;
+  localStorage.setItem('ss_cache_mode', mode);
+  _updateCacheModeUI();
+  toast({ on: '⚡ 대본 캐시 켜짐 (1시간+5분)', '5m': '⚡ 대본 캐시 5분만', off: '🔌 대본 캐시 꺼짐' }[mode], 2000);
+}
+function _updateCacheModeUI() {
+  const mode = getCacheMode();
+  document.querySelectorAll('.cache-mode-btn').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
+  const lbl = document.getElementById('cache-mode-label');
+  if (lbl) lbl.textContent = CACHE_MODE_LABELS[mode];
+}
+
 // 설정 패널 — AI 사용량 (전체 작품 합산 + 현재 작품)
 function _renderUsagePanel() {
   const el = document.getElementById('usage-panel');
@@ -3468,6 +3527,88 @@ function _parseSceneEditResponse(raw) {
   return null;
 }
 
+// ── FLO 기존 씬 수정안: <r sc="SC 3"> ─────────────────────────────────
+// FLO는 대본을 레이블(_sceneToScriptText)로 보므로 sceneId 대신 레이블로 받고, 같은 편집 파서를 씀
+const floSceneEditRule = () =>
+  '<r sc="SC 3">\n@comment 변경 요약 한 줄\n# 슬러그(있을 때만)\n[지문] 지문 내용\n배역명:\n  (괄호 지문)\n  대사 내용\n</r>\n' +
+  '규칙: 고친 씬만, 씬마다 블록 하나 / sc는 [대본 전체]의 레이블 그대로 (SC 3, SC 3-1, SC 3-A) / ' +
+  '고치지 않은 줄까지 씬 전체를 빠짐없이 출력 / 제목을 바꿀 때만 "@title 새 제목" / ' +
+  '지문은 "[지문] ", 배역명은 한 줄에 "이름:"만, 대사·괄호 지문은 두 칸 들여쓰기' +
+  (isMusicalProject() ? ' / 가사는 두 칸 들여쓰고 "♪ "로 시작' : '') +
+  ' / 서브씬이 있는 장면은 서브씬 레이블로 각각 / 첨부 파일의 수정점을 반영하라는 요청이면 파일의 문장을 그대로 옮기고 임의로 다듬거나 보태지 말 것.';
+
+function _parseFloSceneEdits(raw) {
+  if (!/<r\s+sc\s*=/i.test(raw || '')) return { edits: [], unknown: [] };
+  const scenes = S.cur?.scenes || [];
+  const unknown = [];
+  const conv = raw.replace(/<r\s+sc\s*=\s*["']?\s*([^"'>]+?)\s*["']?\s*>/gi, (m0, lbl) => {
+    const norm = 'SC ' + lbl.replace(/^SC\s*/i, '').trim().toUpperCase();
+    const sc = scenes.find(s => getSceneLabel(s, scenes) === norm);
+    if (!sc) { unknown.push(lbl.trim()); return '<r sceneId="0">'; }
+    return '<r sceneId="' + sc.id + '">';
+  });
+  const edits = (_parseSceneEditResponse(conv) || []).filter(u => u.sceneId);
+  return { edits, unknown };
+}
+
+// 원본/수정 줄 → LCS diff (줄을 끼워 넣거나 뺀 수정도 그 줄만 표시)
+// 잠긴 원본 줄은 지우지 않고 유지, 원본의 빈 줄도 유지 (편집 텍스트에는 빈 줄이 안 나감)
+function _buildLcsSceneDiff(oldLines, newLines) {
+  const key = l => (l.type || '') + '\u0001' + (l.text || '').trim();
+  const a = oldLines || [], b = newLines || [];
+  const ka = a.map(key), kb = b.map(key);
+  const n = a.length, m = b.length;
+  const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = ka[i] === kb[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const diff = [], merged = [];
+  let i = 0, j = 0, keptLocked = 0;
+  while (i < n || j < m) {
+    if (i < n && !(a[i].text || '').trim()) { diff.push({ type: 'ctx', text: a[i].text || '' }); merged.push(a[i]); i++; continue; }
+    if (i < n && j < m && ka[i] === kb[j]) { diff.push({ type: 'ctx', text: a[i].text }); merged.push(a[i]); i++; j++; }
+    else if (i < n && (j >= m || dp[i + 1][j] >= dp[i][j + 1])) {
+      if (a[i].locked) { diff.push({ type: 'ctx', text: a[i].text }); merged.push(a[i]); keptLocked++; }
+      else diff.push({ type: 'del', text: a[i].text });
+      i++;
+    } else { diff.push({ type: 'add', text: b[j].text }); merged.push({ type: b[j].type, text: b[j].text, locked: false }); j++; }
+  }
+  const add = diff.filter(d => d.type === 'add').length, del = diff.filter(d => d.type === 'del').length;
+  return { diff, newLines: merged, keptLocked, add, del, changed: add + del > 0 };
+}
+
+// FLO 수정안 → 라인 에디터 diff로 올림 (적용은 기존 diff 블록에서). 반환: {staged:[{id,label,title,add,del,comment}], skipped:[]}
+function _stageFloEdits(edits, prompt) {
+  const scenes = S.cur?.scenes || [];
+  const staged = [], skipped = [];
+  (edits || []).forEach(u => {
+    const sc = scenes.find(s => s.id === u.sceneId);
+    if (!sc) return;
+    const lbl = getSceneLabel(sc, scenes);
+    if (_isSubContainer(sc)) { skipped.push(lbl + ' (서브씬 묶음 머리)'); return; }
+    if (sc.locked) { skipped.push(lbl + ' (잠긴 씬)'); return; }
+    // 잘린 블록을 그대로 쓰면 뒷부분이 전부 삭제로 잡힘 → 올리지 않음
+    if (u.truncated) { skipped.push(lbl + ' (응답이 중간에 끊김)'); return; }
+    const r = _buildLcsSceneDiff(sc.lines || [], u.lines || []);
+    const titleChanged = !!u.title && u.title !== sc.title;
+    if (!r.changed && !titleChanged) { skipped.push(lbl + ' (바뀐 줄 없음)'); return; }
+    if (titleChanged) sc.title = u.title; // 제목은 라인 에디터 편집처럼 즉시 반영
+    const comment = (u.comment || 'FLO 수정안') + (r.keptLocked ? ' · 🔒 잠긴 줄 ' + r.keptLocked + '개는 그대로 둠' : '');
+    if (r.changed) sc.diff = { prompt: prompt || '', lines: r.diff, newLines: r.newLines, comment };
+    staged.push({ id: sc.id, label: lbl, title: sc.title, add: r.add, del: r.del, comment: u.comment || '', titleOnly: !r.changed });
+  });
+  if (staged.length) { save(); renderScriptBody(); renderNavSceneList(); }
+  return { staged, skipped };
+}
+
+// 수정안이 올라간 첫 씬으로 이동 (모바일은 FLO 패널을 닫아 diff가 보이게)
+function _gotoFloEdits(ids) {
+  const first = (ids || []).find(id => (S.cur?.scenes || []).some(s => s.id === id));
+  if (!first) return;
+  if (window.innerWidth <= 820) closeFloPanel();
+  scrollToScene(first);
+}
+
 // ── 새 씬 생성: <scene> 블록 (sceneId 없음 — 제목·슬러그를 AI가 정함) ──────────
 // opts.sub: 연극/뮤지컬 서브씬(@sub) / opts.insert: @insert 삽입 위치 / opts.multi: 여러 씬
 const newSceneFormatRule = (opts = {}) => {
@@ -3651,8 +3792,11 @@ function _buildScriptSystem(system) {
   const stable = groups.slice(0, b).map(g => g.text).join('\n\n');
   const recent = groups.slice(b).map(g => g.text).join('\n\n');
   const blocks = [{ type: 'text', text: '[대본 전체 — 참고용. 작품 전체 흐름·복선·인물 말투 일관성 확인에 사용. 편집 대상은 아래 지시를 따를 것]' }];
-  if (stable) blocks.push({ type: 'text', text: stable, cache_control: { type: 'ephemeral', ttl: '1h' } });
-  if (recent) blocks.push({ type: 'text', text: recent, cache_control: { type: 'ephemeral' } });
+  const mode = getCacheMode();
+  const cc = mode === 'off' ? null : mode === '5m' ? { type: 'ephemeral' } : { type: 'ephemeral', ttl: '1h' };
+  const withCc = (text, c) => c ? { type: 'text', text, cache_control: c } : { type: 'text', text };
+  if (stable) blocks.push(withCc(stable, cc));
+  if (recent) blocks.push(withCc(recent, mode === 'off' ? null : { type: 'ephemeral' }));
   if (system) blocks.push({ type: 'text', text: system });
   return blocks;
 }
@@ -6825,11 +6969,86 @@ function onFloKey(e) {
     sendFloChat();
   }
 }
+// ── FLO 대화 자료 첨부 ──────────────────────────────────────────────
+// 📎/드래그로 붙인 txt·md·docx를 다음 메시지와 함께 보냄 (씬 가져오기 handleFileAttach와 별개)
+// msg.files = [{name, chars, text}] — 최근 FLO_ATTACH_KEEP_MSGS개 메시지 안에서만 원문 유지,
+// 그보다 오래되면 text를 지우고 이름만 남김 (저장 용량·매 턴 입력 토큰 절약)
+const FLO_ATTACH_MAX_CHARS = 120000;
+const FLO_ATTACH_KEEP_MSGS = 8;
+let _floAttachments = [];
+async function onFloAttach(e) {
+  const files = [...(e.target.files || [])];
+  e.target.value = '';
+  await _addFloAttachFiles(files);
+}
+async function _addFloAttachFiles(files) {
+  if (!S.cur) { toast('먼저 프로젝트를 열어주세요.'); return; }
+  for (const f of files) {
+    const ext = (f.name.split('.').pop() || '').toLowerCase();
+    if (!['txt', 'md', 'docx'].includes(ext)) { toast('txt / md / docx만 첨부할 수 있어요: ' + f.name, 3000); continue; }
+    if (_floAttachments.some(a => a.name === f.name)) { toast('이미 첨부됨: ' + f.name); continue; }
+    try {
+      let text = (await readFileAsText(f)).replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+      if (!text) { toast('빈 파일입니다: ' + f.name); continue; }
+      const chars = text.length;
+      if (chars > FLO_ATTACH_MAX_CHARS) {
+        text = text.slice(0, FLO_ATTACH_MAX_CHARS);
+        toast('⚠️ ' + f.name + '이 길어 앞 ' + FLO_ATTACH_MAX_CHARS.toLocaleString() + '자만 첨부해요', 4000);
+      }
+      _floAttachments.push({ name: f.name, chars, text });
+    } catch (err) { toast('파일 읽기 실패: ' + f.name + ' — ' + err.message, 3500); }
+  }
+  _renderFloAttachRow();
+  document.getElementById('flo-chat-inp')?.focus();
+}
+function removeFloAttach(i) { _floAttachments.splice(i, 1); _renderFloAttachRow(); }
+function _floFileChip(f, onRemove) {
+  const chip = document.createElement('span');
+  chip.className = 'flo-file-chip' + (f.text == null ? ' dropped' : '');
+  chip.title = f.text == null ? '대화가 길어져 원문은 빠졌어요 (필요하면 다시 첨부)' : f.name;
+  const nm = document.createElement('span'); nm.className = 'ffc-name'; nm.textContent = '📎 ' + f.name;
+  const n = document.createElement('span'); n.textContent = (f.chars || 0).toLocaleString() + '자';
+  chip.append(nm, n);
+  if (onRemove) {
+    const x = document.createElement('button'); x.className = 'ffc-x'; x.textContent = '✕'; x.onclick = onRemove;
+    chip.appendChild(x);
+  }
+  return chip;
+}
+function _renderFloAttachRow() {
+  const row = document.getElementById('flo-attach-row');
+  if (!row) return;
+  row.innerHTML = '';
+  _floAttachments.forEach((f, i) => row.appendChild(_floFileChip(f, () => removeFloAttach(i))));
+  row.classList.toggle('show', _floAttachments.length > 0);
+}
+// API로 보낼 첨부 블록
+function _floFilesBlock(files) {
+  return (files || []).map(f => f.text != null
+    ? '[첨부 파일: ' + f.name + ']\n' + f.text + '\n[/첨부 파일]'
+    : '[첨부했던 파일: ' + f.name + ' — 대화가 길어져 원문은 빠짐. 내용이 필요하면 작가에게 다시 첨부를 요청]'
+  ).join('\n\n');
+}
+// FLO 채팅 영역에 파일 드래그&드롭
+(function () {
+  const zone = document.getElementById('flo-dw-chat');
+  if (!zone) return;
+  const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
+  zone.addEventListener('dragover', e => { if (!hasFiles(e)) return; e.preventDefault(); zone.classList.add('flo-drop'); });
+  zone.addEventListener('dragleave', e => { if (!zone.contains(e.relatedTarget)) zone.classList.remove('flo-drop'); });
+  zone.addEventListener('drop', e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); zone.classList.remove('flo-drop');
+    _addFloAttachFiles([...e.dataTransfer.files]);
+  });
+})();
+
 function sendFloChat() {
   const inp = document.getElementById('flo-chat-inp');
   if (!inp) return;
-  const text = inp.value.trim();
-  if (!text) return;
+  let text = inp.value.trim();
+  if (!text && !_floAttachments.length) return;
+  if (!text) text = '첨부한 파일을 읽고 이야기해줘.';
   // E-1: 미처리 제안 리마인더 체크
   const rem = document.getElementById('pending-reminder');
   if (rem && rem.classList.contains('show')) {
@@ -6841,6 +7060,11 @@ function sendFloChat() {
   S.activeTab = 'chat';
   // 사용자 메시지 저장 + 버블 표시
   const userMsgObj = { role: 'user', text };
+  if (_floAttachments.length) {
+    userMsgObj.files = _floAttachments;
+    _floAttachments = [];
+    _renderFloAttachRow();
+  }
   if (!S.cur.messages) S.cur.messages = [];
   S.cur.messages.push(userMsgObj);
   save(true);
@@ -10658,6 +10882,16 @@ function _appendFloActionPreviews(body, actions) {
     } else if (a.type === 'reorderScenes' && Array.isArray(d)) {
       const b = box('', '↕ 제안 순서');
       [...d].sort((x, y) => (x.newIndex ?? 0) - (y.newIndex ?? 0)).forEach((s, i) => row(b, (i + 1) + '. ' + (s.id ?? '')));
+    } else if (a.type === 'stageFloEdits' && Array.isArray(d?.summary)) {
+      const b = box('flo-edit-preview', '✦ 라인 에디터에 올린 수정안');
+      d.summary.forEach(s => {
+        const r = document.createElement('div'); r.className = 'fm-row';
+        const sc = document.createElement('span'); sc.className = 'fep-sc'; sc.textContent = s.label + ' 「' + (s.title || '') + '」 ';
+        const nn = document.createElement('span'); nn.className = 'fep-n';
+        nn.textContent = s.titleOnly ? '제목만 변경' : '+' + s.add + ' −' + s.del + '줄';
+        r.append(sc, nn); b.appendChild(r);
+        if (s.comment) { const sb = document.createElement('div'); sb.className = 'fm-sub'; sb.textContent = s.comment; b.appendChild(sb); }
+      });
     } else if (a.type === 'rawFallback' && d?.raw) {
       const det = document.createElement('details');
       det.className = 'flo-mini fm-raw';
@@ -10700,6 +10934,11 @@ function appendMsgEl(msg, scroll = true) {
   }
   if (msg.role !== 'user') body.appendChild(name);
   body.appendChild(bubble);
+  if (msg.files?.length) {
+    const fw = document.createElement('div'); fw.className = 'msg-files';
+    msg.files.forEach(f => fw.appendChild(_floFileChip(f)));
+    body.appendChild(fw);
+  }
   // 플로가 쓴 씬 본문 미리보기 — <newscenes>/<scenes>/<subscenes>는 말풍선에서 제거되므로 여기서 펼쳐 보여줌
   const _sceneActs = (msg.actions || []).filter(a => a.type === 'addScenes' && Array.isArray(a.data));
   _sceneActs.forEach(a => {
@@ -11158,6 +11397,11 @@ function updateStreamBubble(text) {
       ((_scBlocks.at(-1).match(/@title\s+(.+)/) || [])[1] || '') + ' (' +
       _scBlocks.at(-1).split('\n').filter(l => l.trim() && !/^\s*[@<]/.test(l)).length + '줄)'
     : '';
+  // FLO 수정안 <r sc> 블록도 진행 상황 한 줄로
+  const _rBlocks = text.match(/<r\s+sc\s*=\s*["']?([^"'>]+)/gi) || [];
+  const _rNote = _rBlocks.length
+    ? '\n\n✍️ 수정안 작성 중 — ' + _rBlocks.map(b => b.replace(/^<r\s+sc\s*=\s*["']?/i, '').trim()).join(', ')
+    : '';
   // 구조화 태그(<r>, <sequence_titles> 등) 제거하고 자연어만 표시
   const display = text
     .replace(/<scene(?:\s[^>]*)?>[\s\S]*?<\/scene>/gi, '')
@@ -11175,7 +11419,7 @@ function updateStreamBubble(text) {
     .replace(/<setting_update>[\s\S]*?<\/setting_update>/gi, '')
     .replace(/<subscenes>[\s\S]*?<\/subscenes>/gi, '')
     .replace(/<subscenes>[\s\S]*/gi, '')
-    .trim() + _scNote;
+    .trim() + _scNote + _rNote;
   el.textContent = display.trim() || '...';
   const container = document.getElementById('chat-msgs');
   if (container) container.scrollTop = container.scrollHeight;
@@ -11208,6 +11452,18 @@ function handleMsgAction(action) {
   } else if (action.type === 'gotoScriptEdit') {
     // I1: 씬 체크박스 + 2버튼 분기 패널
     showSceneEditBranchPanel(action.data);
+  } else if (action.type === 'stageFloEdits') {
+    // 수정안을 취소한 씬은 다시 올리고, 첫 씬으로 이동
+    const _ids = (action.data.summary || []).map(s => s.id);
+    const _missing = (action.data.edits || []).filter(u => {
+      const sc = (S.cur?.scenes || []).find(s => s.id === u.sceneId);
+      return sc && !sc.diff && (action.data.summary || []).some(s => s.id === u.sceneId && !s.titleOnly);
+    });
+    if (_missing.length) {
+      const r = _stageFloEdits(_missing, action.data.prompt);
+      if (r.staged.length) toast('✦ 수정안 ' + r.staged.length + '개를 다시 올렸어요', 2500);
+    }
+    _gotoFloEdits(_ids);
   } else if (action.type === 'deleteSceneSuggest') {
     // 씬 삭제 확인
     const lbl = action.data;
@@ -12281,7 +12537,17 @@ const HIST_KEEP_CHARS = 24000;
 async function buildCompressedHistory() {
   if (!S.cur) return [];
   const msgs = S.cur.messages || [];
-  const toApi = m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text });
+  // 첨부 원문은 최근 FLO_ATTACH_KEEP_MSGS개 메시지 안에서만 — 오래된 건 이름만 남기고 원문 삭제
+  const _keepFilesFrom = msgs.length - FLO_ATTACH_KEEP_MSGS;
+  let _filesDropped = false;
+  msgs.forEach((m, i) => {
+    if (i >= _keepFilesFrom || !m.files?.some(f => f.text != null)) return;
+    m.files.forEach(f => { delete f.text; });
+    _filesDropped = true;
+  });
+  if (_filesDropped) save(true);
+  const toApi = m => ({ role: m.role === 'user' ? 'user' : 'assistant',
+    content: m.files?.length ? _floFilesBlock(m.files) + '\n\n' + (m.text || '') : m.text });
   let cut = Math.min(S.cur._histCut || 0, msgs.length);
   if (cut === 0) S.cur._histSummary = '';
   const recentLen = () => msgs.slice(cut).reduce((n, m) => n + (m.text || '').length, 0);
@@ -12525,10 +12791,18 @@ async function floRoute(text) {
 
 async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent = null) {
   S._usageCtx = 'flo';
+  // sendFloChat이 방금 저장한 user 메시지 (첨부 파일 포함) — normalizeSceneNums 전 원문으로 비교
+  const _lastUserMsg = S.cur?.messages?.at(-1);
+  const _isSavedUserMsg = _lastUserMsg?.role === 'user' && _lastUserMsg.text === text;
+  const _turnFiles = _isSavedUserMsg && _lastUserMsg.files?.length ? _lastUserMsg.files : null;
   text = await normalizeSceneNums(text);
   switchTab('chat');
   // 긴 구상 글 안의 단어("좋아", "모르겠", "다음 장면" 등)로 엉뚱한 패널이 뜨지 않게 — 키워드 분기는 짧은 입력만
-  const _isShortCmd = text.length <= LONG_INPUT_CHARS;
+  // 파일을 첨부한 턴도 키워드 패널로 가로채지 않음 (파일 내용과 함께 FLO가 답해야 함)
+  const _isShortCmd = !_turnFiles && text.length <= LONG_INPUT_CHARS;
+  // 기존 씬 수정·반영 요청 → FLO가 <r sc> 수정안을 쓰고 라인 에디터 diff로 올림
+  const _floEditReq = /반영|고쳐|수정해|수정안|바꿔\s*줘|다듬어|손봐|교정|적용해/.test(text)
+    && !/새\s*(씬|장면)|씬.*(추가|만들)|장면.*(추가|만들)/.test(text);
   // P1: pending approveSequence → 자연어로 버튼 실행
   {
     const _lastActMsg = (S.cur?.messages||[]).filter(m => m.role === 'assistant' && m.actions?.length).at(-1);
@@ -12755,13 +13029,16 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
       '  · gender는 대화 맥락에서 명확히 감지될 때만 포함. 불확실하면 반드시 생략.\n' +
       '  · lastName/firstName/title은 알 수 있을 때만 포함.\n' +
       '- 기존 인물 설정 변경/핵심 설정 업데이트: <setting_update>변경된 설정 내용 (인물명, 변경 내용 포함)</setting_update>\n' +
-      '- 태그는 응답 맨 끝에만, JSON을 본문에 직접 출력 금지. 씬 본문은 <scene> 블록 밖에 쓰지 말 것.\n' +
+      '- 태그는 응답 맨 끝에만, JSON을 본문에 직접 출력 금지. 씬 본문은 <scene>/<r> 블록 밖에 쓰지 말 것.\n' +
+      '- [첨부 파일]은 작가가 올린 자료(수정본·메모·참고 문서). 대본 전체와 비교·참고해서 답하고, 수정본이면 바뀐 곳을 짚어 말할 것.\n' +
+      '[기존 씬 수정 형식]\n' + floSceneEditRule() + '\n' +
       // J8: 씬 액션 태그 우선 사용 지침
       '★ 씬 액션 태그 사용 규칙 (매우 중요):\n' +
       '- 씬이 없을 때: 반드시 <sequence_titles> 포함\n' +
       '- 전체 구조 재편 필요: <sequence_titles> 사용\n' +
       '- 씬 1~3개 추가/삽입: <scene> 블록 사용 (맨 뒤면 @insert 생략)\n' +
-      '- 기존 씬 수정 필요: 수정된 씬 전체를 <scene> 블록으로 + <editscenes>SC번호</editscenes> 함께 사용\n' +
+      '- 기존 씬을 직접 고칠 때(작가가 수정·반영을 요청했을 때): <r sc="SC번호"> 수정 블록 (아래 [기존 씬 수정 형식]). <scene>으로 다시 쓰지 말 것\n' +
+      '- 고치진 않고 수정이 필요한 씬만 짚을 때: <editscenes>SC번호</editscenes>\n' +
       '- 씬 있고 새 방향 나올 때: <scene> 블록 + <editscenes>SC번호</editscenes> 함께\n' +
       '- 스토리/설정/인물 대화 2턴 이상 이어지면: 위 태그 중 맥락에 맞는 둘 반드시 포함\n' +
       '- 씬 내용을 직접 쓰고 싶을 때: <sequence_titles>로 제목 먼저 제안. 작가가 명시적으로 "써줘" 요청시만 직접 작성.\n' +
@@ -12843,11 +13120,16 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
         _tagRule = '\n★ <sequence_titles>, <scene> 태그 사용 자제. 꼭 필요할 때만.';
       }
     }
+    if (_floEditReq) {
+      _tagRule = '\n★ 작가가 기존 씬 수정·반영을 요청했습니다. 고칠 씬마다 <r sc="SC번호"> 수정 블록으로 바로 쓰세요 (씬 전체, 고친 씬만). ' +
+        '<scene>·<sequence_titles>는 쓰지 말고, 본문에는 무엇을 바꿨는지 짧게만.' +
+        (_turnFiles ? ' 첨부 파일이 수정본이면 대본 전체와 비교해 달라진 씬을 모두 찾아 반영하세요.' : '');
+    }
 
     // 씬 작성 의도면 토큰/모델 상향 (full JSON 출력 보장)
     const _isWriteIntent = ['write_single', 'write_multi'].includes(_floIntent);
     // 3씬 이상 또는 연극/뮤지컬 → 순차 write_single 처리
-    const _useSeqMode = _floIntent === 'write_multi' && (_floSceneCount >= 3 || _floIsTheatrical);
+    const _useSeqMode = !_floEditReq && _floIntent === 'write_multi' && (_floSceneCount >= 3 || _floIsTheatrical);
     if (_useSeqMode) {
       hideTyping();
       // 텍스트에서 명시된 SC번호 추출
@@ -12857,18 +13139,23 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
       return;
     }
     const _floModel = 'claude-sonnet-5-5';
-    const _floTokens = _isWriteIntent ? 10000 : (needsMore ? 4000 : 2000);
+    // 수정안은 씬 전체를 다시 출력 → 언급 씬 분량(없으면 첨부 시 상한)으로 출력 한도 계산 (max_tokens는 상한일 뿐)
+    const _editTargets = [...explicitScIds, ...selectedOnlyIds].map(id => allScenes.find(s => s.id === id)).filter(Boolean);
+    const _floTokens = _floEditReq
+      ? (_turnFiles || !_editTargets.length ? 32000 : _estimateSceneOutTokens(_editTargets, 1.3))
+      : _isWriteIntent ? 10000 : (needsMore ? 4000 : 2000);
+    const _floThink = _isWriteIntent || _floEditReq;
 
     // 플로: 실시간 스트리밍
-    // history 마지막이 이미 이 user 메시지면 중복 방지 (sendFloChat에서 저장한 경우)
-    const _lastH = history[history.length - 1];
-    const _histBase = (_lastH?.role === 'user' && _lastH?.content === text) ? history.slice(0, -1) : history;
+    // history 마지막이 이미 이 user 메시지면 중복 방지 (sendFloChat에서 저장한 경우 — 첨부는 아래 이번 요청에 다시 붙임)
+    const _histBase = _isSavedUserMsg && history.length ? history.slice(0, -1) : history;
     // 히스토리 마지막에 캐시 지점 → 다음 턴에 이전 대화 전체를 캐시로 읽음 (대본 1h/5m 뒤라 TTL 순서 OK)
     const _apiMsgs = [
-      ..._histBase.map((m, i, arr) => (i === arr.length - 1 && typeof m.content === 'string' && m.content)
+      ..._histBase.map((m, i, arr) => (getCacheMode() !== 'off' && i === arr.length - 1 && typeof m.content === 'string' && m.content)
         ? { role: m.role, content: [{ type: 'text', text: m.content, cache_control: { type: 'ephemeral' } }] }
         : m),
-      { role:'user', content: '[이번 요청 참고 정보]\n' + _floVarCtx + _tagRule + '\n\n[작가 요청]\n' + text },
+      { role:'user', content: (_turnFiles ? _floFilesBlock(_turnFiles) + '\n\n' : '') +
+        '[이번 요청 참고 정보]\n' + _floVarCtx + _tagRule + '\n\n[작가 요청]\n' + text },
     ];
     showStreamBubble();
     const raw = await callClaudeStream(
@@ -12881,9 +13168,19 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
         else hideStreamBubble();
       },
       false,
-      { think: _isWriteIntent, script: true }
+      { think: _floThink, script: true }
     );
     hideTyping();
+
+    // 기존 씬 수정안 <r sc="SC N"> → 라인 에디터 diff로 바로 올림 (적용·취소는 diff 블록에서)
+    const _floEdit = _parseFloSceneEdits(raw);
+    let _floEditResult = null;
+    if (_floEdit.edits.length) {
+      _floEditResult = _stageFloEdits(_floEdit.edits, text);
+      if (_floEdit.unknown.length) _floEditResult.skipped.push(..._floEdit.unknown.map(l => l + ' (없는 씬)'));
+    } else if (_floEdit.unknown.length) {
+      _floEditResult = { staged: [], skipped: _floEdit.unknown.map(l => l + ' (없는 씬)') };
+    }
 
     // Parse special content
     const synopsisData = extractTag(raw, 'synopsis');
@@ -12915,6 +13212,18 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     if (!displayText) displayText = '생성이 완료됐습니다.';
 
     const actions = [];
+    if (_floEditResult) {
+      const { staged, skipped } = _floEditResult;
+      // 히스토리에도 남도록 말풍선 텍스트에 기록 (태그 본문은 저장되지 않으므로)
+      if (staged.length) displayText += '\n\n✦ 라인 에디터에 수정안을 올렸어요: ' + staged.map(s => s.label).join(', ');
+      if (skipped.length) displayText += '\n⚠️ 올리지 못한 씬: ' + skipped.join(', ');
+      if (staged.length) {
+        actions.push({ type:'stageFloEdits', style:'amber',
+          data:{ edits:_floEdit.edits, prompt:text, summary:staged },
+          label:'✦ 수정안 ' + staged.length + '개 라인 에디터에서 보기 →' });
+        toast('✦ 수정안 ' + staged.length + '개를 라인 에디터에 올렸어요', 3000);
+      }
+    }
     // 시놉시스 / 설정 변경 — 토스트만으로는 사라지므로 채팅에 본문 카드 + 버튼으로 남김
     if (synopsisData && synopsisData.length > 20) {
       actions.push({ type:'reviewSynopsis', data:synopsisData, label:'📋 시놉시스 저장하기', style:'green' });
@@ -12937,8 +13246,8 @@ async function handleChatPrompt(text, _skipAnalysisRoute = false, _forceIntent =
     if (charsData && Array.isArray(charsData) && charsData.length > 0) {
       actions.push({ type:'addCharacters', data:charsData, label:'👥 등장인물 '+charsData.length+'명 추가', style:'purple' });
     }
-    // 씬 수정하기 버튼
-    if (editScenesRaw) {
+    // 씬 수정하기 버튼 (수정안을 이미 올렸으면 생략)
+    if (editScenesRaw && !_floEditResult?.staged.length) {
       const scNums = editScenesRaw.split(',').map(s=>s.trim()).filter(Boolean);
       // 플로가 작성한 씬 내용을 함께 전달 (diff 직접 적용용)
       const _fs0 = newScenesDataFlo?.[0] || null;
@@ -21552,7 +21861,7 @@ function openDrawer(name) {
   currentDrawer = name;
   if (name === 'chars') renderCharsDrawer();
   if (name === 'synopsis') renderSynopsisDrawer();
-  if (name === 'settings') { renderVersionList(); _updateAccountLabel(); _updateSyncToggleUI(); _renderUsagePanel(); }
+  if (name === 'settings') { renderVersionList(); _updateAccountLabel(); _updateSyncToggleUI(); _updateCacheModeUI(); _renderUsagePanel(); }
 }
 function closeDrawer() {
   document.querySelectorAll('.drawer').forEach(d => d.classList.remove('open'));

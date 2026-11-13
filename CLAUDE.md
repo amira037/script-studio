@@ -33,7 +33,7 @@ S = {
 }
 ```
 
-> **주의**: `S.cur.messages`는 assistant 응답만 저장. user 메시지는 `callClaudeStream`에 직접 전달(`[...history, {role:'user', content:text}]`) 하므로 중복 저장 없음.
+> **주의**: FLO 입력(`sendFloChat`)은 user 메시지도 `S.cur.messages`에 저장(첨부 `files` 포함). `handleChatPrompt`는 마지막 메시지가 방금 저장한 그 user 메시지면(`_isSavedUserMsg`) 히스토리에서 빼고 이번 요청으로 다시 붙여 중복 방지. survey/choice 경유(`handleChoiceResult`)는 저장 안 함.
 
 ---
 
@@ -383,6 +383,13 @@ callClaudeStream → 실시간 스트리밍
 | 일반 대화/브레인스토밍/구조 | claude-sonnet-5-5 | 2000 |
 | floRoute/haikusRoute | claude-haiku-4-5-20251001 | 60~150 |
 
+**FLO 대화 자료 첨부 / 수정 반영:**
+- FLO 입력창 📎·드래그&드롭 → `_floAttachments` (txt/md/docx, 여러 개, 파일당 `FLO_ATTACH_MAX_CHARS` 12만 자) → `sendFloChat`이 user 메시지 `files:[{name,chars,text}]`로 저장. 라인 프롬프터 📎(`handleFileAttach`, 씬 가져오기)와 별개
+- 첨부는 이번 요청 user 메시지 앞(`_floFilesBlock`)에 붙고, 히스토리(`buildCompressedHistory`)에선 최근 `FLO_ATTACH_KEEP_MSGS`(8)개 메시지만 원문 유지 — 오래된 건 `text` 삭제(이름만). 히스토리 접기 길이 계산엔 첨부 미포함
+- 첨부한 턴은 키워드 패널 분기 안 함 (`_isShortCmd` false)
+- `_floEditReq`(반영/고쳐/수정해… 새 씬 요청 제외) → `_tagRule`로 `<r sc>` 사용 지시, 순차 작성 모드 스킵, thinking ON, 출력 한도 = 언급 씬 분량 or 32000
+- `<r sc>` → `_buildLcsSceneDiff`(LCS — 끼워 넣은 줄만 표시, 잠긴 줄·빈 줄 유지) → `sc.diff`. 묶음 머리·잠긴 씬·잘린 블록·없는 씬은 건너뛰고 말풍선에 표시
+
 **긴 입력 보호:** `handleChatPrompt`의 키워드 분기(P1 승인, 막혔어, 웹 검색, 시퀀스, needsMore 구간 선택)는 `_isShortCmd`(≤200자)일 때만 — 긴 구상 글 안의 단어로 패널이 가로채지 않게
 
 **쓰기 도구:**
@@ -565,6 +572,7 @@ document.addEventListener('keydown', (e) => {
 | `reviewSynopsis` | openSynopsisPreviewPanel (채팅에 시놉시스 카드 표시) | green |
 | `settingUpdateScan` | `<setting_update>` 전체 씬 반영 (채팅에 설정 카드 표시) | amber |
 | `reviewCharacters` | showCharacterAddPanel 재오픈 (채팅에 인물 카드 표시) | purple |
+| `stageFloEdits` | 취소된 수정안 다시 올림 + 첫 씬으로 이동 (`_gotoFloEdits`), 채팅에 씬별 +/− 줄 수 카드 | amber |
 | `rawFallback` | 버튼 없음 — 깨진 태그(잘림/JSON 오류) 원문을 접어서 표시 | - |
 
 **채팅 미리보기 규칙:** 구조화 태그는 말풍선에서 제거되므로, 내용은 반드시 액션 `data`에 담아 `appendMsgEl` 미리보기(`_appendFloActionPreviews`, 씬/인물 카드)로 보여줄 것. 토스트·자동 패널만으로 노출 금지 (닫으면 사라짐). 새 JSON 태그 추가 시 `_FLO_JSON_TAGS`에도 등록.
@@ -595,7 +603,8 @@ AI가 새 씬을 쓰는 모든 경로는 `<scene>` 텍스트 블록 → `_parseN
 | `<characters>[JSON]` | 등장인물 배열 | addCharacters 액션 버튼 |
 | `<character>{JSON}` | 단일 인물 설정 | floDetectContent → showCharacterAddPanel |
 | `<setting_update>` | 인물 설정 변경 | floDetectContent |
-| `<editscenes>SC번호들` | 수정 필요 씬 표시 | gotoScriptEdit 액션 버튼 |
+| `<r sc="SC N">` 대본 텍스트 블록 | 기존 씬 수정안 (씬 전체, `floSceneEditRule()`) | `_parseFloSceneEdits` → `_stageFloEdits`가 라인 에디터 diff로 바로 올림 + stageFloEdits 액션 버튼 |
+| `<editscenes>SC번호들` | 수정 필요 씬 표시 (수정안 올렸으면 버튼 생략) | gotoScriptEdit 액션 버튼 |
 | `<deletescene>SC번호` | 씬 삭제 제안 | deleteSceneSuggest 액션 버튼 |
 | `<movescene>SC번호→위치` | 씬 이동 제안 | moveSceneSuggest 액션 버튼 |
 | `<reorderscenes>[JSON]` | 전체 순서 재배치 | reorderScenes 액션 버튼 |
@@ -664,6 +673,7 @@ callClaudeStream(messages, systemPrompt, maxTokens, model, onChunk, noAbort, opt
 - `sc.editedAt`: `save()` → `_stampSceneEdits()`가 씬 내용+위치 서명 비교로 자동 기록 (수동/AI 수정 모두). Supabase에도 저장됨 — sync 정리 목록에 넣지 말 것
 - 대본 텍스트는 반드시 `_sceneToScriptText`로만 생성 (형식이 바뀌면 캐시 깨짐). 자주 바뀌는 내용(결정사항·요청)은 system 뒤쪽/메시지에
 - 캐시 확인: 브라우저 콘솔 `[cache] read N / write N / uncached N`
+- **캐시 모드** (설정 → AI 사용량 → 대본 캐시, localStorage `ss_cache_mode`, 기기별): `on`(기본, 1h+5m) / `5m`(전부 5분) / `off`(cache_control 없음 — 대본 전체는 그대로 보냄). `_buildScriptSystem`과 FLO 히스토리 캐시 지점 모두 `getCacheMode()` 따름
 
 **모델 상수:**
 - 메인: `'claude-sonnet-5-5'`
